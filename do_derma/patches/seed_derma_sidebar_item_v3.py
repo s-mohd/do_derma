@@ -1,0 +1,1 @@
+from do_derma.patches.seed_derma_sidebar_item import execute

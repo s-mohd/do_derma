@@ -1,0 +1,14 @@
+[pre_model_sync]
+# Patches added in this section will be executed before doctypes are migrated.
+
+[post_model_sync]
+# Patches added in this section will be executed after doctypes are migrated.
+do_derma.patches.seed_derma_sidebar_item
+do_derma.patches.seed_derma_sidebar_item_v2
+do_derma.patches.seed_derma_sidebar_item_v3
+do_derma.patches.seed_derma_v2_defaults
+do_derma.patches.seed_derma_v2_procedure_templates
+do_derma.patches.update_derma_body_template_assets
+do_derma.patches.upgrade_derma_template_variables
+do_derma.patches.enforce_derma_image_templates
+do_derma.patches.seed_standard_derma_body_templates
