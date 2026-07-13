@@ -5,24 +5,22 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 
 def execute():
-	add_clinical_procedure_template_variable_field()
+	add_clinical_procedure_template_preset_field()
 	update_marker_behavior_options()
 	update_body_template_metadata()
-	update_derma_procedure_template_variable_sources()
+	remove_obsolete_annotation_treatment_field()
 
 
-def add_clinical_procedure_template_variable_field():
-	if not frappe.db.exists("DocType", "Annotation Treatment"):
-		return
+def add_clinical_procedure_template_preset_field():
 	create_custom_fields(
 		{
 			"Clinical Procedure Template": [
 				{
-					"fieldname": "custom_derma_annotation_treatment",
-					"fieldtype": "Link",
-					"label": "Annotation Treatment Variables",
-					"options": "Annotation Treatment",
-					"description": "Optional variable schema reused from the annotation app.",
+					"fieldname": "custom_derma_variables_json",
+					"fieldtype": "Code",
+					"label": "Derma Variables JSON",
+					"options": "JSON",
+					"description": "Procedure variables shown in the derma annotation studio. Use fieldname, label, fieldtype, options, and required.",
 					"insert_after": "custom_derma_allowed_body_regions",
 					"module": "Do Derma",
 				},
@@ -39,6 +37,14 @@ def add_clinical_procedure_template_variable_field():
 		},
 		ignore_validate=True,
 	)
+
+
+def remove_obsolete_annotation_treatment_field():
+	name = frappe.db.exists("Custom Field", {"dt": "Clinical Procedure Template", "fieldname": "custom_derma_annotation_treatment"})
+	if not name:
+		return
+	frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
+	frappe.clear_cache(doctype="Clinical Procedure Template")
 
 
 def update_body_template_metadata():
@@ -69,19 +75,3 @@ def update_marker_behavior_options():
 				"numbered_dot\nblue_dot\nthree_dots\ntriangle\ntriangle_cluster\nhatch\nfive_lines\nx_mark\ntarget\narea\nfinding_dot",
 				update_modified=False,
 			)
-
-
-def update_derma_procedure_template_variable_sources():
-	if not frappe.db.exists("DocType", "Clinical Procedure Template"):
-		return
-	meta = frappe.get_meta("Clinical Procedure Template")
-	if not meta.has_field("custom_derma_annotation_treatment"):
-		return
-	for row in frappe.get_all(
-		"Clinical Procedure Template",
-		filters={"custom_derma_category": ["is", "set"]},
-		fields=["name", "custom_derma_category"],
-	):
-		source = "Laser" if row.custom_derma_category == "Laser" else "Injection" if row.custom_derma_category in {"Botox", "Filler"} else ""
-		if source and frappe.db.exists("Annotation Treatment", source):
-			frappe.db.set_value("Clinical Procedure Template", row.name, "custom_derma_annotation_treatment", source, update_modified=False)

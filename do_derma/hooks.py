@@ -5,10 +5,11 @@ app_description = "Dermatology charting app for healthcare clinics"
 app_email = "sayed10998@gmail.com"
 app_license = "mit"
 
-# Runtime expectations: healthcare, do_health, and annotation should be installed
-# before this app is used. This bench's installer treats local required_apps names
-# as remote tags, so the dependency is intentionally documented instead of enforced
-# through the Frappe hook.
+# Runtime expectations: healthcare and do_health should be installed before this
+# app is used. This bench's installer treats local required_apps names as remote
+# tags, so the dependency is intentionally documented instead of enforced through
+# the Frappe hook. do_derma does not depend on the separate `annotation` app - it
+# reads/writes Health Annotation (do_health) directly.
 
 app_include_js = [
 	"/assets/do_derma/js/derma_sidebar.js",

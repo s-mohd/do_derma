@@ -34,6 +34,16 @@ function parseAnnotation(annotation) {
 	const procedureVariablesRef = useRef(procedureVariables || {})
 	const marksRef = useRef(marks || [])
 	const dermaToolRef = useRef("draw")
+	const requestedToolRef = useRef("draw")
+	const previousDraggingIdRef = useRef(null)
+
+	function applyDermaTool(nextTemplate) {
+		const effectiveTemplate = nextTemplate !== undefined ? nextTemplate : template
+		const requested = requestedToolRef.current
+		const resolved = requested === "mark" && isAreaBehavior(effectiveTemplate) ? "area" : requested
+		dermaToolRef.current = resolved
+		if (api) setDermaTool(api, resolved, effectiveTemplate)
+	}
 
 	useEffect(() => {
 		if (!globalThis.process) {
@@ -47,15 +57,17 @@ function parseAnnotation(annotation) {
 	}, [])
 
 	useImperativeHandle(ref, () => ({
-		exportScene: async () => {
+		getElements: () => api?.getSceneElements?.() || [],
+		exportScene: async (options = {}) => {
 			if (!api || !excalidrawModule?.exportToBlob) return null
 			const elements = api.getSceneElements()
 			const files = normalizeBinaryFiles(api.getFiles())
 			if (!elements || !elements.length) {
 				return { json_text: JSON.stringify({ elements: [], files: {} }), file_data: "" }
 			}
+			const extraElements = options.extraElements || []
 			const blob = await excalidrawModule.exportToBlob({
-        elements,
+        elements: extraElements.length ? [...elements, ...extraElements] : elements,
         appState: {
           ...api.getAppState(),
           exportBackground: true,
@@ -78,7 +90,7 @@ function parseAnnotation(annotation) {
     },
 	    setSelectedTemplate: (nextTemplate) => {
 	      setTemplate(nextTemplate)
-	      if (api) setDermaTool(api, dermaToolRef.current, nextTemplate || template)
+	      applyDermaTool(nextTemplate)
 	    },
 		    setBodyTemplate: setChartTemplate,
 	    setProcedureVariables: (variables) => {
@@ -97,9 +109,10 @@ function parseAnnotation(annotation) {
     linkMarkElements: (payload) => linkMarkElements(api, payload),
     selectMark: (markName) => selectMarkElement(api, markName),
     setDermaTool: (tool) => {
-      dermaToolRef.current = tool || "select"
-      if (api) setDermaTool(api, dermaToolRef.current, template)
+      requestedToolRef.current = tool || "select"
+      applyDermaTool()
     },
+    renderTemplateParts: (parts) => renderTemplateParts(api, parts),
     resetView: () => resetChartView(api, lockedViewport),
   }))
 
@@ -127,14 +140,16 @@ function parseAnnotation(annotation) {
 
 	useEffect(() => {
 		if (!api) return
-    setDermaTool(api, dermaToolRef.current, template)
+    applyDermaTool()
   }, [api, template?.name])
 
 		useEffect(() => {
 			if (!api || !chartTemplate?.image) return
 			const signature = templateImageSignature(chartTemplate)
 			if (latestTemplateImage.current === signature && getTemplateElement(api)) return
-			loadTemplateIntoCanvas(api, chartTemplate, lockedViewport, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
+			loadTemplateIntoCanvas(api, chartTemplate, lockedViewport, latestTemplateImage, loadingTemplateImage, templateLoadGeneration).then((loaded) => {
+				if (loaded) renderTemplateParts(api, chartTemplate.parts || [])
+			})
 		}, [api, chartTemplate?.name, chartTemplate?.image])
 
 	useEffect(() => {
@@ -286,7 +301,19 @@ function parseAnnotation(annotation) {
 		          }
 	          enforceLockedViewport(api, lockedViewport)
 	        }}
-	        onChange={(_elements, appState) => {
+	        onChange={(elements, appState) => {
+	          if (dermaToolRef.current === "area") {
+	            const draggingId = appState?.draggingElement?.id || appState?.newElement?.id || null
+	            const previousId = previousDraggingIdRef.current
+	            if (previousId && draggingId !== previousId) {
+	              const finished = elements.find((element) => element.id === previousId)
+	              if (finished && !finished.isDeleted && !finished.customData?.kind && (finished.width || finished.height)) {
+	                tagAreaElement(api, finished, template, procedureVariablesRef.current)
+	                onMarkPlaced?.(buildAreaPlacementPayload(api, template, chartTemplate, finished, procedureVariablesRef.current))
+	              }
+	            }
+	            previousDraggingIdRef.current = draggingId
+	          }
 	          if (!lockedViewport.current) return
 	          const zoom = appState?.zoom?.value || 1
 	          if (Math.abs((appState?.scrollX || 0) - lockedViewport.current.scrollX) > 2 ||
@@ -303,27 +330,19 @@ function parseAnnotation(annotation) {
 	  )
 	})
 
-function markerTool(template) {
-  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
-  if (isStampBehavior(template)) return "selection"
-  if (behavior.includes("hatch") || behavior.includes("area") || behavior.includes("scar")) return "freedraw"
-  return "freedraw"
-}
+export default EmbeddedExcalidraw
 
 function isStampBehavior(template) {
+  // createStampElements() already has a complete fallback chain ending in createNumberedDot,
+  // so any configured marker_behavior is stampable - no need to keep an allowlist in sync with it.
+  return Boolean(String(template?.custom_derma_marker_behavior || "").trim())
+}
+
+export function isAreaBehavior(template) {
+  // Coverage-style procedures (a laser pass, a scarred/pigmented patch) are drawn as a
+  // drag-to-size rectangle over the actual treated region instead of a fixed-size point stamp.
   const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
-  return [
-    "numbered_dot",
-    "blue_dot",
-    "finding_dot",
-    "triangle",
-    "triangle_cluster",
-    "hatch",
-    "five_lines",
-    "x_mark",
-    "target",
-    "area",
-  ].some((key) => behavior.includes(key))
+  return behavior.includes("area") || behavior.includes("hatch") || behavior.includes("five_lines")
 }
 
 export function mountEmbeddedExcalidraw(element, props = {}) {
@@ -331,6 +350,7 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
   const bridgeRef = React.createRef()
   root.render(<EmbeddedExcalidraw ref={bridgeRef} {...props} />)
   return {
+    getElements: () => bridgeRef.current?.getElements?.() || [],
     exportScene: () => bridgeRef.current?.exportScene?.(),
     loadAnnotation: (annotation) => bridgeRef.current?.loadAnnotation?.(annotation),
     setSelectedTemplate: (template) => bridgeRef.current?.setSelectedTemplate?.(template),
@@ -341,6 +361,7 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
     linkMarkElements: (payload) => bridgeRef.current?.linkMarkElements?.(payload),
     selectMark: (markName) => bridgeRef.current?.selectMark?.(markName),
     setDermaTool: (tool) => bridgeRef.current?.setDermaTool?.(tool),
+    renderTemplateParts: (parts) => bridgeRef.current?.renderTemplateParts?.(parts),
     resetView: () => bridgeRef.current?.resetView?.(),
     unmount: () => root.unmount(),
   }
@@ -429,6 +450,48 @@ function buildPlacementPayload(api, template, chartTemplate, origin, stamp, proc
     body_region: region?.part_name || region?.partName,
     region_label: region?.part_name || region?.partName,
     template_part: region?.name || region?.partId,
+    procedure_variables: sanitizeVariables(procedureVariables),
+  }
+}
+
+function tagAreaElement(api, element, template, procedureVariables = {}) {
+  if (!api) return
+  const elements = api.getSceneElements().map((sceneElement) => {
+    if (sceneElement.id !== element.id) return sceneElement
+    return {
+      ...sceneElement,
+      customData: {
+        ...(sceneElement.customData || {}),
+        kind: "derma_mark",
+        category: template?.custom_derma_category,
+        procedure_template: template?.name,
+        marker_behavior: template?.custom_derma_marker_behavior,
+        marker_color: template?.custom_derma_marker_color,
+        procedure_variables: sanitizeVariables(procedureVariables),
+      },
+    }
+  })
+  api.updateScene({ elements, commitToHistory: true })
+}
+
+function buildAreaPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}) {
+  const bounds = getTemplateBounds(api)
+  const centerX = element.x + (element.width || 0) / 2
+  const centerY = element.y + (element.height || 0) / 2
+  const xPercent = bounds ? clamp(((centerX - bounds.x) / bounds.width) * 100, 0, 100) : 50
+  const yPercent = bounds ? clamp(((centerY - bounds.y) / bounds.height) * 100, 0, 100) : 50
+  return {
+    temp_element_ids: [element.id],
+    scene_x: centerX,
+    scene_y: centerY,
+    x_percent: xPercent,
+    y_percent: yPercent,
+    procedure_template: template?.name,
+    category: template?.custom_derma_category,
+    marker_behavior: template?.custom_derma_marker_behavior,
+    marker_color: template?.custom_derma_marker_color,
+    body_template: chartTemplate?.name,
+    body_view: chartTemplate?.title,
     procedure_variables: sanitizeVariables(procedureVariables),
   }
 }

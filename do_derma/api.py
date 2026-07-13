@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 from importlib import import_module
@@ -7,6 +8,7 @@ from importlib import import_module
 import frappe
 from frappe import _
 from frappe.utils import add_days, cint, flt, getdate, nowdate
+from frappe.utils.file_manager import save_file
 from do_health.api.appointment_methods import create_encounter_for_appointment
 
 
@@ -125,7 +127,7 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_category",
 	"custom_derma_allowed_body_templates",
 	"custom_derma_allowed_body_regions",
-	"custom_derma_annotation_treatment",
+	"custom_derma_variables_json",
 	"custom_derma_marker_behavior",
 	"custom_derma_marker_color",
 	"custom_derma_marker_preset_json",
@@ -136,6 +138,27 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_device_settings_required",
 	"custom_derma_note_template",
 ]
+
+
+# Roles trusted to view and chart clinical data through this API. Doctype-level
+# DocPerms across healthcare/do_health/do_derma are inconsistent (e.g. Clinical
+# Procedure grants Nursing User/Physician, Health Annotation grants only System
+# Manager, do_derma's own doctypes grant Healthcare Practitioner/Administrator),
+# and several writes below use ignore_permissions=True to bridge that gap. This
+# check is the actual authorization boundary for every endpoint in this module -
+# it must run before any of them read or write patient data.
+CLINICAL_ACCESS_ROLES = {
+	"System Manager",
+	"Healthcare Administrator",
+	"Healthcare Practitioner",
+	"Nursing User",
+	"Physician",
+}
+
+
+def _ensure_clinical_access() -> None:
+	if not set(frappe.get_roles()) & CLINICAL_ACCESS_ROLES:
+		frappe.throw(_("You are not permitted to access clinical chart data."), frappe.PermissionError)
 
 
 def _has_doctype(doctype: str) -> bool:
@@ -356,7 +379,6 @@ def _get_body_templates() -> list[dict[str, Any]]:
 
 def _attach_body_template_parts(rows: list[dict[str, Any]]) -> None:
 	template_names = [row.get("name") for row in rows if row.get("name")]
-	annotation_template_names = [row.get("annotation_template") for row in rows if row.get("annotation_template")]
 	parts_by_template: dict[str, list[dict[str, Any]]] = {}
 
 	if template_names and _has_doctype("Derma Body Template Part"):
@@ -370,24 +392,6 @@ def _attach_body_template_parts(rows: list[dict[str, Any]]) -> None:
 		for part in _hydrate_template_parts(part_rows, "Derma Template Part Variable", "Derma Body Template Part"):
 			part["source"] = "Derma Body Template Part"
 			parts_by_template.setdefault(part.get("body_template"), []).append(part)
-
-	if annotation_template_names and _has_doctype("Annotation Template Part"):
-		annotation_parts = frappe.get_all(
-			"Annotation Template Part",
-			filters={"template": ["in", annotation_template_names]},
-			fields=["name", "template", "part_name", "shape_json", "color", "opacity"],
-			order_by="creation asc",
-			limit=1000,
-		)
-		parts_by_annotation_template: dict[str, list[dict[str, Any]]] = {}
-		for part in _hydrate_template_parts(annotation_parts, "Template Part Variable", "Annotation Template Part"):
-			part["source"] = "Annotation Template Part"
-			parts_by_annotation_template.setdefault(part.get("template"), []).append(part)
-		for row in rows:
-			if row.get("name") in parts_by_template:
-				continue
-			if row.get("annotation_template") in parts_by_annotation_template:
-				parts_by_template[row.get("name")] = parts_by_annotation_template[row.get("annotation_template")]
 
 	for row in rows:
 		row["parts"] = parts_by_template.get(row.get("name"), [])
@@ -423,6 +427,7 @@ def _hydrate_template_parts(part_rows: list[dict[str, Any]], child_doctype: str,
 
 @frappe.whitelist()
 def get_derma_body_template_parts(body_template: str):
+	_ensure_clinical_access()
 	if not body_template:
 		frappe.throw(_("Derma Body Template is required."))
 	if not frappe.db.exists("Derma Body Template", body_template):
@@ -434,6 +439,7 @@ def get_derma_body_template_parts(body_template: str):
 
 @frappe.whitelist()
 def save_derma_body_template_parts(body_template: str, parts: str | list[dict[str, Any]]):
+	_ensure_clinical_access()
 	if not body_template:
 		frappe.throw(_("Derma Body Template is required."))
 	if not frappe.db.exists("Derma Body Template", body_template):
@@ -516,16 +522,18 @@ def _get_derma_procedure_templates() -> list[dict[str, Any]]:
 	]
 	for row in derma_rows:
 		row["derma_variables"] = _get_template_variables(row)
-		row["derma_category_defaults"] = _category_defaults(row.get("custom_derma_category"))
+		category_defaults = _category_defaults(row.get("custom_derma_category"))
+		row["derma_category_defaults"] = category_defaults
+		# A template with no marker_behavior/color of its own inherits the category's -
+		# resolve it here so every consumer (frontend included) sees the same effective
+		# value save_chart_mark() would apply, instead of each place re-implementing the fallback.
+		row["custom_derma_marker_behavior"] = row.get("custom_derma_marker_behavior") or category_defaults.get("marker_behavior")
+		row["custom_derma_marker_color"] = row.get("custom_derma_marker_color") or category_defaults.get("marker_color")
 	return derma_rows
 
 
 def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]]:
-	"""Return procedure detail fields for the right panel.
-
-	Annotation Treatment variables are reused where a template is mapped to a
-	treatment, then derma-required fields are added as structured fallbacks.
-	"""
+	"""Return derma detail fields configured by Clinical Procedure Template."""
 
 	category = template_row.get("custom_derma_category")
 	safety_required = _category_required_fields(category)
@@ -537,33 +545,7 @@ def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]
 		_parse_required_fields(template_row.get("custom_derma_required_fields")),
 		safety_required,
 	)
-	source = template_row.get("custom_derma_annotation_treatment") or _default_annotation_treatment(template_row.get("custom_derma_category"))
-	variables: list[dict[str, Any]] = []
-	seen: set[str] = set()
-
-	if source and _has_doctype("Treatment Variables Table") and frappe.db.exists("Annotation Treatment", source):
-		rows = frappe.get_all(
-			"Treatment Variables Table",
-			filters={"parent": source},
-			fields=["variable_name", "type", "options", "idx"],
-			order_by="idx asc",
-		)
-		for row in rows:
-			fieldname = _variable_fieldname(row.get("variable_name"))
-			covered = _required_fields_covered_by_variable(fieldname)
-			seen.add(fieldname)
-			seen.update(covered)
-			variables.append(
-				{
-					"fieldname": fieldname,
-					"label": row.get("variable_name"),
-					"fieldtype": _normalize_variable_type(row.get("type")),
-					"options": row.get("options") or "",
-					"required": _is_variable_required(fieldname, covered, required, category),
-					"source": "Annotation Treatment",
-					"source_treatment": source,
-				}
-			)
+	variables, seen = _parse_template_variable_schema(template_row.get("custom_derma_variables_json"), required)
 
 	for fieldname in required:
 		if fieldname in seen:
@@ -575,6 +557,50 @@ def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]
 			seen.add(fieldname)
 
 	return variables
+
+
+def _parse_template_variable_schema(value: str | list | dict | None, required: list[str]) -> tuple[list[dict[str, Any]], set[str]]:
+	rows = _parse_json(value, [])
+	if isinstance(rows, dict):
+		rows = rows.get("variables") or rows.get("fields") or []
+	if isinstance(rows, str):
+		rows = [part.strip() for part in rows.split(",") if part.strip()]
+	if not isinstance(rows, list):
+		return [], set()
+
+	variables: list[dict[str, Any]] = []
+	seen: set[str] = set()
+	for row in rows:
+		if isinstance(row, str):
+			fieldname = _variable_fieldname(row)
+			variable = _default_derma_variable(fieldname) or {
+				"fieldname": fieldname,
+				"label": row,
+				"fieldtype": "Data",
+				"options": "",
+				"source": "Clinical Procedure Template",
+			}
+		elif isinstance(row, dict):
+			label = row.get("label") or row.get("variable_name") or row.get("fieldname")
+			fieldname = _variable_fieldname(row.get("fieldname") or label)
+			if not fieldname:
+				continue
+			default = _default_derma_variable(fieldname) or {}
+			variable = {
+				"fieldname": fieldname,
+				"label": label or default.get("label") or fieldname.replace("_", " ").title(),
+				"fieldtype": _normalize_variable_type(row.get("fieldtype") or row.get("type") or default.get("fieldtype")),
+				"options": row.get("options") or default.get("options") or "",
+				"source": "Clinical Procedure Template",
+			}
+			if "required" in row:
+				variable["required"] = bool(row.get("required"))
+		else:
+			continue
+		variable["required"] = bool(variable.get("required") or variable.get("fieldname") in required)
+		variables.append(variable)
+		seen.add(variable["fieldname"])
+	return variables, seen
 
 
 def _parse_required_fields(value: str | list | None) -> list[str]:
@@ -602,7 +628,7 @@ def _category_required_fields(category: str | None) -> list[str]:
 	if key == "filler":
 		return ["product_name", "dose", "dose_unit", "lot_no", "expiry_date", "plane", "technique"]
 	if key == "laser":
-		return ["device", "settings", "passes"]
+		return ["device", "fluence", "spot_size", "pulse_duration", "repetition_rate", "no_of_pulses"]
 	if key == "biopsy":
 		return ["lesion_id", "diagnosis", "body_region"]
 	if key == "lesion":
@@ -612,48 +638,11 @@ def _category_required_fields(category: str | None) -> list[str]:
 	return []
 
 
-def _default_annotation_treatment(category: str | None) -> str | None:
-	category = category or ""
-	if category == "Laser":
-		return "Laser"
-	if category in {"Botox", "Filler"}:
-		return "Injection"
-	return None
-
-
 def _variable_fieldname(label: str | None) -> str:
 	value = "".join(char.lower() if char.isalnum() else "_" for char in str(label or "").strip())
 	while "__" in value:
 		value = value.replace("__", "_")
 	return value.strip("_")
-
-
-def _required_fields_covered_by_variable(fieldname: str) -> set[str]:
-	coverage = {
-		"item": {"product_item"},
-		"item_code": {"product_item"},
-		"product_item": {"product_item"},
-		"injectable": {"product_name"},
-		"product": {"product_name"},
-		"lot": {"lot_no"},
-		"lot_no": {"lot_no"},
-		"units": {"dose", "dose_unit"},
-		"ml": {"dose", "dose_unit"},
-	}
-	return coverage.get(fieldname, set())
-
-
-def _is_variable_required(fieldname: str, covered: set[str], required: list[str], category: str | None) -> bool:
-	if fieldname in required:
-		return True
-	if not any(field in required for field in covered):
-		return False
-	if fieldname in {"units", "ml"}:
-		if category == "Botox":
-			return fieldname == "units"
-		if category == "Filler":
-			return fieldname == "ml"
-	return True
 
 
 def _normalize_variable_type(fieldtype: str | None) -> str:
@@ -670,8 +659,13 @@ def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
 		"lot_no": ("Lot No", "Data", ""),
 		"expiry_date": ("Expiry Date", "Date", ""),
 		"device": ("Device", "Data", ""),
-		"settings": ("Settings", "Small Text", ""),
-		"passes": ("Passes", "Int", ""),
+			"settings": ("Settings", "Small Text", ""),
+			"passes": ("Passes", "Int", ""),
+			"fluence": ("Fluence", "Data", ""),
+			"spot_size": ("Spot Size", "Data", ""),
+			"pulse_duration": ("Pulse Duration", "Data", ""),
+			"repetition_rate": ("Repetition Rate", "Data", ""),
+			"no_of_pulses": ("No Of Pulses", "Int", ""),
 		"diagnosis": ("Diagnosis", "Data", ""),
 		"severity": ("Severity", "Select", "Mild\nModerate\nSevere"),
 		"status": ("Status", "Select", "Active\nImproving\nStable\nResolved\nFollow-up"),
@@ -947,26 +941,14 @@ def _hydrate_photo_sets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _load_annotation_history(encounter: str | None = None, patient: str | None = None) -> list[dict[str, Any]]:
+	rows: list[dict[str, Any]] = []
 	if encounter:
-		try:
-			from annotation.api import get_annotation_history
-
-			rows = get_annotation_history("Patient Encounter", encounter) or []
-		except Exception:
-			frappe.log_error(frappe.get_traceback(), "Failed loading derma annotation history")
-			rows = []
-	else:
-		rows = []
+		rows = _load_annotations_for_parents([("Patient Encounter", encounter)])
 
 	if not rows and patient:
 		encounters = frappe.get_all("Patient Encounter", filters={"patient": patient}, fields=["name"], limit=20)
-		for encounter_row in encounters:
-			try:
-				from annotation.api import get_annotation_history
-
-				rows.extend(get_annotation_history("Patient Encounter", encounter_row.name) or [])
-			except Exception:
-				break
+		parents = [("Patient Encounter", row.name) for row in encounters]
+		rows = _load_annotations_for_parents(parents)
 
 	seen = set()
 	unique = []
@@ -1019,7 +1001,7 @@ def _load_annotations_for_parents(parents: list[tuple[str, str]]) -> list[dict[s
 	child_rows = frappe.get_all(
 		"Health Annotation Table",
 		filters={"parent": ["in", parent_names], "parenttype": ["in", list(set(parent_types))]},
-		fields=["parent", "parenttype", "annotation", "type", "creation", "idx"],
+		fields=["parent", "parenttype", "annotation", "type", "annotation_data", "creation", "idx"],
 		order_by="creation desc, idx desc",
 		limit=1000,
 	)
@@ -1047,6 +1029,7 @@ def _load_annotations_for_parents(parents: list[tuple[str, str]]) -> list[dict[s
 		annotation["source_doctype"] = child.get("parenttype")
 		annotation["source_name"] = child.get("parent")
 		annotation["annotation_context"] = child.get("type")
+		annotation["annotation_data"] = child.get("annotation_data")
 		rows.append(annotation)
 	rows.sort(key=lambda row: row.get("creation") or row.get("modified") or "", reverse=True)
 	return rows
@@ -1077,6 +1060,7 @@ def _get_marks(patient: str, appointment: str | None = None, encounter: str | No
 
 @frappe.whitelist()
 def get_inventory_readiness(patient: str | None = None, encounter: str | None = None, appointment: str | None = None) -> list[dict[str, Any]]:
+	_ensure_clinical_access()
 	if not patient and encounter:
 		patient = frappe.db.get_value("Patient Encounter", encounter, "patient")
 	if not patient:
@@ -1252,6 +1236,7 @@ def _template_defaults(template: str | None) -> dict[str, Any]:
 
 @frappe.whitelist()
 def ensure_chart_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None):
+	_ensure_clinical_access()
 	"""Ensure an active Patient Encounter and return canonical derma chart route context."""
 
 	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
@@ -1265,6 +1250,7 @@ def ensure_chart_context(patient: str | None = None, appointment: str | None = N
 
 @frappe.whitelist()
 def get_chart_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None):
+	_ensure_clinical_access()
 	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
 	patient_id = context["patient_id"]
 	appointment_id = context["appointment_id"]
@@ -1322,6 +1308,7 @@ def get_chart_context(patient: str | None = None, appointment: str | None = None
 
 @frappe.whitelist()
 def get_v2_chart_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None):
+	_ensure_clinical_access()
 	context = get_chart_context(patient=patient, appointment=appointment, encounter=encounter)
 	context["narrative"] = generate_visit_summary(context.get("encounter_id"), context.get("patient_id"))
 	return context
@@ -1329,6 +1316,7 @@ def get_v2_chart_context(patient: str | None = None, appointment: str | None = N
 
 @frappe.whitelist()
 def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None):
+	_ensure_clinical_access()
 	"""Dental-shaped derma chart context for /app/derma-chart."""
 
 	context = _get_visit_context(patient=patient_id, appointment=appointment, encounter=encounter)
@@ -1367,11 +1355,13 @@ def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None
 
 @frappe.whitelist()
 def get_derma_procedure_templates():
+	_ensure_clinical_access()
 	return _get_derma_procedure_templates()
 
 
 @frappe.whitelist()
 def create_derma_chart_procedure(payload: str | dict[str, Any]):
+	_ensure_clinical_access()
 	values = json.loads(payload) if isinstance(payload, str) else dict(payload or {})
 	patient = values.get("patient")
 	encounter = values.get("encounter")
@@ -1566,12 +1556,190 @@ def _append_body_template_note(notes: str | None, values: dict[str, Any]) -> str
 
 @frappe.whitelist()
 def get_derma_annotations(encounter: str | None = None, patient: str | None = None, clinical_procedure: str | None = None):
+	_ensure_clinical_access()
 	procedure_names = [clinical_procedure] if clinical_procedure else []
 	return _load_derma_annotation_context(encounter=encounter, patient=patient, procedure_names=procedure_names)
 
 
+def _save_health_annotation(
+	docname: str,
+	doctype: str,
+	annotation_template: str = "",
+	annotation_name: str | None = None,
+	encounter_type: str = "",
+	file_data: str | None = None,
+	json_text: str = "",
+	annotation_type: str = "Free Drawing",
+	annotation_data: str = "",
+) -> str:
+	"""Create/update a Health Annotation (do_health) directly - no dependency on the separate annotation app."""
+	if not file_data:
+		frappe.throw(_("Drawing image data is required."))
+	if not file_data.startswith("data:image"):
+		frappe.throw(_("Invalid drawing image data."))
+
+	if annotation_name and frappe.db.exists("Health Annotation", annotation_name):
+		health_annotation = frappe.get_doc("Health Annotation", annotation_name)
+		health_annotation.annotation_template = annotation_template
+		health_annotation.annotation_type = annotation_type
+		health_annotation.json = json_text
+
+		doc = frappe.get_doc(doctype, docname)
+		for row in doc.get("custom_annotations", []):
+			if row.annotation == annotation_name:
+				row.annotation_data = annotation_data
+				break
+		doc.flags.ignore_mandatory = True
+		doc.flags.ignore_validate_update_after_submit = True
+		doc.save(ignore_permissions=True)
+	else:
+		health_annotation = frappe.new_doc("Health Annotation")
+		health_annotation.annotation_type = annotation_type
+		health_annotation.annotation_template = annotation_template
+		health_annotation.json = json_text
+		health_annotation.insert(ignore_permissions=True)
+
+		doc = frappe.get_doc(doctype, docname)
+		doc.append(
+			"custom_annotations",
+			{
+				"annotation": health_annotation.name,
+				"type": encounter_type,
+				"annotation_data": annotation_data,
+			},
+		)
+		doc.flags.ignore_mandatory = True
+		doc.flags.ignore_validate_update_after_submit = True
+		doc.save(ignore_permissions=True)
+
+	header, base64_data = file_data.split(",", 1)
+	extension = header.split("/")[1].split(";")[0]
+	file_doc = save_file(
+		f"annotation.{extension}",
+		base64.b64decode(base64_data),
+		"Health Annotation",
+		health_annotation.name,
+		is_private=1,
+		df="image",
+	)
+	health_annotation.image = file_doc.file_url
+	health_annotation.save(ignore_permissions=True)
+	return health_annotation.name
+
+
+def _sync_chart_marks_for_annotation(
+	annotation_name: str,
+	scene: dict[str, Any] | None,
+	patient: str | None,
+	appointment: str | None,
+	encounter: str | None,
+	clinical_procedure: str | None,
+) -> None:
+	"""Fan out one Derma Chart Mark per procedure-tagged canvas element, linked back to the
+	Health Annotation snapshot. Idempotent on re-save: matches existing marks to elements by
+	the element's stable Excalidraw id (stored in annotation_json), so re-editing an annotation
+	updates marks in place instead of duplicating them. Marks already promoted to a real
+	Clinical Procedure are never auto-deleted, even if their element is later removed/untagged.
+	"""
+	if not annotation_name or not isinstance(scene, dict):
+		return
+	elements = scene.get("elements")
+	if not isinstance(elements, list):
+		return
+
+	template_element = next(
+		(
+			el
+			for el in elements
+			if isinstance(el, dict) and (el.get("customData") or {}).get("kind") in ("derma_template", "derma_template_image")
+		),
+		None,
+	)
+	if not template_element:
+		return
+	tx, ty = flt(template_element.get("x")), flt(template_element.get("y"))
+	tw = flt(template_element.get("width")) or 1.0
+	th = flt(template_element.get("height")) or 1.0
+
+	tagged: dict[str, dict[str, Any]] = {}
+	for element in elements:
+		if not isinstance(element, dict) or element.get("isDeleted"):
+			continue
+		custom = element.get("customData") or {}
+		if custom.get("kind"):
+			continue
+		procedure_template = custom.get("procedure") or custom.get("type")
+		element_id = element.get("id")
+		if not procedure_template or not element_id:
+			continue
+		if not frappe.db.exists("Clinical Procedure Template", procedure_template):
+			continue
+		cx = flt(element.get("x")) + flt(element.get("width")) / 2
+		cy = flt(element.get("y")) + flt(element.get("height")) / 2
+		tagged[element_id] = {
+			"procedure_template": procedure_template,
+			"variables": custom.get("variables") or {},
+			"x_percent": max(0.0, min(100.0, ((cx - tx) / tw) * 100)),
+			"y_percent": max(0.0, min(100.0, ((cy - ty) / th) * 100)),
+		}
+
+	existing = frappe.get_all(
+		"Derma Chart Mark",
+		filters={"annotation": annotation_name},
+		fields=["name", "annotation_json", "clinical_procedure"],
+	)
+	existing_by_element: dict[str, dict[str, Any]] = {}
+	for row in existing:
+		info = _parse_json(row.get("annotation_json"), {})
+		element_id = info.get("element_id") if isinstance(info, dict) else None
+		if element_id:
+			existing_by_element[element_id] = row
+
+	base_payload = {
+		"patient": patient,
+		"appointment": appointment,
+		"encounter": encounter,
+		"clinical_procedure": clinical_procedure,
+		"annotation": annotation_name,
+	}
+
+	for element_id, item in tagged.items():
+		mark_values = dict(base_payload)
+		mark_values["name"] = existing_by_element.get(element_id, {}).get("name")
+		mark_values["procedure_template"] = item["procedure_template"]
+		mark_values["x_percent"] = item["x_percent"]
+		mark_values["y_percent"] = item["y_percent"]
+		mark_values["annotation_json"] = json.dumps({"element_id": element_id})
+		for field, value in (item.get("variables") or {}).items():
+			if field in DERMA_MARK_FIELDS and value not in (None, ""):
+				mark_values[field] = value
+		try:
+			save_chart_mark(mark_values)
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), "Failed syncing derma chart mark from annotation")
+
+	for element_id, row in existing_by_element.items():
+		if element_id in tagged or row.get("clinical_procedure"):
+			continue
+		frappe.delete_doc("Derma Chart Mark", row.get("name"), ignore_permissions=True)
+
+	# Marks placed in real time via the stamp tool (save_chart_mark called immediately on
+	# placement, see EmbeddedExcalidraw's onMarkPlaced) already exist by the time the whole
+	# scene is saved - just link them back to this snapshot rather than re-creating them.
+	stamped_mark_names = {
+		(element.get("customData") or {}).get("derma_chart_mark") or (element.get("customData") or {}).get("mark_name")
+		for element in elements
+		if isinstance(element, dict) and not element.get("isDeleted") and (element.get("customData") or {}).get("kind") == "derma_mark"
+	}
+	stamped_mark_names.discard(None)
+	for mark_name in stamped_mark_names:
+		if frappe.db.exists("Derma Chart Mark", mark_name):
+			frappe.db.set_value("Derma Chart Mark", mark_name, "annotation", annotation_name, update_modified=False)
+
+
 @frappe.whitelist()
 def save_derma_annotation(payload: str | dict[str, Any]):
+	_ensure_clinical_access()
 	values = json.loads(payload) if isinstance(payload, str) else dict(payload or {})
 	clinical_procedure = values.get("clinical_procedure")
 	if clinical_procedure and not frappe.db.exists("Clinical Procedure", clinical_procedure):
@@ -1583,8 +1751,8 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	if not values.get("file_data"):
 		frappe.throw(_("Drawing image data is required."))
 	json_text = values.get("json_text") or ""
+	scene = _parse_json(json_text, {})
 	if values.get("body_template") or values.get("body_template_title") or values.get("body_template_image"):
-		scene = _parse_json(json_text, {})
 		if isinstance(scene, dict):
 			scene["derma_template"] = {
 				"name": values.get("body_template"),
@@ -1597,9 +1765,9 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	if annotation_type not in {"Predefined Areas", "Predefined Annotations", "Free Drawing"}:
 		annotation_type = "Free Drawing"
 
-	from annotation.api import save_annotation
+	patient = values.get("patient") or frappe.db.get_value(doctype, docname, "patient")
 
-	save_annotation(
+	annotation_name = _save_health_annotation(
 		docname=docname,
 		doctype=doctype,
 		annotation_template=values.get("annotation_template") or "",
@@ -1608,10 +1776,21 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		file_data=values.get("file_data"),
 		json_text=json_text,
 		annotation_type=annotation_type,
+		annotation_data=values.get("annotation_data") or "",
 	)
+
+	_sync_chart_marks_for_annotation(
+		annotation_name,
+		scene if isinstance(scene, dict) else None,
+		patient,
+		values.get("appointment"),
+		values.get("encounter") or (docname if doctype == "Patient Encounter" else None),
+		clinical_procedure or (docname if doctype == "Clinical Procedure" else None),
+	)
+
 	context = _load_derma_annotation_context(
 		encounter=values.get("encounter") or (docname if doctype == "Patient Encounter" else None),
-		patient=values.get("patient"),
+		patient=patient,
 		procedure_names=[clinical_procedure or docname] if doctype == "Clinical Procedure" else [],
 	)
 	latest = None
@@ -1642,16 +1821,19 @@ def _link_procedure_annotation(clinical_procedure: str | None, annotation: str |
 
 @frappe.whitelist()
 def get_derma_assessment(encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api_assessment", "get_encounter_assessment", encounter=encounter, appointment=appointment, patient=patient)
 
 
 @frappe.whitelist()
 def set_derma_assessment(payload=None, encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api_assessment", "set_encounter_assessment", payload=payload, encounter=encounter, appointment=appointment, patient=patient)
 
 
 @frappe.whitelist()
 def get_derma_prescriptions(encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	try:
 		return _call_dental_api("do_dental.api_prescription", "get_encounter_prescriptions", encounter=encounter, appointment=appointment, patient=patient)
 	except Exception:
@@ -1660,6 +1842,7 @@ def get_derma_prescriptions(encounter=None, appointment=None, patient=None):
 
 @frappe.whitelist()
 def set_derma_prescriptions(payload=None, encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	if not encounter and not appointment:
 		return {"encounter": "", "drug_prescription": []}
 	return _call_dental_api("do_dental.api_prescription", "set_encounter_prescriptions", payload=payload, encounter=encounter, appointment=appointment, patient=patient)
@@ -1667,6 +1850,7 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 
 @frappe.whitelist()
 def get_derma_anesthesia(encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	try:
 		return _call_dental_api("do_dental.api_anesthesia", "get_encounter_anesthesia", encounter=encounter, appointment=appointment, patient=patient)
 	except Exception:
@@ -1675,6 +1859,7 @@ def get_derma_anesthesia(encounter=None, appointment=None, patient=None):
 
 @frappe.whitelist()
 def set_derma_anesthesia(payload=None, encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	try:
 		return _call_dental_api("do_dental.api_anesthesia", "set_encounter_anesthesia", payload=payload, encounter=encounter, appointment=appointment, patient=patient)
 	except Exception:
@@ -1683,21 +1868,31 @@ def set_derma_anesthesia(payload=None, encounter=None, appointment=None, patient
 
 @frappe.whitelist()
 def get_derma_consents(encounter=None, appointment=None, patient=None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api_consent", "get_encounter_consents", encounter=encounter, appointment=appointment, patient=patient)
 
 
 @frappe.whitelist()
 def create_derma_consent(payload=None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api_consent", "create_encounter_consent", payload=payload)
 
 
 @frappe.whitelist()
 def render_derma_consent_preview(payload=None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api_consent", "render_encounter_consent_preview", payload=payload)
 
 
 @frappe.whitelist()
+def get_derma_consent_html(name: str):
+	_ensure_clinical_access()
+	return _call_dental_api("do_dental.api_consent", "get_encounter_consent_html", name=name)
+
+
+@frappe.whitelist()
 def get_nursing_assistant_employees(doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None):
+	_ensure_clinical_access()
 	return _call_dental_api(
 		"do_dental.api",
 		"get_nursing_assistant_employees",
@@ -1712,21 +1907,93 @@ def get_nursing_assistant_employees(doctype=None, txt=None, searchfield=None, st
 
 @frappe.whitelist()
 def get_procedure_price(procedure_name: str, price_list: str | None = None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api", "get_procedure_price", procedure_name=procedure_name, price_list=price_list)
 
 
 @frappe.whitelist()
 def update_clinical_procedure_fields(procedure_name: str, updates=None):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api", "update_clinical_procedure_fields", procedure_name=procedure_name, updates=updates)
 
 
 @frappe.whitelist()
 def delete_clinical_procedure_entry(doctype: str, name: str):
+	_ensure_clinical_access()
 	return _call_dental_api("do_dental.api", "delete_clinical_procedure_entry", doctype=doctype, name=name)
 
 
 @frappe.whitelist()
+def sync_derma_billables(encounter: str | None = None, appointment: str | None = None, patient: str | None = None):
+	"""Aggregate this session's Clinical Procedure rows into Patient Appointment billing items.
+
+	Reuses do_dental's add_appointment_billing_from_procedures - it aggregates by
+	patient + appointment/encounter generically (filters on Clinical Procedure.patient,
+	not on any dental-specific field), so it already covers derma procedures correctly.
+	"""
+	_ensure_clinical_access()
+	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
+	appointment_id = context["appointment_id"]
+	encounter_id = context["encounter_id"]
+	if not appointment_id:
+		frappe.throw(_("An appointment is required to sync billing."))
+	return _call_dental_api(
+		"do_dental.api",
+		"add_appointment_billing_from_procedures",
+		appointment_id=appointment_id,
+		encounter_id=encounter_id,
+	)
+
+
+@frappe.whitelist()
+def complete_derma_session(
+	encounter: str | None = None,
+	appointment: str | None = None,
+	patient: str | None = None,
+	submit_invoice: int = 0,
+):
+	"""Finalize a derma visit: sync billables, raise/update the patient invoice, submit the encounter."""
+	_ensure_clinical_access()
+	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
+	appointment_id = context["appointment_id"]
+	encounter_id = context["encounter_id"]
+	if not encounter_id:
+		frappe.throw(_("No encounter found for this session."))
+
+	billing_sync = None
+	invoice = None
+	if appointment_id:
+		billing_sync = _call_dental_api(
+			"do_dental.api",
+			"add_appointment_billing_from_procedures",
+			appointment_id=appointment_id,
+			encounter_id=encounter_id,
+		)
+		invoice = _call_dental_api(
+			"do_health.api.methods",
+			"create_invoice_for_visit",
+			appointment=appointment_id,
+			encounter=encounter_id,
+			submit_invoice=cint(submit_invoice),
+		)
+
+	encounter_doc = frappe.get_doc("Patient Encounter", encounter_id)
+	submitted = False
+	if encounter_doc.docstatus == 0:
+		encounter_doc.submit()
+		submitted = True
+
+	return {
+		"encounter": encounter_id,
+		"encounter_submitted": submitted,
+		"billing_sync": billing_sync,
+		"invoice": invoice,
+	}
+
+
+@frappe.whitelist()
 def set_derma_category_default_template(category: str, body_template: str):
+	_ensure_clinical_access()
 	if not category:
 		frappe.throw(_("Derma category is required."))
 	if not body_template:
@@ -1745,6 +2012,7 @@ def set_derma_category_default_template(category: str, body_template: str):
 
 @frappe.whitelist()
 def save_chart_mark(values: str | dict[str, Any]):
+	_ensure_clinical_access()
 	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
 	name = payload.pop("name", None)
 	if not payload.get("patient"):
@@ -1798,6 +2066,7 @@ def _next_mark_sequence(patient: str, encounter: str | None = None, category: st
 
 @frappe.whitelist()
 def create_procedure_from_mark(mark: str, procedure_template: str | None = None, values: str | dict[str, Any] | None = None):
+	_ensure_clinical_access()
 	if not mark:
 		frappe.throw(_("Chart mark is required."))
 	mark_doc = frappe.get_doc("Derma Chart Mark", mark)
@@ -1856,6 +2125,7 @@ def create_procedure_from_mark(mark: str, procedure_template: str | None = None,
 
 @frappe.whitelist()
 def create_procedure_from_marks(marks: str | list[str], procedure_template: str | None = None, values: str | dict[str, Any] | None = None):
+	_ensure_clinical_access()
 	mark_names = json.loads(marks) if isinstance(marks, str) else list(marks or [])
 	mark_names = [name for name in mark_names if name]
 	if not mark_names:
@@ -1961,6 +2231,7 @@ def create_procedure_from_marks(marks: str | list[str], procedure_template: str 
 
 @frappe.whitelist()
 def delete_chart_mark(name: str):
+	_ensure_clinical_access()
 	if not name:
 		frappe.throw(_("Chart mark is required."))
 	mark_doc = frappe.get_doc("Derma Chart Mark", name)
@@ -2014,6 +2285,7 @@ def _mark_variable_value(mark_doc, fieldname: str):
 
 @frappe.whitelist()
 def carry_forward_marks(marks: str | list[str], patient: str | None = None, encounter: str | None = None, appointment: str | None = None, status: str = "Monitoring"):
+	_ensure_clinical_access()
 	mark_names = json.loads(marks) if isinstance(marks, str) else list(marks or [])
 	mark_names = [name for name in mark_names if name]
 	if not mark_names:
@@ -2167,20 +2439,8 @@ def _join_unique(values) -> str:
 
 
 @frappe.whitelist()
-def save_embedded_annotation(values: str | dict[str, Any]):
-	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
-	mark = payload.get("mark")
-	if not mark:
-		frappe.throw(_("Chart mark is required."))
-	doc = frappe.get_doc("Derma Chart Mark", mark)
-	doc.annotation_json = json.dumps(payload.get("annotation") or {})
-	doc.note = payload.get("note") or doc.note
-	doc.save(ignore_permissions=True)
-	return doc.as_dict()
-
-
-@frappe.whitelist()
 def generate_visit_summary(encounter: str | None = None, patient: str | None = None):
+	_ensure_clinical_access()
 	filters: dict[str, Any] = {}
 	if encounter:
 		filters["encounter"] = encounter
@@ -2218,64 +2478,8 @@ def generate_visit_summary(encounter: str | None = None, patient: str | None = N
 
 
 @frappe.whitelist()
-def save_finding(values: str | dict[str, Any]):
-	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
-	name = payload.pop("name", None)
-	if not payload.get("patient"):
-		frappe.throw(_("Patient is required."))
-	if not payload.get("encounter"):
-		context = ensure_chart_context(payload.get("patient"), payload.get("appointment"))
-		payload["encounter"] = context.get("encounter")
-	payload.setdefault("x_percent", 0)
-	payload.setdefault("y_percent", 0)
-	if payload.get("body_region"):
-		payload["body_region"] = _normalize_derma_body_region(payload.get("body_region"))
-
-	_normalize_position(payload)
-	doc = frappe.get_doc("Derma Finding", name) if name else frappe.new_doc("Derma Finding")
-	for field in DERMA_FINDING_FIELDS:
-		if field in {"name", "modified"}:
-			continue
-		if field in payload:
-			doc.set(field, payload[field])
-	_set_patient_name(doc)
-	if not doc.lesion_id:
-		doc.lesion_id = doc.name if not doc.is_new() else "New finding"
-	doc.save(ignore_permissions=True)
-	if doc.lesion_id == "New finding":
-		doc.db_set("lesion_id", doc.name)
-		doc.lesion_id = doc.name
-	return doc.as_dict()
-
-
-@frappe.whitelist()
-def save_treatment(values: str | dict[str, Any]):
-	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
-	name = payload.pop("name", None)
-	if not payload.get("patient"):
-		frappe.throw(_("Patient is required."))
-	if not payload.get("encounter"):
-		context = ensure_chart_context(payload.get("patient"), payload.get("appointment"))
-		payload["encounter"] = context.get("encounter")
-	payload.setdefault("x_percent", 0)
-	payload.setdefault("y_percent", 0)
-	if payload.get("body_region"):
-		payload["body_region"] = _normalize_derma_body_region(payload.get("body_region"))
-
-	_normalize_position(payload)
-	doc = frappe.get_doc("Derma Treatment Entry", name) if name else frappe.new_doc("Derma Treatment Entry")
-	for field in DERMA_TREATMENT_FIELDS:
-		if field in {"name", "modified"}:
-			continue
-		if field in payload:
-			doc.set(field, payload[field])
-	_set_patient_name(doc)
-	doc.save(ignore_permissions=True)
-	return doc.as_dict()
-
-
-@frappe.whitelist()
 def create_photo_set(values: str | dict[str, Any]):
+	_ensure_clinical_access()
 	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
 	clinical_procedure = payload.get("clinical_procedure")
 	if clinical_procedure:
@@ -2325,6 +2529,7 @@ def _first_treatment_for_procedure(clinical_procedure: str | None) -> str | None
 
 @frappe.whitelist()
 def get_patient_timeline(patient: str, current_encounter: str | None = None, limit: int = 20):
+	_ensure_clinical_access()
 	if not patient:
 		return []
 
@@ -2382,6 +2587,7 @@ def get_patient_timeline(patient: str, current_encounter: str | None = None, lim
 
 @frappe.whitelist()
 def get_visit_timeline(patient: str, current_encounter: str | None = None, limit: int = 12):
+	_ensure_clinical_access()
 	if not patient:
 		return []
 
@@ -2472,6 +2678,7 @@ def _procedure_encounter(row: dict[str, Any]) -> str | None:
 
 @frappe.whitelist()
 def get_followup_intelligence(patient: str, encounter: str | None = None, appointment: str | None = None) -> list[dict[str, Any]]:
+	_ensure_clinical_access()
 	if not patient:
 		return []
 
@@ -2581,6 +2788,7 @@ def _open_todos_for_marks(mark_names: list[str]) -> dict[str, str]:
 
 @frappe.whitelist()
 def create_followup_todo(payload: str | dict[str, Any]):
+	_ensure_clinical_access()
 	values = json.loads(payload) if isinstance(payload, str) else dict(payload or {})
 	mark = values.get("mark")
 	if not mark:

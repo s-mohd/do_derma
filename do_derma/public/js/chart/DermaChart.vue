@@ -5,7 +5,27 @@
       <p>{{ __("Use the health sidebar to select a patient, then open Derma Chart.") }}</p>
     </div>
 
+    <div v-else-if="loading && !patient.name" class="chart-loading-skeleton" role="status" :aria-label="__('Loading derma chart')">
+      <div class="skeleton-block skeleton-header"></div>
+      <div class="skeleton-block skeleton-tabs"></div>
+      <div class="skeleton-grid">
+        <div class="skeleton-block skeleton-main"></div>
+        <div class="skeleton-block skeleton-side"></div>
+      </div>
+    </div>
+
+    <div v-else-if="loadError && !patient.name" class="chart-error-state">
+      <h3>{{ __("Unable to load Derma Chart") }}</h3>
+      <p>{{ loadError }}</p>
+      <button type="button" class="primary" @click="refresh">{{ __("Retry") }}</button>
+    </div>
+
     <template v-else>
+      <div v-if="loadError" class="chart-error-banner" role="alert">
+        <span>{{ loadError }}</span>
+        <button type="button" class="ghost small" @click="refresh">{{ __("Retry") }}</button>
+      </div>
+
       <DermaEncounterHeader
         :patient="patient"
         :appointment="appointment"
@@ -31,9 +51,19 @@
             <small>{{ section.hint }}</small>
           </button>
         </nav>
+        <div class="derma-section-actions">
+          <button type="button" class="ghost" @click="openAnnotationStudio">
+            <span aria-hidden="true">✎</span>
+            {{ __("Annotate") }}
+          </button>
+          <button type="button" class="ghost" @click="uploadPhotos('Visit')">
+            <span aria-hidden="true">▧</span>
+            {{ __("Upload Photo") }}
+          </button>
+        </div>
       </section>
 
-      <section class="derma-console-grid" :class="{ 'no-side': activeSection === 'procedures' }">
+      <section class="derma-console-grid">
         <main class="derma-console-main">
           <template v-if="activeSection === 'clinical'">
             <div class="clinical-notes-grid">
@@ -54,102 +84,17 @@
                   @save="saveAssessment"
                   @refresh="() => loadAssessment(true)"
                 />
-              </section>
-            </div>
-          </template>
-
-          <template v-else-if="activeSection === 'procedures'">
-            <CategoryNav
-              :groups="categoryGroups"
-              :templates="procedureTemplates"
-              :active-template="selectedTemplate"
-              @select="selectTemplate"
-              @clear="clearTemplate"
-            />
-
-            <div class="procedure-work-grid">
-              <DermaProcedureCommandPanel
-                :selected-template="selectedTemplate"
-                :selected-template-hint="selectedTemplateHint"
-                :active-procedure="activeProcedure"
-                :active-procedure-label="activeProcedureLabel"
-                :active-procedure-meta="activeProcedureMeta"
-                :artifact-text="procedureArtifactText"
-                :readiness-items="readinessItems"
-                :can-create-procedure="canCreateProcedure"
-                :procedure-saving="procedureSaving"
-                @clear="clearTemplate"
-                @create="createProcedure"
-                @new-procedure="startNewProcedure"
-                @open-procedure="openClinicalProcedure(activeProcedure)"
-                @readiness="handleReadinessItem"
-              >
-                <template #fields>
-                  <DermaProcedureFields
-                    v-model="procedureDraft.variables"
-                    :fields="procedureVariables"
-                    :missing-fields="missingRequiredFieldNames"
-                    :selected-procedure="selectedTemplate"
-                  />
-                  <label>
-                    <span>{{ __("Notes") }}</span>
-                    <textarea v-model.trim="procedureDraft.notes" rows="4" :placeholder="__('Procedure note, dose, product, settings, lot...')"></textarea>
-                  </label>
-                </template>
-              </DermaProcedureCommandPanel>
-
-              <div class="procedure-chart-stack">
-                <section class="derma-main-workspace compact-chart-workspace" :class="{ 'has-active-procedure': activeProcedure, expanded: chartExpanded }">
-                  <div v-if="loading" class="loading-overlay">{{ __("Loading chart...") }}</div>
-                  <div v-else-if="loadError" class="error-overlay">{{ loadError }}</div>
-
-                  <header class="derma-workspace-header">
-                    <div>
-                      <strong>{{ activeProcedure ? activeProcedureLabel : __("Procedure Chart") }}</strong>
-                      <small>{{ selectedTemplate ? __("Use charting only when it supports this procedure.") : __("Choose a procedure from the palette to show its variables.") }}</small>
-                    </div>
-                    <div class="workspace-header-actions">
-                      <button type="button" class="ghost small" :disabled="annotationSaving || !selectedBodyTemplate?.image" @click="saveAnnotation">
-                        {{ annotationSaving ? __("Saving...") : __("Save Drawing") }}
-                      </button>
-                    </div>
-                  </header>
-
-                  <template v-if="!loading && !loadError">
-                    <button type="button" class="chart-expand-button" :title="chartExpanded ? __('Close expanded chart') : __('Expand chart')" @click="toggleChartExpanded">
-                      {{ chartExpanded ? "×" : "⛶" }}
-                    </button>
-                    <DermaExcalidrawCanvas
-                      ref="excalidrawRef"
-                      :latest-annotation="latestAnnotation"
-                      :annotation-history="currentAnnotationHistory"
-                      :selected-template="selectedTemplate"
-                      :body-template="selectedBodyTemplate"
-                      :body-templates="bodyTemplates"
-                      :procedure-variables="procedureDraft.variables"
-                      :marks="[]"
-                      :overlay-mode="chartOverlayMode"
-                      @load-template="loadBodyTemplate"
-                      @import-annotation="loadAnnotation"
-                      @place-mark="savePlacedMark"
-                      @select-mark="selectMarkByName"
-                      @select-region="selectTemplateRegion"
-                      @update:overlay-mode="setChartOverlayMode"
-                      @carry-forward-history="carryForwardSelectedHistoryMarks"
-                    />
-                  </template>
-                </section>
-
-                <section class="chart-annotation-history">
+                <section class="chart-annotation-history encounter-annotation-history">
                   <header>
                     <div>
                       <strong>{{ __("Previous Annotations") }}</strong>
-                      <small>{{ currentAnnotationHistory.length ? __("{0} saved drawing(s)").replace("{0}", currentAnnotationHistory.length) : __("No saved drawings yet") }}</small>
+                      <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
+                    <button type="button" class="ghost small" @click="openAnnotationStudio">{{ __("Annotate") }}</button>
                   </header>
-                  <div v-if="currentAnnotationHistory.length" class="chart-annotation-list">
+                  <div v-if="annotations.length" class="chart-annotation-list">
                     <button
-                      v-for="annotation in currentAnnotationHistory.slice(0, 6)"
+                      v-for="annotation in annotations.slice(0, 8)"
                       :key="annotation.name"
                       type="button"
                       @click="openAnnotationHistory(annotation)"
@@ -158,13 +103,13 @@
                         <img v-if="annotationPreview(annotation)" :src="annotationPreview(annotation)" :alt="annotation.name" loading="lazy" />
                         <span v-else>{{ __("No preview") }}</span>
                       </span>
-                      <b>{{ annotation.title || annotation.name }}</b>
+                      <b>{{ annotationTemplateLabel(annotation) }}</b>
                       <small>{{ formatDate(annotation.creation || annotation.modified) }}</small>
                     </button>
                   </div>
-                  <p v-else class="panel-muted">{{ __("Saved procedure drawings will appear here.") }}</p>
+                  <p v-else class="panel-muted">{{ __("Saved encounter drawings will appear here.") }}</p>
                 </section>
-              </div>
+              </section>
             </div>
           </template>
 
@@ -202,7 +147,7 @@
             :has-encounter="Boolean(prescriptionPanel.encounter)"
             :encounter-name="prescriptionPanel.encounter"
             :rows="prescriptionPanel.rows"
-            :read-only="false"
+            :read-only="isEncounterLocked"
             @refresh="() => loadPrescriptionPanel(true)"
             @save="savePrescriptionPanel"
           />
@@ -219,7 +164,7 @@
             :preview-html="consentPanel.previewHtml"
             :preview-loading="consentPanel.previewLoading"
             :default-signed-by="patient.patient_name || patient.name"
-            :read-only="false"
+            :read-only="isEncounterLocked"
             @refresh="() => loadConsentPanel(true)"
             @request-preview="requestConsentPreview"
             @create="createConsentFromPanel"
@@ -236,10 +181,10 @@
               :doctor-name="currentPractitionerName"
               :price-lists="priceLists"
               :default-price-list="defaultPriceList"
-              :sync-disabled="true"
-              :complete-disabled="!hasSessionContext"
+              :sync-disabled="!hasSessionContext || syncingBillables"
+              :complete-disabled="!hasSessionContext || completingSession"
               :anesthesia-recorded="anesthesiaRecorded"
-              :read-only="false"
+              :read-only="isEncounterLocked"
               @refresh="refresh"
               @activate-procedure="activateProcedure"
               @sync-billables="syncBillablesForSession"
@@ -585,95 +530,29 @@
                 {{ __("Follow-up items will appear for monitored lesions, biopsies, worsening marks, missing photos, product gaps, and next-session reminders.") }}
               </div>
             </section>
-
-            <AssessmentPanel
-              v-if="false"
-              :layout="assessmentPanel.layout"
-              :values="assessmentPanel.values"
-              :context-values="assessmentPanel.contextValues"
-              :loading="assessmentPanel.loading"
-              :saving="assessmentPanel.saving"
-              :error="assessmentPanel.error"
-              :has-encounter="Boolean(assessmentPanel.encounter)"
-              :encounter-name="assessmentPanel.encounter"
-              :docstatus="assessmentPanel.docstatus"
-              :edit-mode="assessmentPanel.editing"
-              :allow-on-submit-fields="assessmentEditableOnSubmitFields"
-              @request-edit="assessmentPanel.editing = true"
-              @save="saveAssessment"
-              @refresh="() => loadAssessment(true)"
-            />
-
-            <PrescriptionPanel
-              v-if="false"
-              :loading="prescriptionPanel.loading"
-              :saving="prescriptionPanel.saving"
-              :error="prescriptionPanel.error"
-              :has-session-context="hasSessionContext"
-              :has-encounter="Boolean(prescriptionPanel.encounter)"
-              :encounter-name="prescriptionPanel.encounter"
-              :rows="prescriptionPanel.rows"
-              :read-only="false"
-              @refresh="() => loadPrescriptionPanel(true)"
-              @save="savePrescriptionPanel"
-            />
-
-            <AnesthesiaPanel
-              v-if="false"
-              :loading="anesthesiaPanel.loading"
-              :saving="anesthesiaPanel.saving"
-              :error="anesthesiaPanel.error"
-              :has-session-context="hasSessionContext"
-              :has-encounter="Boolean(anesthesiaPanel.encounter)"
-              :encounter-name="anesthesiaPanel.encounter"
-              :rows="anesthesiaPanel.rows"
-              :type-options="anesthesiaTypes"
-              :read-only="false"
-              @refresh="() => loadAnesthesiaPanel(true)"
-              @save="saveAnesthesiaPanel"
-            />
-
-            <ConsentPanel
-              v-if="false"
-              :loading="consentPanel.loading"
-              :saving="consentPanel.saving"
-              :error="consentPanel.error"
-              :has-session-context="hasSessionContext"
-              :encounter-name="consentPanel.encounter"
-              :consents="consentPanel.consents"
-              :procedure-options="consentProcedureOptions"
-              :preview-html="consentPanel.previewHtml"
-              :preview-loading="consentPanel.previewLoading"
-              :default-signed-by="patient.patient_name || patient.name"
-              :read-only="false"
-              @refresh="() => loadConsentPanel(true)"
-              @request-preview="requestConsentPreview"
-              @create="createConsentFromPanel"
-              @open-consent="openSignedConsent"
-            />
           </div>
         </div>
       </section>
         </main>
 
-        <aside v-if="activeSection !== 'procedures'" class="derma-console-side">
+        <aside class="derma-console-side">
           <DermaQuickActionsPanel
             :active-procedure="activeProcedure"
-            :can-annotate="Boolean(selectedBodyTemplate?.image)"
+            :can-annotate="bodyTemplates.length > 0"
             :allow-evidence="true"
             :alerts="encounterAlertItems"
-            @new-procedure="startNewProcedure"
+            @new-procedure="openAnnotationStudio"
             @prescription="setActiveSection('prescriptions')"
-            @upload-photos="uploadPhotos(activeProcedure ? 'Procedure' : 'Visit')"
-            @annotate="startAnnotationMode"
+            @upload-photos="uploadPhotos('Visit')"
+            @annotate="openAnnotationStudio"
             @consent="setActiveSection('consent')"
             @followup="setActiveSection('clinical')"
             @alert-action="handleEncounterAlert"
           />
 
           <DermaEvidencePanel
-            :active-procedure="activeProcedure"
-            :annotation-count="currentAnnotationHistory.length"
+            :active-procedure="null"
+            :annotation-count="annotations.length"
             :photo-set-count="relevantPhotoSets.length"
             :summary="procedureArtifactText"
             :photo-summary="photoPanelSummary"
@@ -681,7 +560,7 @@
             :photo-sets="relevantPhotoSets"
             :selected-photo-set-name="selectedPhotoSetName"
             :allow-upload="true"
-            @upload="uploadPhotos(activeProcedure ? 'Procedure' : 'Visit')"
+            @upload="uploadPhotos('Visit')"
             @select-photo-set="(name) => (selectedPhotoSetName = name)"
           />
 
@@ -718,18 +597,14 @@
 
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from "vue"
-import CategoryNav from "./components/CategoryNav.vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/AssessmentPanel.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
-import AnesthesiaPanel from "./components/AnesthesiaPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
-import DermaExcalidrawCanvas from "./components/DermaExcalidrawCanvas.vue"
-import DermaProcedureFields from "./components/DermaProcedureFields.vue"
 import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
-import DermaProcedureCommandPanel from "./components/DermaProcedureCommandPanel.vue"
 import DermaQuickActionsPanel from "./components/DermaQuickActionsPanel.vue"
 import DermaEvidencePanel from "./components/DermaEvidencePanel.vue"
+import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -760,24 +635,12 @@ const STATUS_PILLS = [
 const MARK_STATUSES = ["Active", "Monitoring", "Improving", "Stable", "Worse", "Resolved", "Biopsied", "Excised", "Archived"]
 const COMPARE_RESPONSE_STATUSES = ["Improving", "Stable", "Worse", "Resolved", "Monitoring"]
 
-const WORKSPACE_TABS = [
-  { key: "procedure_history", label: __("Procedure History") },
-  { key: "timeline", label: __("Timeline") },
-  { key: "compare", label: __("Compare") },
-  { key: "inventory", label: __("Inventory") },
-  { key: "followup", label: __("Follow-up") },
-  { key: "assessment", label: __("Assessment") },
-  { key: "prescriptions", label: __("Prescriptions") },
-  { key: "anesthesia", label: __("Anesthesia") },
-  { key: "consents", label: __("Consent") },
-]
-
 const SECTION_TABS = [
   { key: "clinical", label: __("Clinical Notes"), hint: __("SOAP") },
   { key: "photos", label: __("Photos"), hint: __("Compare") },
   { key: "prescriptions", label: __("Prescription"), hint: __("Rx") },
-  { key: "procedures", label: __("Procedures"), hint: __("Treatment") },
   { key: "consent", label: __("Consent"), hint: __("Forms") },
+  { key: "review", label: __("Review"), hint: __("History") },
 ]
 
 const DERMA_SECTION_STORAGE_KEY = "do_derma_chart_last_section"
@@ -786,6 +649,8 @@ const DERMA_USER_SETTINGS_DOCTYPE = "Derma Chart"
 const data = ref({})
 const loading = ref(false)
 const loadError = ref("")
+const syncingBillables = ref(false)
+const completingSession = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
 const selectedBodyTemplate = ref(null)
@@ -797,7 +662,6 @@ const excalidrawRef = ref(null)
 const procedureSaving = ref(false)
 const annotationSaving = ref(false)
 const markSaving = ref(false)
-const markDeleting = ref(false)
 const summarySaving = ref(false)
 const selectedMarkName = ref("")
 const selectedMarkNames = ref([])
@@ -864,6 +728,7 @@ const loadedTabs = reactive({
 const patient = computed(() => data.value.patient || {})
 const appointment = computed(() => data.value.appointment || {})
 const encounter = computed(() => data.value.encounter || {})
+const isEncounterLocked = computed(() => Number(encounter.value.docstatus ?? 0) !== 0)
 const procedureTemplates = computed(() => data.value.procedure_templates || [])
 const procedures = computed(() => data.value.procedures || [])
 const bodyTemplates = computed(() => (data.value.body_templates || []).map(normalizeBodyTemplate))
@@ -890,9 +755,8 @@ const activeProcedureAnnotations = computed(() => {
   return name ? (procedureAnnotations.value[name] || []) : []
 })
 const latestAnnotation = computed(() => activeProcedureAnnotations.value[0] || data.value.latest_annotation || annotations.value[0] || null)
-const currentAnnotationHistory = computed(() => activeProcedure.value ? activeProcedureAnnotations.value : annotations.value)
+const currentAnnotationHistory = computed(() => annotations.value)
 const visitSummary = computed(() => data.value.visit_summary || data.value.narrative || "")
-const workspaceTabs = computed(() => WORKSPACE_TABS)
 const contextReady = computed(() => Boolean(patient.value.name || props.context?.patient || props.context?.encounter || props.context?.appointment))
 const hasSessionContext = computed(() => Boolean(encounter.value.name))
 const canCreateProcedure = computed(() => Boolean(selectedTemplate.value?.name && patient.value.name && encounter.value.name))
@@ -1451,10 +1315,10 @@ watch(
 )
 
 function normalizeDermaSection(section) {
-  if (section === "procedure") return "procedures"
-  if (section === "encounter" || section === "chart" || section === "notes" || section === "review") return "clinical"
+  if (section === "procedure" || section === "procedures") return "review"
+  if (section === "encounter" || section === "chart" || section === "notes") return "clinical"
   if (section === "consents") return "consent"
-  if (["clinical", "photos", "prescriptions", "procedures", "consent"].includes(section)) return section
+  if (["clinical", "photos", "prescriptions", "consent", "review"].includes(section)) return section
   return "clinical"
 }
 
@@ -1512,14 +1376,8 @@ async function setActiveSection(section, tab = "") {
 async function ensureSectionData(section = activeSection.value, tab = activeWorkspaceTab.value) {
   const normalized = normalizeDermaSection(section)
   if (normalized === "clinical") {
-    ensureSelectedBodyTemplate()
     if (!patient.value.name && !props.context?.patient && !props.context?.encounter && !props.context?.appointment) return
     await Promise.all([loadAssessment(), loadPrescriptionPanel()])
-    return
-  }
-  if (normalized === "procedures") {
-    ensureSelectedBodyTemplate()
-    await ensureWorkspaceTab(tab || activeWorkspaceTab.value)
     return
   }
   if (normalized === "prescriptions") {
@@ -1529,6 +1387,9 @@ async function ensureSectionData(section = activeSection.value, tab = activeWork
   if (normalized === "consent") {
     await loadConsentPanel()
     return
+  }
+  if (normalized === "review") {
+    await ensureWorkspaceTab(tab || activeWorkspaceTab.value)
   }
 }
 
@@ -1747,7 +1608,7 @@ function handleEncounterAlert(alert) {
     return
   }
   if (alert.tab) {
-    setActiveSection(alert.tab === "compare" ? "photos" : "procedures")
+    setActiveSection(alert.tab === "compare" ? "photos" : "review")
   }
 }
 
@@ -1764,8 +1625,8 @@ function activateProcedure(procedure) {
   applyProcedureToDraft(procedure)
   ensureSelectedBodyTemplate(true)
   chartMode.value = "perio"
-  setActiveSection("procedures")
-  frappe.show_alert({ message: __("Procedure workspace activated"), indicator: "blue" })
+  setActiveSection("review")
+  frappe.show_alert({ message: __("Procedure selected for review"), indicator: "blue" })
 }
 
 function openItem(itemCode) {
@@ -1816,7 +1677,7 @@ function selectInventoryMark(item) {
     return
   }
   selectMark(mark)
-  setActiveSection("procedures")
+  setActiveSection("review")
 }
 
 function selectFollowupMark(item) {
@@ -1826,7 +1687,7 @@ function selectFollowupMark(item) {
     return
   }
   selectMark(mark)
-  setActiveSection("procedures")
+  setActiveSection("review")
 }
 
 async function createFollowupTask(item) {
@@ -1860,7 +1721,7 @@ function selectTemplate(template) {
   activeProcedureName.value = ""
   selectedTemplate.value = template
   activeWorkspaceTab.value = "procedure_history"
-  setActiveSection("procedures")
+  setActiveSection("review")
   if (template?.custom_derma_note_template && !procedureDraft.notes) {
     procedureDraft.notes = template.custom_derma_note_template
   }
@@ -1878,13 +1739,7 @@ function clearTemplate() {
 }
 
 function startNewProcedure() {
-  selectedTemplate.value = null
-  activeProcedureName.value = ""
-  selectedMarkName.value = ""
-  selectedMarkNames.value = []
-  chartMode.value = "perio"
-  setActiveSection("procedures")
-  resetProcedureDraft()
+  openAnnotationStudio()
 }
 
 function resetProcedureDraft() {
@@ -1927,7 +1782,7 @@ function missingRequiredVariableFields() {
 }
 
 async function focusRequiredProcedureFields() {
-  await setActiveSection("procedures")
+  await setActiveSection("review")
   await nextTick()
   const firstMissing = document.querySelector(".derma-procedure-fields .missing input, .derma-procedure-fields .missing select, .derma-procedure-fields .missing textarea")
   firstMissing?.scrollIntoView?.({ behavior: "smooth", block: "center" })
@@ -2110,7 +1965,7 @@ async function createProcedure() {
     if (procedureName) {
       activeProcedureName.value = procedureName
       chartMode.value = "perio"
-      setActiveSection("procedures")
+      setActiveSection("review")
       frappe.show_alert({ message: __("Clinical Procedure created"), indicator: "green" })
     }
     selectedMarkNames.value = []
@@ -2147,115 +2002,6 @@ function buildProcedurePayload() {
   }
 }
 
-async function savePlacedMark(placement) {
-  if (!patient.value.name || !selectedTemplate.value?.name) return
-  markSaving.value = true
-  try {
-    const response = await frappe.call({
-      method: "do_derma.api.save_chart_mark",
-      args: {
-        values: buildMarkPayload(placement),
-      },
-    })
-    const mark = response.message
-    if (mark?.name) {
-      upsertMark(mark)
-      selectedMarkName.value = mark.name
-      selectedMarkNames.value = [mark.name]
-      excalidrawRef.value?.linkMarkElements?.({
-        elementIds: placement.temp_element_ids || [],
-        mark,
-      })
-	      frappe.show_alert({ message: __("Chart mark saved"), indicator: "green" })
-	      await refreshVisitSummary()
-	      await refreshInventoryReadiness()
-	    }
-	  } finally {
-    markSaving.value = false
-  }
-}
-
-async function updateSelectedMark() {
-  if (!selectedMark.value) return
-  markSaving.value = true
-  try {
-    const response = await frappe.call({
-      method: "do_derma.api.save_chart_mark",
-      args: {
-        values: buildMarkPayload({}, selectedMark.value.name),
-      },
-    })
-    if (response.message?.name) {
-      upsertMark(response.message)
-	      selectedMarkName.value = response.message.name
-	      frappe.show_alert({ message: __("Chart mark updated"), indicator: "green" })
-	      await refreshVisitSummary()
-	      await refreshInventoryReadiness()
-	    }
-	  } finally {
-    markSaving.value = false
-  }
-}
-
-async function deleteSelectedMark() {
-  if (!selectedMark.value) return
-  markDeleting.value = true
-  try {
-    await frappe.call({
-      method: "do_derma.api.delete_chart_mark",
-      args: { name: selectedMark.value.name },
-    })
-    const deleted = selectedMark.value.name
-    data.value = {
-      ...data.value,
-      marks: marks.value.filter((mark) => mark.name !== deleted),
-    }
-    selectedMarkName.value = ""
-    await refreshVisitSummary()
-    await refreshInventoryReadiness()
-    frappe.show_alert({ message: __("Chart mark deleted"), indicator: "green" })
-  } finally {
-    markDeleting.value = false
-  }
-}
-
-function buildMarkPayload(placement = {}, name = null) {
-  const draft = normalizeProcedureDraft()
-  const variables = draft.variables || {}
-  return {
-    name,
-    patient: patient.value.name,
-    appointment: appointment.value.name,
-    encounter: encounter.value.name,
-    procedure_template: selectedTemplate.value?.name || placement.procedure_template,
-    category: selectedTemplate.value?.custom_derma_category || placement.category,
-    body_template: selectedBodyTemplate.value?.name || placement.body_template,
-    body_view: selectedBodyTemplate.value?.title || placement.body_view,
-    body_region: variableValue(variables, "body_region", "site") || placement.body_region || selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type,
-    region_label: variableValue(variables, "region_label") || placement.region_label || placement.part_name || selectedMark.value?.region_label,
-    x_percent: placement.x_percent ?? selectedMark.value?.x_percent,
-    y_percent: placement.y_percent ?? selectedMark.value?.y_percent,
-    marker_behavior: selectedTemplate.value?.custom_derma_marker_behavior || placement.marker_behavior,
-    marker_color: selectedTemplate.value?.custom_derma_marker_color || placement.marker_color,
-    note: draft.notes,
-    product_item: draft.product_item,
-    product_name: draft.product_name,
-    dose: numericValue(draft.dose),
-    dose_unit: draft.dose_unit,
-    lot_no: draft.lot_no,
-    expiry_date: draft.expiry_date,
-    device: draft.device,
-    settings: draft.settings,
-    passes: numericValue(variableValue(variables, "passes")),
-    plane: variableValue(variables, "plane"),
-    technique: variableValue(variables, "technique"),
-    lesion_id: variableValue(variables, "lesion_id"),
-    diagnosis: variableValue(variables, "diagnosis"),
-    severity: variableValue(variables, "severity"),
-    status: variableValue(variables, "status"),
-  }
-}
-
 function upsertMark(mark) {
   const next = marks.value.filter((row) => row.name !== mark.name)
   next.push(mark)
@@ -2271,83 +2017,6 @@ function selectMark(mark) {
   }
   applyMarkToDraft(mark)
   excalidrawRef.value?.selectMark?.(mark.name)
-}
-
-function toggleMarkSelection(mark) {
-  if (!mark?.name || mark.clinical_procedure) return
-  const changingTemplate = mark.procedure_template && mark.procedure_template !== selectedTemplate.value?.name
-  if (changingTemplate) {
-    selectedMarkNames.value = [mark.name]
-    selectedMarkName.value = mark.name
-    selectTemplateForMark(mark)
-    applyMarkToDraft(mark)
-    excalidrawRef.value?.selectMark?.(mark.name)
-    return
-  }
-  const set = new Set(selectedMarkNames.value)
-  if (set.has(mark.name)) {
-    set.delete(mark.name)
-  } else {
-    set.add(mark.name)
-  }
-  selectedMarkNames.value = [...set]
-  selectedMarkName.value = mark.name
-  selectTemplateForMark(mark)
-  applyMarkToDraft(mark)
-  excalidrawRef.value?.selectMark?.(mark.name)
-}
-
-function selectAllVisibleDraftMarks() {
-  selectedMarkNames.value = visibleMarks.value.filter((mark) => !mark.clinical_procedure).map((mark) => mark.name)
-  if (selectedMarkNames.value.length && !selectedMarkName.value) selectedMarkName.value = selectedMarkNames.value[0]
-}
-
-function clearMarkSelection() {
-  selectedMarkNames.value = []
-  selectedMarkName.value = ""
-}
-
-function togglePreviousMarkSelection(mark) {
-  if (!mark?.name) return
-  const set = new Set(selectedPreviousMarkNames.value)
-  if (set.has(mark.name)) {
-    set.delete(mark.name)
-  } else {
-    set.add(mark.name)
-  }
-  selectedPreviousMarkNames.value = [...set]
-}
-
-async function carryForwardSelectedHistoryMarks() {
-  if (!selectedPreviousMarkNames.value.length) {
-    frappe.msgprint(__("Select previous marks to carry forward."))
-    return
-  }
-  markSaving.value = true
-  try {
-    const response = await frappe.call({
-      method: "do_derma.api.carry_forward_marks",
-      args: {
-        marks: selectedPreviousMarkNames.value,
-        patient: patient.value.name,
-        appointment: appointment.value.name,
-        encounter: encounter.value.name,
-        status: "Monitoring",
-      },
-    })
-    const copied = response.message?.marks || []
-    if (copied.length) {
-      data.value = { ...data.value, marks: [...marks.value, ...copied] }
-      selectedMarkNames.value = copied.map((mark) => mark.name)
-      selectedMarkName.value = copied[0]?.name || ""
-      selectedPreviousMarkNames.value = []
-      chartOverlayMode.value = "today"
-      await refreshVisitSummary()
-      frappe.show_alert({ message: __("{0} mark(s) carried forward").replace("{0}", copied.length), indicator: "green" })
-    }
-  } finally {
-    markSaving.value = false
-  }
 }
 
 function selectTemplateForMark(mark) {
@@ -2385,12 +2054,6 @@ async function updateSelectedMarkStatus(status) {
   } finally {
     markSaving.value = false
   }
-}
-
-function selectMarkByName(payload) {
-  const markName = payload?.mark || payload
-  const mark = marks.value.find((row) => row.name === markName)
-  if (mark) selectMark(mark)
 }
 
 function applyMarkToDraft(mark) {
@@ -2469,19 +2132,6 @@ async function copySummaryToAssessment() {
   }
 }
 
-async function refreshInventoryReadiness() {
-  if (!patient.value.name) return
-  const response = await frappe.call({
-    method: "do_derma.api.get_inventory_readiness",
-    args: {
-      patient: patient.value.name,
-      appointment: appointment.value.name,
-      encounter: encounter.value.name,
-    },
-  })
-  data.value = { ...data.value, inventory_readiness: response.message || [] }
-}
-
 function assessmentSummaryField() {
   const rows = assessmentPanel.layout || []
   const writableTextRows = rows.filter((row) => {
@@ -2545,12 +2195,25 @@ async function loadAnnotation(annotation) {
 
 async function openAnnotationHistory(annotation) {
   if (!annotation) return
-  await startAnnotationMode()
-  await loadAnnotation(annotation)
+  const preview = annotationPreview(annotation)
+  frappe.msgprint({
+    title: annotationTemplateLabel(annotation),
+    message: `
+      <div class="derma-annotation-preview-dialog">
+        ${preview ? `<img src="${escapeHtml(preview)}" alt="">` : `<p>${__("No preview image available.")}</p>`}
+        ${annotation.annotation_data ? `<div class="derma-annotation-preview-data">${annotation.annotation_data}</div>` : ""}
+      </div>
+    `,
+    indicator: "blue",
+  })
 }
 
 function annotationPreview(annotation) {
   return annotation?.image || annotation?.preview_image || annotation?.annotation_image || annotation?.file_url || ""
+}
+
+function annotationTemplateLabel(annotation) {
+  return annotation?.annotation_template || annotation?.title || annotation?.name || __("Annotation")
 }
 
 async function carryForwardLatestAnnotation() {
@@ -2647,10 +2310,26 @@ function openBodyTemplateDesigner(template = selectedBodyTemplate.value) {
 }
 
 async function startAnnotationMode() {
-  ensureSelectedBodyTemplate()
-  chartMode.value = "perio"
-  await nextTick()
-  if (selectedBodyTemplate.value) await excalidrawRef.value?.loadTemplateImage?.(selectedBodyTemplate.value)
+  openAnnotationStudio()
+}
+
+function openAnnotationStudio() {
+  if (!encounter.value.name) {
+    frappe.msgprint(__("A Patient Encounter is required before saving annotation."))
+    return
+  }
+  openDermaAnnotationStudio({
+    context: {
+      patient: patient.value.name,
+      encounter: encounter.value.name,
+      appointment: appointment.value.name || props.context?.appointment,
+    },
+    bodyTemplates: bodyTemplates.value,
+    procedureTemplates: procedureTemplates.value,
+    onSaved: async () => {
+      await refresh()
+    },
+  })
 }
 
 async function loadAssessment(force = false) {
@@ -2791,14 +2470,30 @@ async function createConsentFromPanel(payload) {
   }
 }
 
-function openSignedConsent(row) {
+async function openSignedConsent(row) {
   const name = row?.name || row
-  if (name) {
-    frappe.msgprint({
-      title: row?.consent_form_template || __("Encounter Consent"),
-      message: `<p><b>${escapeHtml(name)}</b></p><p>${escapeHtml(consentMetaText(row))}</p>`,
-      indicator: "blue",
+  if (!name) return
+  const dialog = new frappe.ui.Dialog({
+    title: row?.consent_form_template || __("Encounter Consent"),
+    size: "large",
+    fields: [{ fieldname: "body", fieldtype: "HTML" }],
+  })
+  dialog.show()
+  dialog.fields_dict.body.$wrapper.html(`<p>${__("Loading...")}</p>`)
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.get_derma_consent_html",
+      args: { name },
     })
+    const result = response.message || {}
+    const meta = escapeHtml(consentMetaText({ ...row, ...result }))
+    dialog.fields_dict.body.$wrapper.html(
+      `<p class="text-muted">${meta}</p><div class="consent-rendered-html">${result.rendered_html || __("No rendered content available.")}</div>`
+    )
+  } catch (err) {
+    dialog.fields_dict.body.$wrapper.html(
+      `<p class="text-danger">${escapeHtml(err?.message || __("Unable to load this consent."))}</p>`
+    )
   }
 }
 
@@ -2806,32 +2501,83 @@ function consentMetaText(row = {}) {
   return [row.status, row.signed_by, row.signed_on].filter(Boolean).join(" · ")
 }
 
-function syncBillablesForSession() {
-  frappe.msgprint(__("Billing sync for derma procedures will use the shared do_health billing flow."))
-}
-
-function completeSession() {
-  if (!encounter.value.name) return
-  const blockers = [
+function sessionBlockers() {
+  return [
     ...inventoryBlockers.value.map((item) => ({
       title: item.product_name || item.product_item || __("Inventory"),
       detail: item.message,
     })),
     ...followupBlockers.value,
   ]
-  if (blockers.length) {
-    const message = blockers
-      .slice(0, 6)
-      .map((item) => `<li>${item.title}: ${item.detail || item.location || ""}</li>`)
-      .join("")
-    frappe.msgprint({
-      title: __("Encounter Blockers"),
-      message: `<p>${__("There are unresolved derma blockers.")}</p><ul>${message}</ul>`,
-      indicator: "orange",
+}
+
+function showBlockers(blockers) {
+  const message = blockers
+    .slice(0, 6)
+    .map((item) => `<li>${item.title}: ${item.detail || item.location || ""}</li>`)
+    .join("")
+  frappe.msgprint({
+    title: __("Encounter Blockers"),
+    message: `<p>${__("There are unresolved derma blockers.")}</p><ul>${message}</ul>`,
+    indicator: "orange",
+  })
+}
+
+async function syncBillablesForSession() {
+  if (!hasSessionContext.value || syncingBillables.value) return
+  syncingBillables.value = true
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.sync_derma_billables",
+      args: contextArgs(),
     })
+    const result = response.message || {}
+    frappe.show_alert({
+      message: __("Synced {0} billing item(s) to the appointment.").replace("{0}", result.added ?? 0),
+      indicator: "green",
+    })
+    await refresh()
+  } catch (err) {
+    frappe.msgprint({
+      title: __("Sync Failed"),
+      message: err?.message || __("Unable to sync billables for this session."),
+      indicator: "red",
+    })
+  } finally {
+    syncingBillables.value = false
+  }
+}
+
+async function completeSession() {
+  if (!encounter.value.name || completingSession.value) return
+  const blockers = sessionBlockers()
+  if (blockers.length) {
+    showBlockers(blockers)
     return
   }
-  frappe.msgprint(__("Encounter completion stays on this page. Submit/complete flow can be wired here next."))
+  completingSession.value = true
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.complete_derma_session",
+      args: contextArgs(),
+    })
+    const result = response.message || {}
+    frappe.show_alert({
+      message: result.encounter_submitted
+        ? __("Encounter completed and submitted.")
+        : __("Session billing synced."),
+      indicator: "green",
+    })
+    await refresh()
+  } catch (err) {
+    frappe.msgprint({
+      title: __("Unable to Complete Session"),
+      message: err?.message || __("Something went wrong while completing this session."),
+      indicator: "red",
+    })
+  } finally {
+    completingSession.value = false
+  }
 }
 
 function contextArgs() {

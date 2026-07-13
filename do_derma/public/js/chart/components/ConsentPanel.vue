@@ -15,6 +15,9 @@
     </header>
 
     <p v-if="error" class="error-text">{{ error }}</p>
+    <p v-if="readOnly" class="status-note">
+      {{ __("Encounter is finalized. New consents cannot be created.") }}
+    </p>
 
     <div v-if="loading" class="empty-state">{{ __("Loading consents...") }}</div>
     <div v-else-if="!hasSessionContext" class="empty-state">
@@ -407,6 +410,16 @@ button:disabled {
 
 .error-text {
   color: #b91c1c;
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+.status-note {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 6px 10px;
   font-size: 12px;
   margin: 0 0 8px;
 }
