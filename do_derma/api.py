@@ -1575,6 +1575,7 @@ def _save_health_annotation(
 	json_text: str = "",
 	annotation_type: str = "Free Drawing",
 	annotation_data: str = "",
+	body_template_title: str = "",
 ) -> str:
 	"""Create/update a Health Annotation (do_health) directly - no dependency on the separate annotation app."""
 	if not file_data:
@@ -1582,15 +1583,20 @@ def _save_health_annotation(
 	if not file_data.startswith("data:image"):
 		frappe.throw(_("Invalid drawing image data."))
 
+	has_title_field = _has_field("Health Annotation", "custom_derma_body_template_title")
+	has_annotation_data_field = _has_field("Health Annotation Table", "annotation_data")
+
 	if annotation_name and frappe.db.exists("Health Annotation", annotation_name):
 		health_annotation = frappe.get_doc("Health Annotation", annotation_name)
 		health_annotation.annotation_template = annotation_template
 		health_annotation.annotation_type = annotation_type
 		health_annotation.json = json_text
+		if has_title_field:
+			health_annotation.custom_derma_body_template_title = body_template_title
 
 		doc = frappe.get_doc(doctype, docname)
 		for row in doc.get("custom_annotations", []):
-			if row.annotation == annotation_name:
+			if has_annotation_data_field and row.annotation == annotation_name:
 				row.annotation_data = annotation_data
 				break
 		doc.flags.ignore_mandatory = True
@@ -1601,17 +1607,18 @@ def _save_health_annotation(
 		health_annotation.annotation_type = annotation_type
 		health_annotation.annotation_template = annotation_template
 		health_annotation.json = json_text
+		if has_title_field:
+			health_annotation.custom_derma_body_template_title = body_template_title
 		health_annotation.insert(ignore_permissions=True)
 
 		doc = frappe.get_doc(doctype, docname)
-		doc.append(
-			"custom_annotations",
-			{
-				"annotation": health_annotation.name,
-				"type": encounter_type,
-				"annotation_data": annotation_data,
-			},
-		)
+		child = {
+			"annotation": health_annotation.name,
+			"type": encounter_type,
+		}
+		if has_annotation_data_field:
+			child["annotation_data"] = annotation_data
+		doc.append("custom_annotations", child)
 		doc.flags.ignore_mandatory = True
 		doc.flags.ignore_validate_update_after_submit = True
 		doc.save(ignore_permissions=True)
@@ -1774,6 +1781,10 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	annotation_name = _save_health_annotation(
 		docname=docname,
 		doctype=doctype,
+		# annotation_template is a Link to the separate annotation app's "Annotation
+		# Template" doctype, which do_derma does not use or depend on - writing a
+		# display string here throws LinkValidationError. The human-readable label
+		# goes into custom_derma_body_template_title (a do_derma-owned field) instead.
 		annotation_template=values.get("annotation_template") or "",
 		annotation_name=values.get("annotation_name"),
 		encounter_type=values.get("encounter_type") or ("Treatment" if doctype == "Clinical Procedure" else ""),
@@ -1781,6 +1792,7 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		json_text=json_text,
 		annotation_type=annotation_type,
 		annotation_data=values.get("annotation_data") or "",
+		body_template_title=values.get("body_template_title") or "",
 	)
 
 	_sync_chart_marks_for_annotation(
