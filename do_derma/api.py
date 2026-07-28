@@ -998,10 +998,14 @@ def _load_annotations_for_parents(parents: list[tuple[str, str]]) -> list[dict[s
 	parent_types = [doctype for doctype, _ in parents if doctype]
 	if not parent_names or not parent_types:
 		return []
+	child_fields = _select_existing_fields(
+		"Health Annotation Table",
+		["parent", "parenttype", "annotation", "type", "annotation_data", "creation", "idx"],
+	)
 	child_rows = frappe.get_all(
 		"Health Annotation Table",
 		filters={"parent": ["in", parent_names], "parenttype": ["in", list(set(parent_types))]},
-		fields=["parent", "parenttype", "annotation", "type", "annotation_data", "creation", "idx"],
+		fields=child_fields,
 		order_by="creation desc, idx desc",
 		limit=1000,
 	)
