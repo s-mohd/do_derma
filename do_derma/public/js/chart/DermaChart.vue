@@ -156,6 +156,7 @@
             v-else-if="activeSection === 'consent'"
             :loading="consentPanel.loading"
             :saving="consentPanel.saving"
+            :sending="consentPanel.sending"
             :error="consentPanel.error"
             :has-session-context="hasSessionContext"
             :encounter-name="consentPanel.encounter"
@@ -164,11 +165,15 @@
             :preview-html="consentPanel.previewHtml"
             :preview-loading="consentPanel.previewLoading"
             :default-signed-by="patient.patient_name || patient.name"
+            :reset-key="consentPanel.resetKey"
             :read-only="isEncounterLocked"
             @refresh="() => loadConsentPanel(true)"
             @request-preview="requestConsentPreview"
             @create="createConsentFromPanel"
+            @send-whatsapp="sendConsentViaWhatsApp"
             @open-consent="openSignedConsent"
+            @resend-consent="resendConsentViaWhatsApp"
+            @cancel-consent="cancelRemoteConsent"
           />
 
           <section v-else class="workspace-shell review-shell">
@@ -711,11 +716,13 @@ const anesthesiaPanel = reactive({ loading: false, saving: false, error: "", enc
 const consentPanel = reactive({
   loading: false,
   saving: false,
+  sending: false,
   error: "",
   encounter: "",
   consents: [],
   previewHtml: "",
   previewLoading: false,
+  resetKey: 0,
 })
 
 const loadedTabs = reactive({
@@ -996,13 +1003,21 @@ const groupedProcedures = computed(() => {
 })
 
 const consentProcedureOptions = computed(() =>
-  procedures.value.map((row) => ({
-    clinical_procedure: row.name,
-    procedure_template: row.procedure_template,
-    procedure_template_label: row.template_label || row.procedure_template,
-    display_name: row.title || row.template_label || row.procedure_template || row.name,
-    status: row.status,
-  }))
+  procedures.value.map((row) => {
+    const value = row.name
+    const label = row.title || row.template_label || row.procedure_template || row.name
+    const description = [row.status, row.derma_category || row.category, row.body_region || row.region_label]
+      .filter(Boolean)
+      .join(" · ")
+    return {
+      value,
+      label,
+      description,
+      clinical_procedure: row.name,
+      procedure_template: row.procedure_template,
+      display_name: label,
+    }
+  })
 )
 
 const assessmentEditableOnSubmitFields = computed(() =>
@@ -2443,38 +2458,81 @@ async function loadConsentPanel(force = false) {
 }
 
 async function requestConsentPreview(payload) {
+  const procedureItems = buildConsentProcedureItems(payload?.procedure_selection)
   consentPanel.previewLoading = true
+  consentPanel.error = ""
   try {
     const response = await frappe.call({
       method: "do_derma.api.render_derma_consent_preview",
-      args: { payload: { ...payload, ...contextArgs(), procedure_items: payload.procedure_items || [] } },
+      args: { payload: { ...payload, ...contextArgs(), procedure_items: procedureItems } },
     })
-    consentPanel.previewHtml = response.message?.rendered_html || ""
+    const raw = response.message?.rendered_html || ""
+    consentPanel.previewHtml = frappe?.utils?.unescape_html ? frappe.utils.unescape_html(raw) : raw
+  } catch (error) {
+    consentPanel.error = error?.message || __("Unable to render consent preview.")
   } finally {
     consentPanel.previewLoading = false
   }
 }
 
 async function createConsentFromPanel(payload) {
+  const procedureItems = buildConsentProcedureItems(payload?.procedure_selection)
   consentPanel.saving = true
+  consentPanel.error = ""
   try {
     const response = await frappe.call({
       method: "do_derma.api.create_derma_consent",
-      args: { payload: { ...payload, ...contextArgs(), procedure_items: payload.procedure_items || [] } },
+      args: { payload: { ...payload, ...contextArgs(), procedure_items: procedureItems } },
     })
     if (response.message?.name) openSignedConsent({ name: response.message.name })
     loadedTabs.consents = false
     await loadConsentPanel(true)
+    consentPanel.previewHtml = ""
+    consentPanel.resetKey += 1
+    frappe.show_alert({ message: __("Consent created."), indicator: "green" })
+  } catch (error) {
+    consentPanel.error = error?.message || __("Unable to create consent.")
   } finally {
     consentPanel.saving = false
   }
+}
+
+function buildConsentProcedureItems(selection = []) {
+  const selected = Array.isArray(selection) ? selection : []
+  return consentProcedureOptions.value
+    .filter((row) => selected.includes(row.value))
+    .map((row) => ({
+      clinical_procedure: row.clinical_procedure || row.value,
+      procedure_template: row.procedure_template || null,
+      display_name: row.display_name || row.label || row.value,
+    }))
+}
+
+function unsupportedRemoteConsentMessage() {
+  frappe.msgprint({
+    title: __("Remote Consent"),
+    message: __("Remote WhatsApp consent signing is not configured for the derma chart yet. Create the consent here, then send it from the standard consent workflow if needed."),
+    indicator: "orange",
+  })
+}
+
+function sendConsentViaWhatsApp() {
+  unsupportedRemoteConsentMessage()
+}
+
+function resendConsentViaWhatsApp() {
+  unsupportedRemoteConsentMessage()
+}
+
+function cancelRemoteConsent() {
+  unsupportedRemoteConsentMessage()
 }
 
 async function openSignedConsent(row) {
   const name = row?.name || row
   if (!name) return
   const dialog = new frappe.ui.Dialog({
-    title: row?.consent_form_template || __("Encounter Consent"),
+    title: row?.consent_form_template || __("Consent Form"),
     size: "large",
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
   })
