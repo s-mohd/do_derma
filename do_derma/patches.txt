@@ -14,3 +14,4 @@ do_derma.patches.seed_standard_derma_body_templates
 do_derma.patches.cleanup_derma_procedure_template_fields
 do_derma.patches.add_derma_annotation_data_field
 do_derma.patches.add_derma_annotation_type_option
+do_derma.patches.ensure_derma_chart_page
