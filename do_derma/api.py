@@ -1199,9 +1199,17 @@ def _serialize_assessment_values(encounter_doc, layout: list[dict[str, Any]]) ->
 				for field in row.get("fields") or []
 				if field.get("fieldname")
 			}
+			# Child rows are Document instances, not dicts - `key in child` raises
+			# TypeError on frappe v16 (Document no longer implements __contains__).
 			values[fieldname] = [
-				{key: child.get(key) for key in allowed if key in child}
-				for child in encounter_doc.get(fieldname) or []
+				{
+					key: child_values.get(key)
+					for key in allowed
+					if key in child_values
+				}
+				for child_values in (
+					child.as_dict() for child in encounter_doc.get(fieldname) or []
+				)
 			]
 		else:
 			values[fieldname] = encounter_doc.get(fieldname)

@@ -1,0 +1,16 @@
+.DS_Store
+*.pyc
+__pycache__/
+*.egg-info/
+.eggs/
+**/node_modules
+**/public/dist/
+.vscode/
+.idea/
+*.log
+*.swp
+tags
+CLAUDE.md
+.claude/
+.superpowers/
+.playwright-mcp/
