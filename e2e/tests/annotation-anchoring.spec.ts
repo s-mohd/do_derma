@@ -1,6 +1,6 @@
 import { expect, Page, test } from "@playwright/test";
 import { APIRequestContext } from "@playwright/test";
-import { ChartContext, getSeedClinicalProcedure, getSeedPatient } from "../helpers/derma";
+import { ChartContext, getSeedClinicalProcedure, getSeedPatient, SEED } from "../helpers/derma";
 import { callMethod } from "../helpers/frappe";
 import { ChartPage } from "../pages";
 
@@ -27,6 +27,26 @@ function shapeCount(json: string): number {
 	return elements.filter((element: { type: string; isDeleted?: boolean }) => element.type === "rectangle" && !element.isDeleted).length;
 }
 
+interface MarkElement {
+	width: number;
+	height: number;
+	customData?: { mark_name?: string; generated_by?: string };
+}
+
+/**
+ * Scene elements linked to a Derma Chart Mark, keyed by mark. Keyed rather than counted
+ * because the seeded anchor is shared and its scene accumulates across runs.
+ */
+function markElementsByName(json: string): Map<string, MarkElement> {
+	const elements = (JSON.parse(json || "{}").elements ?? []) as MarkElement[];
+	const byName = new Map<string, MarkElement>();
+	for (const element of elements) {
+		const name = element.customData?.mark_name;
+		if (name) byName.set(name, element);
+	}
+	return byName;
+}
+
 /** Excalidraw is loaded dynamically after the overlay mounts, so wait on its canvas. */
 async function drawRectangle(page: Page): Promise<void> {
 	const canvas = page.locator(".derma-annotation-canvas canvas").first();
@@ -41,6 +61,27 @@ async function drawRectangle(page: Page): Promise<void> {
 	await page.mouse.move(box.x + box.width * 0.65, box.y + box.height * 0.65, { steps: 12 });
 	await page.mouse.up();
 	await page.waitForTimeout(1000);
+}
+
+/**
+ * Arm the seeded drag-to-size procedure and drag a treatment area. This is the path that
+ * tags the element `kind: "derma_mark"` and stamps a `mark_name` onto it.
+ */
+async function drawAreaMark(page: Page): Promise<void> {
+	const canvas = page.locator(".derma-annotation-canvas canvas").first();
+	await expect(canvas).toBeVisible();
+	await page.waitForTimeout(6000);
+
+	await page.getByRole("button", { name: "Procedures", exact: true }).click();
+	await page.getByRole("button", { name: SEED.areaTemplate }).click();
+	await page.getByRole("button", { name: "Procedures", exact: true }).click();
+
+	const box = (await canvas.boundingBox())!;
+	await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+	await page.mouse.down();
+	await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.6, { steps: 12 });
+	await page.mouse.up();
+	await page.waitForTimeout(2000);
 }
 
 async function saveAndClose(page: Page): Promise<void> {
@@ -132,5 +173,43 @@ test.describe("Annotation anchoring", () => {
 		expect(second, "resuming created a second Health Annotation").toHaveLength(1);
 		expect(second[0].name).toBe(first[0].name);
 		expect(shapeCount(second[0].json), "the resumed drawing was lost").toBe(shapeCount(first[0].json));
+	});
+
+	/**
+	 * renderChartMarks rebuilds a mark's on-canvas shape from its stored centroid, and
+	 * createAreaMark emits a fixed 80x56 box. When it claimed ownership of anything merely
+	 * tagged as a mark, resuming replaced the practitioner's own dragged treatment area with
+	 * that generic box. It must now own only the stamps it generated itself.
+	 */
+	test("keeps a dragged treatment area at its drawn size across resume", async ({ page, request }) => {
+		test.setTimeout(240000);
+		const chart = new ChartPage(page);
+		await chart.open(context);
+		await chart.setSection("procedures");
+
+		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
+		await drawAreaMark(page);
+		await saveAndClose(page);
+
+		const [saved] = await procedureAnnotations(request, context, procedure);
+		const drawn = markElementsByName(saved.json);
+		expect(drawn.size, "the dragged area was never linked to a mark").toBeGreaterThan(0);
+
+		await chart.setSection("procedures");
+		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
+		await expect(page.locator(".derma-annotation-header span")).toContainText("Editing the saved drawing");
+		await page.waitForTimeout(8000);
+		await saveAndClose(page);
+
+		const [resumed] = await procedureAnnotations(request, context, procedure);
+		const after = markElementsByName(resumed.json);
+
+		for (const [markName, before] of drawn) {
+			const element = after.get(markName);
+			expect(element, `mark ${markName} vanished from the resumed scene`).toBeDefined();
+			expect(Math.round(element!.width), `mark ${markName} was replaced by a generated stamp`).toBe(Math.round(before.width));
+			expect(Math.round(element!.height)).toBe(Math.round(before.height));
+			expect(element!.customData?.generated_by).toBeUndefined();
+		}
 	});
 });

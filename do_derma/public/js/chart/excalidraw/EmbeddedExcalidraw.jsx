@@ -1,6 +1,8 @@
 import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react"
 import { createRoot } from "react-dom/client"
 
+const GENERATED_BY_MARKS = "render_chart_marks"
+
 const convertBlobToDataUrl = (blob) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -560,12 +562,15 @@ function renderChartMarks(api, marks = []) {
   if (!api) return
   const bounds = getTemplateBounds(api)
   if (!bounds) return
-  const existing = api
-    .getSceneElements()
-    .filter((element) => element.customData?.kind !== "derma_mark" || element.customData?.mark_name === undefined)
+  // Own only what this function drew. Testing "is a mark" instead would swallow the
+  // practitioner's own dragged area rectangles and freehand strokes, which carry the same
+  // kind/mark_name once tagged, and replace them with a synthetic stamp at their centroid.
+  const existing = api.getSceneElements().filter((element) => element.customData?.generated_by !== GENERATED_BY_MARKS)
+  const alreadyDrawn = new Set(existing.map((element) => element.customData?.mark_name).filter(Boolean))
   const rendered = []
   for (const mark of marks || []) {
-    if (!mark?.name || mark.body_template && mark.body_template !== getTemplateElement(api)?.customData?.template?.name) continue
+    if (!mark?.name || alreadyDrawn.has(mark.name)) continue
+    if (mark.body_template && mark.body_template !== getTemplateElement(api)?.customData?.template?.name) continue
     const isHistory = Boolean(mark._history)
     const origin = {
       x: bounds.x + (Number(mark.x_percent || 0) / 100) * bounds.width,
@@ -594,6 +599,7 @@ function renderChartMarks(api, marks = []) {
       locked: isHistory ? true : element.locked,
       customData: {
         ...(element.customData || {}),
+        generated_by: GENERATED_BY_MARKS,
         mark_name: isHistory ? `history:${mark.name}` : mark.name,
         derma_chart_mark: isHistory ? `history:${mark.name}` : mark.name,
         derma_history: isHistory,
