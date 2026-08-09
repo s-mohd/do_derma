@@ -1,5 +1,5 @@
 <template>
-  <section class="workspace-panel anesthesia-panel">
+  <section class="workspace-panel anesthesia-panel" data-test="anesthesia-panel">
     <header class="panel-header">
       <div class="actions">
         <button type="button" class="ghost" :disabled="loading || saving" @click="$emit('refresh')">{{ __("Refresh") }}</button>
@@ -24,7 +24,7 @@
       {{ __("No encounter found for this session.") }}
     </div>
     <div v-else>
-      <div ref="tableHost" class="table-host"></div>
+      <div ref="tableHost" class="table-host" data-test="anesthesia-table-host"></div>
     </div>
   </section>
 </template>

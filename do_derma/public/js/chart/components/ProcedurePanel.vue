@@ -1,5 +1,5 @@
 <template>
-  <section class="procedure-panel">
+  <section class="procedure-panel" data-test="procedure-panel">
     <div class="procedure-primary-toolbar">
       <label class="history-search">
         <i class="fa-solid fa-magnifying-glass"></i>

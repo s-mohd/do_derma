@@ -1,10 +1,10 @@
 <template>
-  <header class="derma-encounter-header">
+  <header class="derma-encounter-header" data-test="encounter-header">
     <div class="encounter-patient">
       <img v-if="patient.image" :src="patient.image" :alt="patientName" />
       <span v-else class="patient-avatar">{{ initials }}</span>
       <div>
-        <strong>{{ patientName }}</strong>
+        <strong data-test="header-patient-name">{{ patientName }}</strong>
         <small>{{ patientMeta }}</small>
       </div>
     </div>
@@ -29,8 +29,8 @@
     </div>
 
     <div class="encounter-actions">
-      <button type="button" class="ghost small" @click="$emit('refresh')">{{ __("Refresh") }}</button>
-      <button type="button" class="primary" :disabled="!hasSessionContext" @click="$emit('complete')">
+      <button type="button" class="ghost small" data-test="header-refresh" @click="$emit('refresh')">{{ __("Refresh") }}</button>
+      <button type="button" class="primary" data-test="complete-session" :disabled="!hasSessionContext" @click="$emit('complete')">
         {{ __("Complete Encounter") }}
       </button>
     </div>

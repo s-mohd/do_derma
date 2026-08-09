@@ -1,11 +1,12 @@
 <template>
-  <section class="workspace-panel prescription-panel">
+  <section class="workspace-panel prescription-panel" data-test="prescription-panel">
     <header class="panel-header">
       <div class="actions">
         <button type="button" class="ghost" :disabled="loading || saving" @click="$emit('refresh')">{{ __("Refresh") }}</button>
         <button
           type="button"
           class="primary"
+          data-test="prescription-save"
           :disabled="loading || saving || !canSave"
           @click="emitSave"
         >
@@ -27,7 +28,7 @@
       {{ __("No encounter found for this session.") }}
     </div>
     <div v-else>
-      <div ref="tableHost" class="table-host"></div>
+      <div ref="tableHost" class="table-host" data-test="prescription-table-host"></div>
     </div>
   </section>
 </template>
