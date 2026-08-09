@@ -2324,9 +2324,15 @@ function openAnnotationStudio(anchor = {}) {
   })
 }
 
+/**
+ * Only ever resume a drawing that belongs to this anchor. `encounter_annotations` falls back to
+ * the patient's previous visits when this encounter has none (api.py `_load_derma_annotation_context`),
+ * which is what the Previous Annotations strip wants and what resume must never accept - saving
+ * with that annotation_name would overwrite the earlier visit's drawing.
+ */
 function latestAnnotationForAnchor(clinicalProcedure) {
-  const rows = clinicalProcedure ? procedureAnnotations.value[clinicalProcedure] || [] : encounterAnnotations.value
-  return rows[0] || null
+  if (clinicalProcedure) return (procedureAnnotations.value[clinicalProcedure] || [])[0] || null
+  return encounterAnnotations.value.find((row) => row.source_name === encounter.value.name) || null
 }
 
 /**

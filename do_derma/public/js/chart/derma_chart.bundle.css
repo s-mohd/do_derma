@@ -1758,8 +1758,6 @@
 .embedded-excalidraw {
   position: relative;
   isolation: isolate;
-  overscroll-behavior: none;
-  touch-action: none;
 }
 
 .embedded-excalidraw .excalidraw {
@@ -1824,45 +1822,6 @@
   color: var(--derma-text-muted);
   font-size: 14px;
   line-height: 1.55;
-}
-
-.embedded-excalidraw .App-toolbar .ToolIcon__icon[title*="hand" i],
-.embedded-excalidraw .App-toolbar .ToolIcon__icon[aria-label*="hand" i],
-.embedded-excalidraw .App-toolbar .ToolIcon__icon[title*="frame" i],
-.embedded-excalidraw .App-toolbar .ToolIcon__icon[aria-label*="frame" i],
-.embedded-excalidraw .help-icon,
-.embedded-excalidraw .layer-ui__wrapper__footer-left,
-.embedded-excalidraw .layer-ui__wrapper__footer-right,
-.embedded-excalidraw .mobile-misc-tools-container,
-.embedded-excalidraw .App-menu_top__left,
-.embedded-excalidraw .Stack.Stack_vertical.App-menu_top__left,
-.embedded-excalidraw .App-toolbar__divider,
-.embedded-excalidraw .FixedSideContainer_side_top .Island:first-child button[aria-label*="menu" i],
-.embedded-excalidraw .FixedSideContainer_side_top .Island:first-child button[title*="menu" i],
-.embedded-excalidraw button[aria-label*="Library" i],
-.embedded-excalidraw button[title*="Library" i],
-.embedded-excalidraw button[aria-label*="libraries" i],
-.embedded-excalidraw button[title*="libraries" i],
-.embedded-excalidraw button[aria-label*="zoom" i],
-.embedded-excalidraw button[title*="zoom" i],
-.embedded-excalidraw button[aria-label*="scroll" i],
-.embedded-excalidraw button[aria-label*="lock" i],
-.embedded-excalidraw button[title*="lock" i],
-.embedded-excalidraw label[title*="Library" i],
-.embedded-excalidraw .layer-ui__wrapper__top-right:has(label[title*="Library" i]),
-.embedded-excalidraw .sidebar-trigger:has(.sidebar-trigger__label) {
-  display: none !important;
-}
-
-.embedded-excalidraw .layer-ui__wrapper__footer {
-  pointer-events: none;
-}
-
-.embedded-excalidraw .layer-ui__wrapper__footer button[aria-label*="undo" i],
-.embedded-excalidraw .layer-ui__wrapper__footer button[title*="undo" i],
-.embedded-excalidraw .layer-ui__wrapper__footer button[aria-label*="redo" i],
-.embedded-excalidraw .layer-ui__wrapper__footer button[title*="redo" i] {
-  pointer-events: auto;
 }
 
 .embedded-excalidraw .Island {

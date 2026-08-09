@@ -30,7 +30,6 @@ function parseAnnotation(annotation) {
 	const loadingTemplateImage = useRef("")
 	const templateLoadGeneration = useRef(0)
 	const stampSequence = useRef(0)
-	const lockedViewport = useRef(null)
 	const hostRef = useRef(null)
 	const chartTemplateRef = useRef(bodyTemplate || null)
 	const procedureVariablesRef = useRef(procedureVariables || {})
@@ -90,7 +89,7 @@ function parseAnnotation(annotation) {
 	    loadAnnotation: (annotation) => {
       const scene = parseAnnotation(annotation)
       if (!scene || !api) return
-      loadSceneIntoApi(api, scene, lockedViewport, true).then(() => {
+      loadSceneIntoApi(api, scene, true).then(() => {
         latestImported.current = annotation.name || ""
       })
     },
@@ -108,7 +107,7 @@ function parseAnnotation(annotation) {
 		    loadTemplateImage: async (nextTemplate) => {
 	    const target = nextTemplate || chartTemplate
 	    if (!api || !target?.image) return
-	      const loaded = await loadTemplateIntoCanvas(api, target, lockedViewport, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
+	      const loaded = await loadTemplateIntoCanvas(api, target, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
 	      if (!loaded) return
 	      setChartTemplate(target)
 	    },
@@ -119,7 +118,7 @@ function parseAnnotation(annotation) {
       applyDermaTool()
     },
     renderTemplateParts: (parts) => renderTemplateParts(api, parts),
-    resetView: () => resetChartView(api, lockedViewport),
+    resetView: () => fitToTemplate(api),
   }))
 
   useEffect(() => {
@@ -130,7 +129,7 @@ function parseAnnotation(annotation) {
       pendingSceneImport.current = ""
       return
     }
-    loadSceneIntoApi(api, scene, lockedViewport, false).then(() => {
+    loadSceneIntoApi(api, scene, false).then(() => {
       latestImported.current = initialAnnotation.name
       pendingSceneImport.current = ""
       adoptSceneTemplate(api, latestTemplateImage)
@@ -138,7 +137,7 @@ function parseAnnotation(annotation) {
     })
   }, [api, initialAnnotation?.name])
 
-		async function loadSceneIntoApi(api, scene, lockedViewportRef, commitToHistory) {
+		async function loadSceneIntoApi(api, scene, commitToHistory) {
 		  const hydrated = await hydrateTemplateImageFiles(scene)
       for (const file of Object.values(hydrated.files || {})) {
         api.addFiles([file])
@@ -148,7 +147,7 @@ function parseAnnotation(annotation) {
         files: hydrated.files || {},
         commitToHistory,
 	      })
-	      resetChartView(api, lockedViewportRef)
+	      fitToTemplate(api)
 	    }
 
 	useEffect(() => {
@@ -160,7 +159,7 @@ function parseAnnotation(annotation) {
 			if (!api || !chartTemplate?.image || pendingSceneImport.current) return
 			const signature = templateImageSignature(chartTemplate)
 			if (latestTemplateImage.current === signature && getTemplateElement(api)) return
-			loadTemplateIntoCanvas(api, chartTemplate, lockedViewport, latestTemplateImage, loadingTemplateImage, templateLoadGeneration).then((loaded) => {
+			loadTemplateIntoCanvas(api, chartTemplate, latestTemplateImage, loadingTemplateImage, templateLoadGeneration).then((loaded) => {
 				if (!loaded) return
 				renderTemplateParts(api, chartTemplate.parts || [])
 				renderChartMarks(api, marksRef.current)
@@ -183,61 +182,12 @@ function parseAnnotation(annotation) {
 
 	  useEffect(() => {
 	    const host = hostRef.current
-	    if (!host) return
-    const stopWheel = (event) => {
-      event.preventDefault()
-      event.stopPropagation()
-    }
-    const stopMiddlePan = (event) => {
-      if (event.button === 1) {
-        event.preventDefault()
-        event.stopPropagation()
-      }
-    }
-	    const stopSpaceNavigation = (event) => {
-	      if (isTextEditingTarget(event.target)) return
-	      const key = String(event.key || event.code || "").toLowerCase()
-	      const blockedKeys = [" ", "space", "spacebar", "+", "-", "=", "0", "arrowup", "arrowdown", "arrowleft", "arrowright"]
-	      if (blockedKeys.includes(key) || event.code === "Space") {
-	        event.preventDefault()
-	        event.stopPropagation()
-	      }
-	    }
-	    const stopContextMenu = (event) => {
-	      event.preventDefault()
-	      event.stopPropagation()
-	    }
-	    host.addEventListener("wheel", stopWheel, { passive: false, capture: true })
-	    host.addEventListener("mousedown", stopMiddlePan, { capture: true })
-	    host.addEventListener("keydown", stopSpaceNavigation, { capture: true })
-	    host.addEventListener("contextmenu", stopContextMenu, { capture: true })
-	    return () => {
-	      host.removeEventListener("wheel", stopWheel, { capture: true })
-	      host.removeEventListener("mousedown", stopMiddlePan, { capture: true })
-	      host.removeEventListener("keydown", stopSpaceNavigation, { capture: true })
-	      host.removeEventListener("contextmenu", stopContextMenu, { capture: true })
-		    }
-		  }, [])
-
-	  useEffect(() => {
-	    const host = hostRef.current
-	    if (!host) return
-	    const cleanupControls = () => cleanupExcalidrawControls(host)
-	    cleanupControls()
-	    const observer = new MutationObserver(cleanupControls)
-	    observer.observe(host, { childList: true, subtree: true })
-	    return () => observer.disconnect()
-	  }, [])
-
-	  useEffect(() => {
-	    const host = hostRef.current
 	    if (!host || !api || !globalThis.ResizeObserver) return
 	    let timer = null
 	    const observer = new ResizeObserver(() => {
 	      clearTimeout(timer)
 	      timer = setTimeout(() => {
-	        ensureTemplateImage(api, chartTemplateRef.current, lockedViewport, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
-	        resetChartView(api, lockedViewport)
+	        ensureTemplateImage(api, chartTemplateRef.current, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
 	      }, 240)
 	    })
 	    observer.observe(host)
@@ -257,9 +207,6 @@ function parseAnnotation(annotation) {
 			<div
 			  className="embedded-excalidraw"
 			  ref={hostRef}
-			  onAuxClickCapture={blockCanvasNavigation}
-			  onContextMenu={blockCanvasNavigation}
-			  onKeyDownCapture={blockCanvasKeyNavigation}
 			>
       <Excalidraw
         excalidrawAPI={setApi}
@@ -272,24 +219,12 @@ function parseAnnotation(annotation) {
             zoom: { value: 1 },
           },
         }}
-        detectScroll={false}
         handleKeyboardGlobally={false}
         gridModeEnabled={false}
         objectsSnapModeEnabled={false}
         zenModeEnabled={false}
         viewModeEnabled={false}
-        UIOptions={{
-          canvasActions: {
-            changeViewBackgroundColor: false,
-            clearCanvas: false,
-            export: false,
-            loadScene: false,
-            saveAsImage: false,
-            saveToActiveFile: false,
-            toggleTheme: false,
-          },
-	          tools: { image: false, library: false },
-	        }}
+        UIOptions={{ canvasActions: { saveToActiveFile: false } }}
         onPointerDown={(_activeTool, pointerDownState) => {
           const hitElement = pointerDownState?.hit?.element
           if (hitElement?.customData?.derma_history) return
@@ -316,7 +251,6 @@ function parseAnnotation(annotation) {
 		          if (stamp?.elementIds?.length) {
 		            onMarkPlaced?.(buildPlacementPayload(api, template, chartTemplate, origin, stamp, procedureVariablesRef.current, hitRegion))
 		          }
-	          enforceLockedViewport(api, lockedViewport)
 	        }}
 	        onChange={(elements, appState) => {
 	          if (dermaToolRef.current === "area") {
@@ -331,17 +265,7 @@ function parseAnnotation(annotation) {
 	            }
 	            previousDraggingIdRef.current = draggingId
 	          }
-	          if (!lockedViewport.current) return
-	          const zoom = appState?.zoom?.value || 1
-	          if (Math.abs((appState?.scrollX || 0) - lockedViewport.current.scrollX) > 2 ||
-	            Math.abs((appState?.scrollY || 0) - lockedViewport.current.scrollY) > 2 ||
-	            Math.abs(zoom - lockedViewport.current.zoom) > 0.01) {
-	            enforceLockedViewport(api, lockedViewport)
-	          }
 	        }}
-        onScrollChange={() => {
-          enforceLockedViewport(api, lockedViewport)
-        }}
 	      />
 	    </div>
 	  )
@@ -404,29 +328,6 @@ function setDermaTool(api, tool, template) {
     },
     commitToHistory: true,
   })
-}
-
-function blockCanvasNavigation(event) {
-  event.preventDefault()
-  event.stopPropagation()
-}
-
-function blockCanvasKeyNavigation(event) {
-  if (isTextEditingTarget(event.target)) return
-  const key = String(event.key || event.code || "").toLowerCase()
-  const blockedKeys = [" ", "space", "spacebar", "+", "-", "=", "0", "arrowup", "arrowdown", "arrowleft", "arrowright"]
-  if (!blockedKeys.includes(key) && event.code !== "Space") return
-  event.preventDefault()
-  event.stopPropagation()
-}
-
-function isTextEditingTarget(target) {
-  if (!target) return false
-  const tagName = String(target.tagName || "").toLowerCase()
-  return tagName === "input" ||
-    tagName === "textarea" ||
-    target.isContentEditable ||
-    String(target.getAttribute?.("role") || "").toLowerCase() === "textbox"
 }
 
 function insertProcedureStamp(api, template, origin, sequence, procedureVariables = {}) {
@@ -977,7 +878,7 @@ function templateImageSignature(template) {
   return [template?.name, template?.image, template?.view_key].filter(Boolean).join("|")
 }
 
-async function loadTemplateIntoCanvas(api, template, lockedViewportRef, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef) {
+async function loadTemplateIntoCanvas(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef) {
   if (!api || !template?.image) return false
   const signature = templateImageSignature(template)
   if (loadingTemplateImageRef.current === signature) return false
@@ -985,7 +886,7 @@ async function loadTemplateIntoCanvas(api, template, lockedViewportRef, latestTe
   const generation = (templateLoadGenerationRef.current || 0) + 1
   templateLoadGenerationRef.current = generation
   try {
-    const loaded = await insertTemplateImage(api, template, lockedViewportRef, { generation, templateLoadGenerationRef })
+    const loaded = await insertTemplateImage(api, template, { generation, templateLoadGenerationRef })
     if (!loaded) return false
     latestTemplateImageRef.current = signature
     return true
@@ -994,7 +895,7 @@ async function loadTemplateIntoCanvas(api, template, lockedViewportRef, latestTe
   }
 }
 
-async function insertTemplateImage(api, template, lockedViewportRef, guard = {}) {
+async function insertTemplateImage(api, template, guard = {}) {
   const signature = templateImageSignature(template)
   const { dataURL, width: naturalWidth, height: naturalHeight, mimeType } = await imageUrlToRenderableData(template.image)
   if (isStaleTemplateLoad(guard)) return false
@@ -1061,7 +962,7 @@ async function insertTemplateImage(api, template, lockedViewportRef, guard = {})
     elements: [imageElement, ...existing],
     commitToHistory: true,
   })
-  resetChartView(api, lockedViewportRef)
+  fitToTemplate(api)
   api.refresh?.()
   return true
 }
@@ -1070,7 +971,7 @@ function isStaleTemplateLoad(guard = {}) {
   return Boolean(guard.templateLoadGenerationRef && guard.generation !== guard.templateLoadGenerationRef.current)
 }
 
-function ensureTemplateImage(api, template, lockedViewportRef, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef) {
+function ensureTemplateImage(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef) {
   if (!api || !template?.image) return
   const signature = templateImageSignature(template)
   if (loadingTemplateImageRef.current === signature) return
@@ -1081,7 +982,7 @@ function ensureTemplateImage(api, template, lockedViewportRef, latestTemplateIma
     templateElement.status === "saved" &&
     templateElement.customData?.signature === signature
   if (hasRenderableImage) return
-  loadTemplateIntoCanvas(api, template, lockedViewportRef, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef)
+  loadTemplateIntoCanvas(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef)
 }
 
 async function hydrateTemplateImageFiles(scene) {
@@ -1096,7 +997,11 @@ async function hydrateTemplateImageFiles(scene) {
       elementDataUrls[element.fileId] = hydratedFiles[element.fileId].dataURL
       continue
     }
-    const template = element.customData?.template || scene.derma_template
+    // Only the body template may fall back to the scene-level template. A user-inserted photo
+    // that lost its file entry must render as Excalidraw's placeholder, not as the silhouette -
+    // a visibly missing image is safer than a confidently wrong one.
+    const isTemplateImage = element.customData?.kind === "derma_template"
+    const template = element.customData?.template || (isTemplateImage ? scene.derma_template : null)
     if (!template?.image) continue
     try {
       const { dataURL, mimeType } = await imageUrlToRenderableData(template.image)
@@ -1167,102 +1072,14 @@ function normalizeBinaryFile(file) {
   }
 }
 
-function resetChartView(api, lockedViewportRef) {
+function fitToTemplate(api) {
   if (!api) return
   const templateElement = getTemplateElement(api)
   const visibleElements = templateElement && !templateElement.isDeleted
     ? [templateElement]
     : api.getSceneElements().filter((element) => !element.isDeleted)
   if (!visibleElements.length) return
-  lockedViewportRef.current = null
-  api.scrollToContent(visibleElements, {
-    fitToViewport: true,
-    viewportZoomFactor: 0.72,
-  })
-  setTimeout(() => {
-    const appState = api.getAppState()
-    const zoom = clamp(appState.zoom?.value || 1, 0.18, 1.8)
-    const locked = {
-      scrollX: appState.scrollX,
-      scrollY: appState.scrollY,
-      zoom,
-    }
-    lockedViewportRef.current = locked
-    api.updateScene({
-      appState: {
-        ...appState,
-        scrollX: locked.scrollX,
-        scrollY: locked.scrollY,
-        zoom: { value: locked.zoom },
-      },
-      commitToHistory: false,
-    })
-    api.refresh?.()
-  }, 80)
-}
-
-function enforceLockedViewport(api, lockedViewportRef) {
-  if (!api || !lockedViewportRef?.current) return
-  const appState = api.getAppState()
-  const locked = lockedViewportRef.current
-  const currentZoom = appState.zoom?.value || 1
-  const shouldReset =
-    Math.abs((appState.scrollX || 0) - locked.scrollX) > 2 ||
-    Math.abs((appState.scrollY || 0) - locked.scrollY) > 2 ||
-    Math.abs(currentZoom - locked.zoom) > 0.01 ||
-    currentZoom < 0.18 ||
-    currentZoom > 1.8
-  if (shouldReset) {
-    api.updateScene({
-      appState: {
-        ...appState,
-        scrollX: locked.scrollX,
-        scrollY: locked.scrollY,
-        zoom: { value: locked.zoom },
-      },
-      commitToHistory: false,
-    })
-    api.refresh?.()
-  }
-}
-
-function cleanupExcalidrawControls(host) {
-  const hiddenSelectors = [
-    ".mobile-misc-tools-container",
-    ".App-menu_top__left",
-    ".Stack.Stack_vertical.App-menu_top__left",
-  ]
-  for (const selector of hiddenSelectors) {
-    host.querySelectorAll(selector).forEach((element) => {
-      element.style.display = "none"
-      element.setAttribute("aria-hidden", "true")
-    })
-  }
-  host.querySelectorAll("button").forEach((button) => {
-    const label = [
-      button.textContent,
-      button.getAttribute("aria-label"),
-      button.getAttribute("title"),
-    ].filter(Boolean).join(" ").toLowerCase()
-    if (!label.includes("library") && !label.includes("libraries")) return
-    button.style.display = "none"
-    button.setAttribute("aria-hidden", "true")
-    const island = button.closest(".Island")
-    if (island && island.querySelectorAll("button:not([aria-hidden='true'])").length === 0) {
-      island.style.display = "none"
-    }
-  })
-  host.querySelectorAll("label, .sidebar-trigger, .sidebar-trigger__label").forEach((element) => {
-    const label = [
-      element.textContent,
-      element.getAttribute?.("aria-label"),
-      element.getAttribute?.("title"),
-    ].filter(Boolean).join(" ").toLowerCase()
-    if (!label.includes("library") && !label.includes("libraries")) return
-    const container = element.closest(".layer-ui__wrapper__top-right") || element.closest(".Island") || element
-    container.style.display = "none"
-    container.setAttribute("aria-hidden", "true")
-  })
+  api.scrollToContent(visibleElements, { fitToViewport: true, viewportZoomFactor: 0.72 })
 }
 
 async function imageUrlToRenderableData(url) {

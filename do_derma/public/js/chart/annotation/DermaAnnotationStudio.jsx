@@ -460,6 +460,15 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
           <div className="derma-annotation-header-actions">
             <button type="button" className={drawer === "templates" ? "active" : "ghost"} onClick={() => setDrawer(drawer === "templates" ? "" : "templates")}>{__("Templates")}</button>
             <button type="button" className={drawer === "procedures" ? "active" : "ghost"} onClick={() => setDrawer(drawer === "procedures" ? "" : "procedures")}>{__("Procedures")}</button>
+            <button
+              type="button"
+              className="ghost"
+              data-test="annotation-fit-template"
+              title={__("Fit the body template back into view")}
+              onClick={() => embeddedRef.current?.resetView?.()}
+            >
+              {__("Fit")}
+            </button>
             <label>
               <input type="checkbox" checked={includeBadges} onChange={(event) => setIncludeBadges(event.target.checked)} />
               {__("Badges")}
