@@ -1,11 +1,11 @@
 <template>
-  <div class="dental-chart-page derma-chart-page">
-    <div v-if="!contextReady" class="chart-empty-state">
+  <div class="dental-chart-page derma-chart-page" data-test="derma-chart-root">
+    <div v-if="!contextReady" class="chart-empty-state" data-test="chart-empty-state">
       <h3>{{ __("Select a patient") }}</h3>
       <p>{{ __("Use the health sidebar to select a patient, then open Derma Chart.") }}</p>
     </div>
 
-    <div v-else-if="loading && !patient.name" class="chart-loading-skeleton" role="status" :aria-label="__('Loading derma chart')">
+    <div v-else-if="loading && !patient.name" class="chart-loading-skeleton" role="status" data-test="chart-loading" :aria-label="__('Loading derma chart')">
       <div class="skeleton-block skeleton-header"></div>
       <div class="skeleton-block skeleton-tabs"></div>
       <div class="skeleton-grid">
@@ -14,14 +14,14 @@
       </div>
     </div>
 
-    <div v-else-if="loadError && !patient.name" class="chart-error-state">
+    <div v-else-if="loadError && !patient.name" class="chart-error-state" data-test="chart-error">
       <h3>{{ __("Unable to load Derma Chart") }}</h3>
       <p>{{ loadError }}</p>
-      <button type="button" class="primary" @click="refresh">{{ __("Retry") }}</button>
+      <button type="button" class="primary" data-test="chart-error-retry" @click="refresh">{{ __("Retry") }}</button>
     </div>
 
     <template v-else>
-      <div v-if="loadError" class="chart-error-banner" role="alert">
+      <div v-if="loadError" class="chart-error-banner" role="alert" data-test="chart-error-banner">
         <span>{{ loadError }}</span>
         <button type="button" class="ghost small" @click="refresh">{{ __("Retry") }}</button>
       </div>
@@ -38,12 +38,14 @@
         @complete="completeSession"
       />
 
-      <section class="derma-section-bar">
+      <section class="derma-section-bar" data-test="derma-section-bar">
         <nav class="derma-section-tabs" :aria-label="__('Derma encounter sections')">
           <button
             v-for="section in SECTION_TABS"
             :key="section.key"
             type="button"
+            :data-test="`section-tab-${section.key}`"
+            :data-active="activeSection === section.key ? 'true' : 'false'"
             :class="{ active: activeSection === section.key }"
             @click="setActiveSection(section.key)"
           >
@@ -52,11 +54,11 @@
           </button>
         </nav>
         <div class="derma-section-actions">
-          <button type="button" class="ghost" @click="openAnnotationStudio">
+          <button type="button" class="ghost" data-test="open-annotation-studio" @click="openAnnotationStudio">
             <span aria-hidden="true">✎</span>
             {{ __("Annotate") }}
           </button>
-          <button type="button" class="ghost" @click="uploadPhotos('Visit')">
+          <button type="button" class="ghost" data-test="upload-photo" @click="uploadPhotos('Visit')">
             <span aria-hidden="true">▧</span>
             {{ __("Upload Photo") }}
           </button>
@@ -66,23 +68,27 @@
       <section class="derma-console-grid">
         <main class="derma-console-main">
           <template v-if="activeSection === 'clinical'">
-            <div class="clinical-notes-grid">
+            <div class="clinical-notes-grid" data-test="clinical-section">
               <section class="clinical-soap-stack">
                 <AssessmentPanel
+                  :mode="assessmentPanel.mode"
+                  :is-stamped="assessmentPanel.isStamped"
+                  :available-modes="assessmentPanel.availableModes"
                   :layout="assessmentPanel.layout"
                   :values="assessmentPanel.values"
+                  :soap-layout="assessmentPanel.soapLayout"
+                  :soap-values="assessmentPanel.soapValues"
                   :context-values="assessmentPanel.contextValues"
                   :loading="assessmentPanel.loading"
                   :saving="assessmentPanel.saving"
                   :error="assessmentPanel.error"
                   :has-encounter="Boolean(assessmentPanel.encounter)"
-                  :encounter-name="assessmentPanel.encounter"
                   :docstatus="assessmentPanel.docstatus"
                   :edit-mode="assessmentPanel.editing"
                   :allow-on-submit-fields="assessmentEditableOnSubmitFields"
                   @request-edit="assessmentPanel.editing = true"
                   @save="saveAssessment"
-                  @refresh="() => loadAssessment(true)"
+                  @change-mode="setAssessmentMode"
                 />
                 <section class="chart-annotation-history encounter-annotation-history">
                   <header>
@@ -114,13 +120,13 @@
           </template>
 
           <template v-else-if="activeSection === 'photos'">
-            <section class="section-panel photo-section-panel">
+            <section class="section-panel photo-section-panel" data-test="photos-section">
               <header>
                 <div>
                   <strong>{{ __("Photos & Comparison") }}</strong>
                   <small>{{ activeProcedure ? __("Photos will link to the active procedure.") : __("Photos will save as encounter evidence.") }}</small>
                 </div>
-                <button type="button" class="primary small" @click="uploadPhotos(activeProcedure ? 'Procedure' : 'Visit')">{{ __("Upload Photo") }}</button>
+                <button type="button" class="primary small" data-test="photos-upload" @click="uploadPhotos(activeProcedure ? 'Procedure' : 'Visit')">{{ __("Upload Photo") }}</button>
               </header>
               <DermaEvidencePanel
                 :active-procedure="activeProcedure"
@@ -176,7 +182,7 @@
             @cancel-consent="cancelRemoteConsent"
           />
 
-          <section v-else class="workspace-shell review-shell">
+          <section v-else class="workspace-shell review-shell" data-test="review-section">
         <div class="workspace-tabview">
           <div class="workspace-content review-section-stack">
             <ProcedurePanel
@@ -603,7 +609,7 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
-import AssessmentPanel from "./components/AssessmentPanel.vue"
+import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
 import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
@@ -706,8 +712,13 @@ const assessmentPanel = reactive({
   error: "",
   encounter: "",
   docstatus: null,
+  mode: "Structured",
+  isStamped: false,
+  availableModes: ["Structured"],
   layout: [],
   values: {},
+  soapLayout: [],
+  soapValues: {},
   contextValues: {},
 })
 
@@ -1020,9 +1031,10 @@ const consentProcedureOptions = computed(() =>
   })
 )
 
-const assessmentEditableOnSubmitFields = computed(() =>
-  (assessmentPanel.layout || []).filter((row) => row.allow_on_submit).map((row) => row.fieldname).filter(Boolean)
-)
+const assessmentEditableOnSubmitFields = computed(() => {
+  const layout = assessmentPanel.mode === "SOAP" ? assessmentPanel.soapLayout : assessmentPanel.layout
+  return (layout || []).filter((row) => row.allow_on_submit).map((row) => row.fieldname).filter(Boolean)
+})
 
 const visibleMarks = computed(() => {
   const templateName = selectedTemplate.value?.name
@@ -2124,39 +2136,6 @@ async function refreshVisitSummary() {
   data.value = { ...data.value, visit_summary: response.message || "" }
 }
 
-async function copySummaryToAssessment() {
-  if (!visitSummary.value) return
-  summarySaving.value = true
-  try {
-    if (!loadedTabs.assessment) await loadAssessment(true)
-    const fieldname = assessmentSummaryField()
-    if (!fieldname) {
-      frappe.msgprint(__("No editable text field was found in the encounter assessment tab."))
-      return
-    }
-    const current = assessmentPanel.values?.[fieldname] || ""
-    const nextValue = current && !String(current).includes(visitSummary.value)
-      ? `${current}\n\n${visitSummary.value}`
-      : visitSummary.value
-    await saveAssessment({ [fieldname]: nextValue })
-    activeWorkspaceTab.value = "assessment"
-    assessmentPanel.editing = true
-    frappe.show_alert({ message: __("Derma summary copied to assessment"), indicator: "green" })
-  } finally {
-    summarySaving.value = false
-  }
-}
-
-function assessmentSummaryField() {
-  const rows = assessmentPanel.layout || []
-  const writableTextRows = rows.filter((row) => {
-    if (!row.fieldname || !row.is_value_field || row.read_only || row.is_table) return false
-    return ["Text", "Small Text", "Long Text", "Text Editor", "Markdown Editor"].includes(row.fieldtype)
-  })
-  const preferred = writableTextRows.find((row) => /assessment|summary|note|plan|objective|subjective/i.test(`${row.fieldname} ${row.label}`))
-  return (preferred || writableTextRows[0] || {}).fieldname || ""
-}
-
 async function saveAnnotation() {
   if (!encounter.value.name) {
     frappe.msgprint(__("A Patient Encounter is required before saving the drawing."))
@@ -2353,13 +2332,7 @@ async function loadAssessment(force = false) {
   assessmentPanel.error = ""
   try {
     const response = await frappe.call({ method: "do_derma.api.get_derma_assessment", args: contextArgs() })
-    const message = response.message || {}
-    assessmentPanel.encounter = message.encounter || ""
-    assessmentPanel.docstatus = message.docstatus
-    assessmentPanel.layout = message.layout || []
-    assessmentPanel.values = message.values || {}
-    assessmentPanel.contextValues = message.context_values || {}
-    assessmentPanel.editing = false
+    applyAssessmentResponse(response.message || {})
     loadedTabs.assessment = true
   } catch (error) {
     assessmentPanel.error = error?.message || __("Unable to load assessment.")
@@ -2368,18 +2341,45 @@ async function loadAssessment(force = false) {
   }
 }
 
-async function saveAssessment(payload) {
+function applyAssessmentResponse(message) {
+  assessmentPanel.encounter = message.encounter || ""
+  assessmentPanel.docstatus = message.docstatus
+  assessmentPanel.mode = message.mode || "Structured"
+  assessmentPanel.isStamped = Boolean(message.is_stamped)
+  assessmentPanel.availableModes = message.available_modes || ["Structured"]
+  assessmentPanel.layout = message.layout || []
+  assessmentPanel.values = message.values || {}
+  assessmentPanel.soapLayout = message.soap_layout || []
+  assessmentPanel.soapValues = message.soap_values || {}
+  assessmentPanel.contextValues = message.context_values || {}
+  assessmentPanel.editing = false
+}
+
+async function saveAssessment({ payload, mode }) {
   assessmentPanel.saving = true
   try {
-    const response = await frappe.call({ method: "do_derma.api.set_derma_assessment", args: { ...contextArgs(), payload } })
-    const message = response.message || {}
-    assessmentPanel.encounter = message.encounter || assessmentPanel.encounter
-    assessmentPanel.docstatus = message.docstatus
-    assessmentPanel.layout = message.layout || assessmentPanel.layout
-    assessmentPanel.values = message.values || {}
-    assessmentPanel.contextValues = message.context_values || {}
-    assessmentPanel.editing = false
+    const response = await frappe.call({
+      method: "do_derma.api.set_derma_assessment",
+      args: { ...contextArgs(), payload, mode },
+    })
+    applyAssessmentResponse(response.message || {})
     frappe.show_alert({ message: __("Assessment saved"), indicator: "green" })
+  } finally {
+    assessmentPanel.saving = false
+  }
+}
+
+async function setAssessmentMode(mode) {
+  assessmentPanel.saving = true
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.set_derma_assessment_mode",
+      args: { ...contextArgs(), mode },
+    })
+    applyAssessmentResponse(response.message || {})
+    assessmentPanel.editing = true
+  } catch (error) {
+    assessmentPanel.error = error?.message || __("Unable to change the documentation format.")
   } finally {
     assessmentPanel.saving = false
   }

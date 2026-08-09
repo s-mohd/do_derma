@@ -5,11 +5,13 @@ import json
 from typing import Any
 
 import frappe
+from do_health.api.appointment_methods import create_encounter_for_appointment
 from frappe import _
 from frappe.utils import add_days, cint, flt, getdate, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
-from do_health.api.appointment_methods import create_encounter_for_appointment
 
+from do_derma import assessment
+from do_derma.assessment import CHILD_INTERNAL_FIELDS
 
 DERMA_FINDING_FIELDS = [
 	"name",
@@ -154,31 +156,6 @@ CLINICAL_ACCESS_ROLES = {
 	"Physician",
 }
 
-ASSESSMENT_TAB_FIELDNAME = "custom_assessment"
-TABLE_FIELD_TYPES = {"Table", "Table MultiSelect"}
-NO_VALUE_FIELD_TYPES = {
-	"Section Break",
-	"Column Break",
-	"Tab Break",
-	"Button",
-	"Image",
-	"HTML",
-	"Fold",
-	"Heading",
-}
-CHILD_INTERNAL_FIELDS = {
-	"name",
-	"doctype",
-	"parent",
-	"parenttype",
-	"parentfield",
-	"idx",
-	"owner",
-	"creation",
-	"modified",
-	"modified_by",
-	"docstatus",
-}
 STANDARD_DB_FIELDS = {
 	"name",
 	"owner",
@@ -1126,96 +1103,6 @@ def _resolve_patient_encounter_doc(
 	return doc
 
 
-def _assessment_tab_layout() -> list[dict[str, Any]]:
-	meta = frappe.get_meta("Patient Encounter")
-	in_assessment = False
-	layout = []
-	for df in meta.fields:
-		if df.fieldtype == "Tab Break":
-			if df.fieldname == ASSESSMENT_TAB_FIELDNAME:
-				in_assessment = True
-				continue
-			if in_assessment:
-				break
-		if not in_assessment or not df.fieldname:
-			continue
-		row = {
-			"fieldname": df.fieldname,
-			"fieldtype": df.fieldtype,
-			"label": df.label,
-			"options": df.options,
-			"reqd": cint(df.reqd),
-			"read_only": cint(df.read_only),
-			"hidden": cint(df.hidden),
-			"depends_on": df.depends_on,
-			"read_only_depends_on": df.read_only_depends_on,
-			"mandatory_depends_on": df.mandatory_depends_on,
-			"default": df.default,
-			"allow_on_submit": cint(df.allow_on_submit),
-			"is_value_field": df.fieldtype not in NO_VALUE_FIELD_TYPES,
-			"show_if_empty": cint(getattr(df, "show_if_empty", 0)),
-			"layout_key": f"{df.fieldname}-{df.idx}",
-			"idx": df.idx,
-		}
-		if df.fieldtype in TABLE_FIELD_TYPES and df.options:
-			row["fields"] = _child_table_layout(df.options)
-		layout.append(row)
-	return layout
-
-
-def _child_table_layout(doctype: str) -> list[dict[str, Any]]:
-	if not _has_doctype(doctype):
-		return []
-	fields = []
-	for df in frappe.get_meta(doctype).fields:
-		if not df.fieldname or df.fieldname in CHILD_INTERNAL_FIELDS:
-			continue
-		fields.append(
-			{
-				"fieldname": df.fieldname,
-				"fieldtype": df.fieldtype,
-				"label": df.label,
-				"options": df.options,
-				"reqd": cint(df.reqd),
-				"read_only": cint(df.read_only),
-				"hidden": cint(df.hidden),
-				"in_list_view": cint(df.in_list_view),
-				"columns": cint(getattr(df, "columns", 0) or 0),
-				"default": df.default,
-			}
-		)
-	return fields
-
-
-def _serialize_assessment_values(encounter_doc, layout: list[dict[str, Any]]) -> dict[str, Any]:
-	values = {}
-	for row in layout:
-		fieldname = row.get("fieldname")
-		if not fieldname or not row.get("is_value_field"):
-			continue
-		if row.get("fieldtype") in TABLE_FIELD_TYPES:
-			allowed = {
-				field.get("fieldname")
-				for field in row.get("fields") or []
-				if field.get("fieldname")
-			}
-			# Child rows are Document instances, not dicts - `key in child` raises
-			# TypeError on frappe v16 (Document no longer implements __contains__).
-			values[fieldname] = [
-				{
-					key: child_values.get(key)
-					for key in allowed
-					if key in child_values
-				}
-				for child_values in (
-					child.as_dict() for child in encounter_doc.get(fieldname) or []
-				)
-			]
-		else:
-			values[fieldname] = encounter_doc.get(fieldname)
-	return values
-
-
 def _parse_payload(value: Any) -> Any:
 	if isinstance(value, str):
 		try:
@@ -2086,63 +1973,38 @@ def _link_procedure_annotation(clinical_procedure: str | None, annotation: str |
 @frappe.whitelist()
 def get_derma_assessment(encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
-	layout = _assessment_tab_layout()
 	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient)
 	if not encounter_doc:
-		return {"encounter": "", "docstatus": None, "layout": layout, "values": {}, "context_values": {}}
-	return {
-		"encounter": encounter_doc.name,
-		"docstatus": cint(encounter_doc.docstatus),
-		"layout": layout,
-		"values": _serialize_assessment_values(encounter_doc, layout),
-		"context_values": {
-			"patient": encounter_doc.get("patient"),
-			"appointment": encounter_doc.get("appointment"),
-			"practitioner": encounter_doc.get("practitioner"),
-		},
-	}
+		return assessment.empty_assessment()
+	return assessment.read_assessment(encounter_doc)
 
 
 @frappe.whitelist()
-def set_derma_assessment(payload=None, encounter=None, appointment=None, patient=None):
+def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
 	values = _parse_payload(payload) or {}
 	if not isinstance(values, dict):
 		frappe.throw(_("Assessment payload must be an object."), frappe.ValidationError)
 
-	layout = _assessment_tab_layout()
-	field_map = {row.get("fieldname"): row for row in layout if row.get("fieldname") and row.get("is_value_field")}
 	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient, ptype="write")
 	if not encounter_doc:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
-	if cint(encounter_doc.docstatus) == 2:
-		frappe.throw(_("Cancelled encounters cannot be edited."))
 
-	only_allow_on_submit = cint(encounter_doc.docstatus) == 1
-	for fieldname, value in values.items():
-		row = field_map.get(fieldname)
-		if not row:
-			continue
-		if only_allow_on_submit and not cint(row.get("allow_on_submit")):
-			continue
-		if row.get("fieldtype") in TABLE_FIELD_TYPES:
-			child_fields = {
-				field.get("fieldname")
-				for field in row.get("fields") or []
-				if field.get("fieldname")
-			}
-			encounter_doc.set(
-				fieldname,
-				[
-					{key: child.get(key) for key in child_fields if key in child}
-					for child in (value or [])
-					if isinstance(child, dict)
-				],
-			)
-		else:
-			encounter_doc.set(fieldname, value)
-
+	assessment.apply_assessment(encounter_doc, values, mode=mode)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
+	encounter_doc.save(ignore_permissions=True)
+	return get_derma_assessment(encounter=encounter_doc.name)
+
+
+@frappe.whitelist()
+def set_derma_assessment_mode(mode, encounter=None, appointment=None, patient=None):
+	"""Change the documented format. Writes no content and deletes nothing."""
+	_ensure_clinical_access()
+	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient, ptype="write")
+	if not encounter_doc:
+		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
+
+	assessment.stamp_mode(encounter_doc, mode)
 	encounter_doc.save(ignore_permissions=True)
 	return get_derma_assessment(encounter=encounter_doc.name)
 

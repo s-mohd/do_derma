@@ -19,3 +19,7 @@ fixtures = [
 	{"dt": "Custom Field", "filters": {"module": "Do Derma"}},
 	{"dt": "Property Setter", "filters": {"module": "Do Derma"}},
 ]
+
+# Runs on every migrate, bypassing Patch Log, so a site whose patches are recorded
+# as applied but whose fields are missing converges anyway. Idempotent.
+after_migrate = "do_derma.install.after_migrate"
