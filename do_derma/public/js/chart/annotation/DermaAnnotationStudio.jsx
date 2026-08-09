@@ -77,6 +77,22 @@ function procedureVariables(procedure = {}) {
   return procedure.derma_variables || procedure.variables || []
 }
 
+function anchorDescription(context = {}) {
+  if (context.clinicalProcedure) {
+    return `${__("Procedure")} — ${context.procedureLabel || context.clinicalProcedure}`
+  }
+  return `${__("Consultation")} — ${context.patientName || context.patient || ""}`.trim()
+}
+
+function resumedTemplateName(annotation) {
+  if (!annotation?.json) return ""
+  try {
+    return JSON.parse(annotation.json)?.derma_template?.name || ""
+  } catch {
+    return ""
+  }
+}
+
 function collectBadgeItems(elements, partValues, parts, procedures) {
   const items = []
   for (const element of elements || []) {
@@ -246,11 +262,12 @@ function badgeElements(items) {
   })
 }
 
-function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onClose, onSaved }) {
+function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, annotation, marks, onClose, onSaved }) {
   ensureProcessEnv()
   const embeddedRef = useRef(null)
   const [drawer, setDrawer] = useState("")
-  const [selectedTemplateName, setSelectedTemplateName] = useState("")
+  const [annotationName, setAnnotationName] = useState(annotation?.name || "")
+  const [selectedTemplateName, setSelectedTemplateName] = useState(() => resumedTemplateName(annotation))
   const [selectedProcedures, setSelectedProcedures] = useState([])
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
@@ -260,6 +277,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
   const [includeBadges, setIncludeBadges] = useState(true)
   const [placedMarkCount, setPlacedMarkCount] = useState(0)
 
+  const anchorDoctype = context.clinicalProcedure ? "Clinical Procedure" : "Patient Encounter"
+  const anchorName = context.clinicalProcedure || context.encounter || ""
   const templates = useMemo(() => (bodyTemplates || []).filter((template) => template.image), [bodyTemplates])
   const procedures = useMemo(() => (procedureTemplates || []).filter((procedure) => procedure.name), [procedureTemplates])
   const templateGroups = useMemo(() => groupedTemplates(templates), [templates])
@@ -342,6 +361,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
             patient: context.patient,
             appointment: context.appointment,
             encounter: context.encounter,
+            clinical_procedure: context.clinicalProcedure || null,
             procedure_template: payload.procedure_template,
             category: payload.category,
             marker_behavior: payload.marker_behavior,
@@ -374,7 +394,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
   }
 
   async function save() {
-    if (!context?.encounter) {
+    if (!anchorName) {
       window.frappe?.msgprint?.(__("A Patient Encounter is required before saving annotation."))
       return
     }
@@ -395,14 +415,18 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
             patient: context.patient,
             appointment: context.appointment,
             encounter: context.encounter,
-            doctype: "Patient Encounter",
-            docname: context.encounter,
+            doctype: anchorDoctype,
+            docname: anchorName,
+            clinical_procedure: context.clinicalProcedure || null,
+            annotation_name: annotationName || null,
             annotation_template: selectedTemplate?.annotation_template || "",
             body_template: selectedTemplate?.name || "",
             body_template_title: selectedTemplate?.title || "",
             body_template_image: selectedTemplate?.image || "",
             annotation_type: badgeItems.length ? "Predefined Annotations" : "Free Drawing",
-            encounter_type: "Derma Annotation",
+            // Left blank for a procedure anchor so the server owns the one rule that
+            // procedure-anchored rows are typed "Treatment".
+            encounter_type: context.clinicalProcedure ? "" : "Derma Annotation",
             annotation_data: generateAnnotationDataHTML(badgeItems),
             json_text: exported.json_text,
             file_data: exported.file_data,
@@ -410,6 +434,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
         },
       })
       window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
+      if (response.message?.name) setAnnotationName(response.message.name)
       onSaved?.(response.message)
       onClose?.()
     } catch (error) {
@@ -425,8 +450,12 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
       <section className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure ? "tagging" : ""}`}>
         <header className="derma-annotation-header">
           <div>
-            <strong>{__("Derma Annotation")}</strong>
-            <span>{__("Annotate this encounter. Use the template and procedure buttons when you need to change context.")}</span>
+            <strong data-test="annotation-anchor">{anchorDescription(context)}</strong>
+            <span>
+              {annotationName
+                ? __("Editing the saved drawing. Saving updates it in place.")
+                : __("New drawing. Use the template and procedure buttons when you need to change context.")}
+            </span>
           </div>
           <div className="derma-annotation-header-actions">
             <button type="button" className={drawer === "templates" ? "active" : "ghost"} onClick={() => setDrawer(drawer === "templates" ? "" : "templates")}>{__("Templates")}</button>
@@ -466,7 +495,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
                       className={selectedTemplate?.name === template.name ? "active" : ""}
                       onClick={() => setSelectedTemplateName(template.name)}
                     >
-                      <span>{template.image ? <img src={template.image} alt="" /> : null}</span>
+                      <TemplateThumbnail template={template} />
                       <b>{template.title || template.name}</b>
                       <small>{[template.gender, template.template_type].filter(Boolean).join(" / ")}</small>
                     </button>
@@ -506,7 +535,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
             selectedTemplate={selectedTemplate}
             bodyTemplate={selectedTemplate}
             procedureVariables={procedureValues[activeProcedure] || {}}
-            marks={[]}
+            initialAnnotation={annotation}
+            marks={marks || []}
             onMarkPlaced={handleMarkPlaced}
             onMarkSelected={handleMarkSelected}
             onRegionSelected={handleRegionSelected}
@@ -547,6 +577,18 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, onC
         </aside>
       </section>
     </div>
+  )
+}
+
+function TemplateThumbnail({ template }) {
+  const [broken, setBroken] = useState(false)
+  if (!template.image || broken) {
+    return <span className="derma-template-thumb-missing">{__("Image unavailable")}</span>
+  }
+  return (
+    <span>
+      <img src={template.image} alt="" onError={() => setBroken(true)} />
+    </span>
   )
 }
 
@@ -592,6 +634,8 @@ export function openDermaAnnotationStudio(options = {}) {
       context={options.context || {}}
       bodyTemplates={options.bodyTemplates || []}
       procedureTemplates={options.procedureTemplates || []}
+      annotation={options.annotation || null}
+      marks={options.marks || []}
       onSaved={options.onSaved}
       onClose={close}
     />

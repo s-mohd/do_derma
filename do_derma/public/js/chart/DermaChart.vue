@@ -88,7 +88,7 @@
                       <strong>{{ __("Previous Annotations") }}</strong>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
-                    <button type="button" class="primary small" data-test="annotate-consultation" @click="openAnnotationStudio">
+                    <button type="button" class="primary small" data-test="annotate-consultation" @click="openAnnotationStudio()">
                       <span aria-hidden="true">✎</span>
                       {{ __("Annotate Consultation") }}
                     </button>
@@ -134,6 +134,7 @@
                 :read-only="isEncounterLocked"
                 @refresh="refresh"
                 @activate-procedure="activateProcedure"
+                @annotate-procedure="annotateProcedure"
                 @sync-billables="syncBillablesForSession"
               />
             </div>
@@ -729,6 +730,7 @@ const bodyTemplates = computed(() => (data.value.body_templates || []).map(norma
 const templateSets = computed(() => data.value.template_sets || [])
 const categories = computed(() => data.value.categories || [])
 const annotations = computed(() => data.value.annotations || [])
+const encounterAnnotations = computed(() => data.value.encounter_annotations || [])
 const procedureAnnotations = computed(() => data.value.procedure_annotations || {})
 const marks = computed(() => data.value.marks || [])
 const previousMarks = computed(() => data.value.previous_marks || [])
@@ -2297,22 +2299,55 @@ async function startAnnotationMode() {
   openAnnotationStudio()
 }
 
-function openAnnotationStudio() {
+function openAnnotationStudio(anchor = {}) {
   if (!encounter.value.name) {
     frappe.msgprint(__("A Patient Encounter is required before saving annotation."))
     return
   }
+  const clinicalProcedure = anchor.clinicalProcedure || ""
   openDermaAnnotationStudio({
     context: {
       patient: patient.value.name,
+      patientName: patient.value.patient_name || patient.value.name,
       encounter: encounter.value.name,
       appointment: appointment.value.name || props.context?.appointment,
+      clinicalProcedure,
+      procedureLabel: anchor.procedureLabel || "",
     },
     bodyTemplates: bodyTemplates.value,
     procedureTemplates: procedureTemplates.value,
+    annotation: latestAnnotationForAnchor(clinicalProcedure),
+    marks: marksForAnchor(clinicalProcedure),
     onSaved: async () => {
       await refresh()
     },
+  })
+}
+
+function latestAnnotationForAnchor(clinicalProcedure) {
+  const rows = clinicalProcedure ? procedureAnnotations.value[clinicalProcedure] || [] : encounterAnnotations.value
+  return rows[0] || null
+}
+
+/**
+ * A mark promoted to a procedure belongs on that procedure's canvas only. Rendering it
+ * on the consultation canvas would re-point its `annotation` link to the consultation
+ * drawing on the next save (api.py _sync_chart_marks_for_annotation, stamp backlink).
+ */
+function marksForAnchor(clinicalProcedure) {
+  if (!clinicalProcedure) return marks.value.filter((mark) => !mark.clinical_procedure)
+  return marks.value.filter((mark) => mark.clinical_procedure === clinicalProcedure)
+}
+
+function annotateProcedure(row) {
+  const clinicalProcedure = row?.clinical_procedure || row?.name || ""
+  if (!clinicalProcedure || String(clinicalProcedure).startsWith("local-")) {
+    frappe.msgprint(__("Save the procedure before annotating it."))
+    return
+  }
+  openAnnotationStudio({
+    clinicalProcedure,
+    procedureLabel: row.display_name || row.procedure_template || clinicalProcedure,
   })
 }
 

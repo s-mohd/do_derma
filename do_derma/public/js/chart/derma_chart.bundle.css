@@ -4303,6 +4303,14 @@
   object-fit: contain;
 }
 
+.derma-template-thumb-missing {
+  padding: 2px;
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--derma-text-muted);
+}
+
 .derma-template-list b,
 .derma-treatment-list b {
   min-width: 0;

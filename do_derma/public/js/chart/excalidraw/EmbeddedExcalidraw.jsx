@@ -33,6 +33,10 @@ function parseAnnotation(annotation) {
 	const chartTemplateRef = useRef(bodyTemplate || null)
 	const procedureVariablesRef = useRef(procedureVariables || {})
 	const marksRef = useRef(marks || [])
+	// Set while a saved annotation is being imported. insertTemplateImage() replaces the whole
+	// scene, so it must not run against a canvas that is about to receive - or has just
+	// received - a resumed drawing.
+	const pendingSceneImport = useRef(initialAnnotation?.name || "")
 	const dermaToolRef = useRef("draw")
 	const requestedToolRef = useRef("draw")
 	const previousDraggingIdRef = useRef(null)
@@ -118,10 +122,17 @@ function parseAnnotation(annotation) {
 
   useEffect(() => {
     if (!api || !initialAnnotation?.name || latestImported.current === initialAnnotation.name) return
+    pendingSceneImport.current = initialAnnotation.name
     const scene = parseAnnotation(initialAnnotation)
-    if (!scene) return
+    if (!scene) {
+      pendingSceneImport.current = ""
+      return
+    }
     loadSceneIntoApi(api, scene, lockedViewport, false).then(() => {
       latestImported.current = initialAnnotation.name
+      pendingSceneImport.current = ""
+      adoptSceneTemplate(api, latestTemplateImage)
+      renderChartMarks(api, marksRef.current)
     })
   }, [api, initialAnnotation?.name])
 
@@ -144,11 +155,13 @@ function parseAnnotation(annotation) {
   }, [api, template?.name])
 
 		useEffect(() => {
-			if (!api || !chartTemplate?.image) return
+			if (!api || !chartTemplate?.image || pendingSceneImport.current) return
 			const signature = templateImageSignature(chartTemplate)
 			if (latestTemplateImage.current === signature && getTemplateElement(api)) return
 			loadTemplateIntoCanvas(api, chartTemplate, lockedViewport, latestTemplateImage, loadingTemplateImage, templateLoadGeneration).then((loaded) => {
-				if (loaded) renderTemplateParts(api, chartTemplate.parts || [])
+				if (!loaded) return
+				renderTemplateParts(api, chartTemplate.parts || [])
+				renderChartMarks(api, marksRef.current)
 			})
 		}, [api, chartTemplate?.name, chartTemplate?.image])
 
@@ -162,6 +175,8 @@ function parseAnnotation(annotation) {
 
 	useEffect(() => {
 		marksRef.current = marks || []
+		if (!api || pendingSceneImport.current) return
+		renderChartMarks(api, marksRef.current)
 	}, [api, marks])
 
 	  useEffect(() => {
@@ -926,6 +941,11 @@ function variablesFromMark(mark = {}) {
 
 function getTemplateElement(api) {
   return api?.getSceneElements?.().find((element) => element.customData?.kind === "derma_template")
+}
+
+function adoptSceneTemplate(api, latestTemplateImageRef) {
+	const signature = getTemplateElement(api)?.customData?.signature
+	if (signature) latestTemplateImageRef.current = signature
 }
 
 function getTemplateBounds(api) {

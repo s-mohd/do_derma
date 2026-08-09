@@ -1,7 +1,7 @@
 # Derma Chart Revamp — Declutter The Page And Give Assessment Two Modes
 
 Date: 2026-08-09
-Status: **Phases 1–2 implemented & verified** (2026-08-09) — Phases 3–5 are Draft.
+Status: **Phases 1–3 implemented & verified** (2026-08-09) — Phases 4–5 are Draft.
 See [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -733,11 +733,13 @@ the `hydrate` fix.
 *Exit: no duplicated action remains on any screen and the page is full width.* — met; proven by
 `tab-spine.spec.ts` and the four screenshots named in Verification.
 
-**Phase 3 — Annotation anchoring.** Studio accepts `clinicalProcedure` / `annotationName` /
-`marks`; per-row `Annotate (n)` on Procedures; `Annotate Consultation` on Assessment; anchor
-named in the studio header.
+**Phase 3 — Annotation anchoring.** ✅ *Shipped 2026-08-09.* Studio accepts `clinicalProcedure` /
+`annotation` / `marks`; per-row `Annotate (n)` on Procedures; `Annotate Consultation` on
+Assessment; anchor named in the studio header.
 *Exit: an annotation drawn on a procedure appears on that `Clinical Procedure`, its row count
-reads 1, and reopening resumes the drawing.*
+reads 1, and reopening resumes the drawing.* — met; proven end to end by
+`annotation-anchoring.spec.ts`, which draws, saves, re-reads the anchor from the server, and
+re-saves to prove the resumed scene survived.
 
 **Phase 4 — Orphan triage.** `Copy marks from last visit` and `New Procedure` get real
 buttons; the remaining ~20 orphans and their dead state are deleted.
@@ -773,8 +775,9 @@ billing controls.
 - **Do any of the 25 existing body templates need images copied to this bench?** All 25 have
   `File` records but the blobs 404 locally.
   *Default:* a local-environment gap, not an app gap; copy them into
-  `sites/dermaone.localhost/private/files/` for manual verification. The app-level fix — a
-  labelled placeholder instead of a broken-image icon — rides along in Phase 3.
+  `sites/dermaone.localhost/private/files/` for manual verification. **Resolved at the app
+  level in Phase 3** — `TemplateThumbnail` renders an *"Image unavailable"* label instead of a
+  broken-image icon. The missing blobs themselves are still a local-environment gap.
 
 ## Reconciliation — what changed vs the plan
 
@@ -866,6 +869,52 @@ One Current State claim needs correcting: the prior spec recorded
 (15 pre-existing on `Clinical Procedure Template`, plus the 6 this phase created). The blocker
 the prior spec described was real but is no longer the current state of the site.
 
+### Phase 3 — five deviations
+
+- **The backend needed no change at all.** The plan said `save_derma_annotation` would gain an
+  `annotation_name` argument. It already had one (`api.py:1934`, reaching the update branch at
+  `api.py:1734`), and the anchor branch at `api.py:1903` already read `doctype` / `docname` /
+  `clinical_procedure` from the payload. **Every line of Phase 3 is frontend plumbing.** The
+  three new backend tests are therefore characterisation tests: they lock a contract that was
+  already correct but had no caller, which is exactly the state that lets a refactor silently
+  break it. `api.py` is untouched by this phase.
+
+- **The riskiest part of the phase was not the anchor — it was `insertTemplateImage` wiping the
+  resumed scene.** `EmbeddedExcalidraw.jsx:1034` replaces *all* elements with
+  `[imageElement]`, and the body-template effect (`:157`) and the annotation-import effect
+  (`:123`) both fire when the Excalidraw API becomes available, in that order but resolving
+  asynchronously. Resuming a drawing was a race that would silently discard it. Fixed with a
+  `pendingSceneImport` ref: the template loader stands down while an import is in flight, and
+  `adoptSceneTemplate` afterwards records the imported scene's template signature so a later
+  effect run recognises the canvas as already carrying that template. This is the single change
+  a future editor is most likely to undo by accident.
+
+- **The studio takes `annotation` (the whole row), not `annotationName`.** The plan named a
+  string. The canvas needs the scene JSON to import and `EmbeddedExcalidraw` already accepts an
+  `initialAnnotation` object with `.name` and `.json`, so passing the row the chart payload
+  already carries avoids a second fetch keyed on a name we would have to look up again.
+
+- **`marks` are filtered by anchor, and the consultation gets only unpromoted marks.** The plan
+  said "rehydrate existing Derma Chart Marks onto the canvas" without saying which. Rendering
+  every encounter mark on the consultation canvas would have been a data bug, not a display
+  one: the stamp-backlink block (`api.py:1885-1893`) re-points `Derma Chart Mark.annotation` for
+  every rendered stamp, so a procedure's mark rendered on the consultation canvas would have its
+  annotation link stolen on the next save. `marksForAnchor` (`DermaChart.vue`) therefore gives a
+  procedure its own marks and the consultation only the marks no procedure owns.
+
+- **`renderChartMarks` was dead code and is now called.** It existed at
+  `EmbeddedExcalidraw.jsx:544` with no call site, and the `marks` prop was stored in a ref
+  nothing read. It is invoked from three places, all of them after the template element is on
+  canvas (its `getTemplateBounds` guard makes an early call a silent no-op): after a template
+  image loads, after a scene import, and when the `marks` prop changes.
+
+Not deviations, worth recording: `encounter_type` is now sent blank for a procedure anchor so
+the server's own rule (`api.py:1935`, `"Treatment"` for procedures) stays the single owner of
+that value. The broken-body-template-image fallback promised in Open Questions rides along as
+`TemplateThumbnail`, which swaps a failed `<img>` for an *"Image unavailable"* label. The
+`e2e_seed.py` fixture set gained one `Clinical Procedure` — without a saved procedure there is
+no row to hang a per-row `Annotate` button on, so the criterion was untestable.
+
 ## Verification
 
 ### Phase 1 — run 2026-08-09, all green
@@ -916,6 +965,35 @@ annotation-history padding bug, which was fixed and re-shot.
 **Not yet run for Phase 2:** nothing. Still outstanding across the feature — Phases 3–5, and
 printing (a SOAP-documented visit prints blank; see Open Questions).
 
+### Phase 3 — run 2026-08-09, all green
+
+| Command | Result |
+|---|---|
+| `run-tests --module do_derma.tests.test_api` | **12 passed** (8 pre-existing + 4 new `TestAnnotationAnchoring`) |
+| `run-tests --module do_derma.tests.test_assessment` | **14 passed** — no regression |
+| `run-tests --module do_derma.tests.test_schema` | **4 passed** — no regression |
+| `bench --site dermaone.localhost execute do_derma.e2e_seed.setup_e2e_data` | Clean, `skipped: []`, seeds a `Clinical Procedure` |
+| `bench build --app do_derma` | Clean, 531 ms |
+| `yarn test:e2e` | **18 passed** (15 pre-existing + 3 new `annotation-anchoring.spec.ts`) |
+| `ruff check` (files changed this phase) | All checks passed |
+| `ruff check apps/do_derma` | 5 findings, **all pre-existing** — see note |
+
+The ruff note is unchanged from Phase 2: `pipx run ruff` is a newer release than the project
+pins and reports one `RUF005` in `api.py:1298` plus four import-sort findings in patches this
+phase does not touch. `e2e_seed.py` and `tests/test_api.py` are clean.
+
+Manual, against seeded data on `dermaone.localhost`: the studio was driven through a real
+draw → save → reopen → re-save cycle in Chromium for both anchors. Screenshots confirm the
+resumed canvas shows the previously drawn rectangle over the body template, with the header
+reading *"Consultation — E2E Derma Patient / Editing the saved drawing. Saving updates it in
+place."* The first attempt used a synthetic scene assembled server-side and failed to render —
+that was a fixture artefact (Excalidraw rejects hand-built elements), not a product defect, and
+is why the verification was redone by actually drawing in the browser.
+
+**Not yet run for Phase 3:** `bench migrate` — this phase adds no patch, fixture or doctype, so
+there is no schema change to apply. Still outstanding across the feature — Phases 4–5, and
+printing (a SOAP-documented visit prints blank; see Open Questions).
+
 ### Commands
 
 ```bash
@@ -958,11 +1036,11 @@ Test modules and what they assert (✅ = written and passing):
 | ✅ `test_context_errors_carries_labels_only` | The label is returned; no exception text in the payload |
 | ✅ `test_one_broken_section_leaves_the_others_intact` | One failed query degrades one section only |
 | ✅ e2e `tab-spine.spec.ts` | Six tabs, no rail; zero Refresh; one Complete + one annotate entry; upload only on Photos; degraded notice + Retry; `clinical` and an unknown value both land on Assessment |
-| `test_annotation_anchors_to_procedure` | Child row lands on `Clinical Procedure` — Phase 3 |
-| `test_resume_updates_in_place` | Re-save with `annotation_name` creates no second record — Phase 3 |
-| `test_promoted_mark_survives_resave` | The `api.py:1972` deletion guard still holds — Phase 3 |
-
-**Not yet run** — nothing; implementation has not started.
+| ✅ `test_annotation_anchors_to_procedure` | Child row lands on `Clinical Procedure`, and the row count reads 1 |
+| ✅ `test_annotation_anchors_to_encounter_by_default` | No `clinical_procedure` still anchors to the encounter |
+| ✅ `test_resume_updates_in_place` | Re-save with `annotation_name` creates no second record |
+| ✅ `test_promoted_mark_survives_resave` | The deletion guard holds: the promoted mark lives, the unpromoted one is cleaned up |
+| ✅ e2e `annotation-anchoring.spec.ts` | Each entry point names its own anchor in the studio header; a drawing made on a procedure row lands on that `Clinical Procedure`, its badge reads `Annotate (1)`, and reopening resumes the scene rather than blanking it |
 
 ### The `data-test` contract
 
@@ -1010,7 +1088,10 @@ does. Specs must keep setting the section explicitly via `ChartPage.setSection()
 | `chart/components/DermaEncounterHeader.vue` | Smart Alert chips; drop Refresh; wrap name + tooltip |
 | `chart/components/ConsentPanel.vue` | Gate WhatsApp trio; `Create` primary; validate on submit not mount |
 | `chart/components/DermaEvidencePanel.vue` | Single mount, Photos tab; drop its duplicate `Upload` |
-| `chart/annotation/DermaAnnotationStudio.jsx` | Accept `clinicalProcedure` / `annotationName` / `marks`; send the real anchor; name it in the header |
+| `chart/annotation/DermaAnnotationStudio.jsx` | Accept `clinicalProcedure` / `annotation` / `marks`; send the real anchor; name it in the header; `TemplateThumbnail` placeholder |
+| `chart/excalidraw/EmbeddedExcalidraw.jsx` | `pendingSceneImport` guard so the template loader cannot wipe a resumed scene; call `renderChartMarks` |
+| `do_derma/e2e_seed.py` | Seed one `Clinical Procedure` so the Procedures tab has a row |
+| `e2e/tests/annotation-anchoring.spec.ts` | *(new)* The anchoring + resume contract |
 | `do_derma/tests/test_schema.py` | *(new)* |
 | `do_derma/tests/test_assessment.py` | *(new)* |
 | `do_derma/tests/test_api.py` | Extend `TestClinicalAccessGate`; annotation anchoring tests |

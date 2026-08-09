@@ -138,6 +138,30 @@ export async function getSeedConsentTemplate(request: APIRequestContext): Promis
 	}
 }
 
+/**
+ * Resolve the seeded Clinical Procedure and the encounter it hangs off. The chart
+ * only lists procedures for the encounter it was opened on, so a spec that needs a
+ * procedure row must open on this encounter rather than on whatever draft
+ * `ensureChartContext` happens to return.
+ */
+export async function getSeedClinicalProcedure(
+	request: APIRequestContext,
+	patient: string,
+): Promise<{ name: string; encounter: string | null }> {
+	const rows = await getList<{ name: string; custom_patient_encounter?: string }>(
+		request,
+		"Clinical Procedure",
+		{
+			fields: ["name", "custom_patient_encounter"],
+			filters: { patient, procedure_template: SEED.pointTemplate },
+			limit: 1,
+		},
+	);
+
+	if (!rows.length) throw new Error(`${SEED_MISSING}\n(no Clinical Procedure for "${SEED.pointTemplate}")`);
+	return { name: rows[0].name, encounter: rows[0].custom_patient_encounter ?? null };
+}
+
 // ---------------------------------------------------------------------------
 // Chart context
 // ---------------------------------------------------------------------------

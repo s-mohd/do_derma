@@ -83,6 +83,9 @@ def setup_e2e_data() -> dict[str, Any]:
 	summary["encounter"] = _ensure_draft_encounter(
 		summary["patient"], summary["practitioner"], summary["appointment_type"]
 	)
+	summary["clinical_procedure"] = _ensure_clinical_procedure(
+		summary["patient"], summary["practitioner"], summary["encounter"], summary
+	)
 
 	frappe.db.commit()
 
@@ -180,6 +183,39 @@ def _ensure_draft_encounter(patient: str, practitioner: str, appointment_type: s
 			"status": "Open",
 		}
 	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def _ensure_clinical_procedure(
+	patient: str, practitioner: str, encounter: str, summary: dict[str, Any]
+) -> str | None:
+	"""One saved procedure so the Procedures tab has a row carrying a per-row Annotate button."""
+
+	if not frappe.db.exists("Clinical Procedure Template", POINT_TEMPLATE):
+		summary["skipped"].append(f"Clinical Procedure (template {POINT_TEMPLATE} missing)")
+		return None
+
+	existing = frappe.db.get_value(
+		"Clinical Procedure", {"patient": patient, "procedure_template": POINT_TEMPLATE}, "name"
+	)
+	if existing:
+		return existing
+
+	values: dict[str, Any] = {
+		"doctype": "Clinical Procedure",
+		"patient": patient,
+		"procedure_template": POINT_TEMPLATE,
+		"practitioner": practitioner,
+		"status": "Draft",
+	}
+	encounter_field = next(
+		(field for field in ("patient_encounter", "custom_patient_encounter", "encounter") if _has_field("Clinical Procedure", field)),
+		None,
+	)
+	if encounter_field:
+		values[encounter_field] = encounter
+	doc = frappe.get_doc(values)
 	doc.insert(ignore_permissions=True)
 	return doc.name
 

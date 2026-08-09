@@ -359,6 +359,17 @@
               <td>{{ row.practitioner_name || row.practitioner || "—" }}</td>
               <td>
                 <button class="ghost small" type="button" @click="$emit('activate-procedure', row)">{{ __("Use Chart") }}</button>
+                <button
+                  v-if="getProcedureName(row)"
+                  class="ghost small"
+                  type="button"
+                  data-test="procedure-annotate"
+                  :title="__('Draw on this procedure')"
+                  @click="$emit('annotate-procedure', row)"
+                >
+                  <span aria-hidden="true">✎</span>
+                  {{ annotateLabel(row) }}
+                </button>
                 <button v-if="isEditable(row)" class="ghost small danger" type="button" @click="deleteRow(row)">Delete</button>
                 <span v-else class="text-muted">—</span>
               </td>
@@ -418,6 +429,7 @@ const emit = defineEmits([
   "refresh",
   "sync-billables",
   "activate-procedure",
+  "annotate-procedure",
   "edit-surfaces",
   "create-lab-case",
   "open-lab-case",
@@ -1514,6 +1526,11 @@ function getProcedureName(row) {
   const name = row?.clinical_procedure || row?.name
   if (!name || String(name).startsWith("local-")) return ""
   return name
+}
+
+function annotateLabel(row) {
+  const count = Number(row?.annotation_count || 0)
+  return count ? `${__("Annotate")} (${count})` : __("Annotate")
 }
 
 function openProcedure(row) {
