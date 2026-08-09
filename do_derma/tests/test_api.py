@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -111,6 +112,42 @@ class TestSaveChartMark(DermaTestHelpers, IntegrationTestCase):
         self.assertEqual(stored.patient, patient)
         self.assertEqual(stored.x_percent, 33.5)
         self.assertEqual(stored.y_percent, 67.25)
+
+
+class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
+    """A section whose query raises must degrade to its fallback and be named in
+    context_errors - by label only, never by exception text."""
+
+    def test_healthy_chart_reports_no_degraded_sections(self):
+        patient = self._make_patient()
+
+        chart = api.get_patient_derma_chart(patient_id=patient)
+
+        self.assertEqual(chart["context_errors"], [])
+
+    def test_context_errors_carries_labels_only(self):
+        patient = self._make_patient()
+        secret = "SELECT secret_column FROM tabPatient"
+
+        def explode():
+            raise ValueError(secret)
+
+        with patch.object(api, "_get_categories", side_effect=explode):
+            chart = api.get_patient_derma_chart(patient_id=patient)
+
+        self.assertIn("categories", chart["context_errors"])
+        self.assertEqual(chart["categories"], [])
+        self.assertNotIn(secret, json.dumps(chart))
+
+    def test_one_broken_section_leaves_the_others_intact(self):
+        patient = self._make_patient()
+
+        with patch.object(api, "_get_body_templates", side_effect=ValueError("boom")):
+            chart = api.get_patient_derma_chart(patient_id=patient)
+
+        self.assertEqual(chart["context_errors"], ["body templates"])
+        self.assertEqual(chart["patient_id"], patient)
+        self.assertIsInstance(chart["procedures"], list)
 
 
 class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):

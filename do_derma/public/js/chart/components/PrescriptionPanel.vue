@@ -2,7 +2,6 @@
   <section class="workspace-panel prescription-panel" data-test="prescription-panel">
     <header class="panel-header">
       <div class="actions">
-        <button type="button" class="ghost" :disabled="loading || saving" @click="$emit('refresh')">{{ __("Refresh") }}</button>
         <button
           type="button"
           class="primary"
@@ -49,7 +48,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["refresh", "save"])
+const emit = defineEmits(["save"])
 
 const tableHost = ref(null)
 let tableControl = null

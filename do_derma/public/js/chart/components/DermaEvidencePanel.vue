@@ -6,7 +6,6 @@
           <strong>{{ activeProcedure ? __("Procedure Evidence") : __("Encounter Evidence") }}</strong>
           <small>{{ summary }}</small>
         </div>
-        <button type="button" class="ghost small" :disabled="!allowUpload" @click="$emit('upload')">{{ __("Upload") }}</button>
       </header>
 
       <div class="evidence-stats">
@@ -76,8 +75,7 @@ defineProps({
   photoCompare: { type: Object, default: () => ({ before: null, after: null }) },
   photoSets: { type: Array, default: () => [] },
   selectedPhotoSetName: { type: String, default: "" },
-  allowUpload: { type: Boolean, default: false },
 })
 
-defineEmits(["upload", "select-photo-set"])
+defineEmits(["select-photo-set"])
 </script>

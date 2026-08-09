@@ -47,7 +47,6 @@
         </label>
         <span v-if="readOnly" class="badge read-only-badge">{{ __("Read only") }}</span>
         <span v-if="anesthesiaRecorded" class="badge anesthesia-badge">{{ __("Anesthesia recorded") }}</span>
-        <button type="button" class="ghost" @click="$emit('refresh')">Refresh</button>
       </div>
     </div>
 
@@ -393,15 +392,6 @@
       >
         Sync Billables ({{ totalCount }})
       </button>
-      <button
-        type="button"
-        class="invoice-btn complete"
-        :class="{ disabled: completeDisabled || readOnly }"
-        :disabled="completeDisabled || readOnly"
-        @click="$emit('complete-session')"
-      >
-        Complete Session
-      </button>
     </div>
 
   </section>
@@ -420,7 +410,6 @@ const props = defineProps({
   priceLists: { type: Array, default: () => [] },
   defaultPriceList: { type: String, default: "" },
   syncDisabled: { type: Boolean, default: false },
-  completeDisabled: { type: Boolean, default: false },
   anesthesiaRecorded: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
 })
@@ -428,7 +417,6 @@ const props = defineProps({
 const emit = defineEmits([
   "refresh",
   "sync-billables",
-  "complete-session",
   "activate-procedure",
   "edit-surfaces",
   "create-lab-case",

@@ -2,7 +2,6 @@
   <section class="workspace-panel consent-panel" data-test="consent-panel">
     <header class="panel-header">
       <div class="actions">
-        <button type="button" class="ghost" :disabled="loading || saving || sending" @click="$emit('refresh')">{{ __("Refresh") }}</button>
         <button
           type="button"
           class="ghost"
@@ -93,7 +92,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["refresh", "request-preview", "create", "send-whatsapp", "open-consent", "resend-consent", "cancel-consent"])
+const emit = defineEmits(["request-preview", "create", "send-whatsapp", "open-consent", "resend-consent", "cancel-consent"])
 
 const hosts = new Map()
 const controls = new Map()

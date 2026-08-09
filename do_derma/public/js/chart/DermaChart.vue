@@ -34,8 +34,10 @@
         :allergy-text="patientAllergyText"
         :insurance-label="insuranceStatusLabel"
         :has-session-context="hasSessionContext"
-        @refresh="refresh"
+        :completing="completingSession"
+        :alerts="encounterAlertItems"
         @complete="completeSession"
+        @alert-action="handleEncounterAlert"
       />
 
       <section class="derma-section-bar" data-test="derma-section-bar">
@@ -53,22 +55,12 @@
             <small>{{ section.hint }}</small>
           </button>
         </nav>
-        <div class="derma-section-actions">
-          <button type="button" class="ghost" data-test="open-annotation-studio" @click="openAnnotationStudio">
-            <span aria-hidden="true">✎</span>
-            {{ __("Annotate") }}
-          </button>
-          <button type="button" class="ghost" data-test="upload-photo" @click="uploadPhotos('Visit')">
-            <span aria-hidden="true">▧</span>
-            {{ __("Upload Photo") }}
-          </button>
-        </div>
       </section>
 
-      <section class="derma-console-grid">
+      <section class="derma-console-grid no-side">
         <main class="derma-console-main">
-          <template v-if="activeSection === 'clinical'">
-            <div class="clinical-notes-grid" data-test="clinical-section">
+          <template v-if="activeSection === 'assessment'">
+            <div class="clinical-notes-grid" data-test="assessment-section">
               <section class="clinical-soap-stack">
                 <AssessmentPanel
                   :mode="assessmentPanel.mode"
@@ -96,7 +88,10 @@
                       <strong>{{ __("Previous Annotations") }}</strong>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
-                    <button type="button" class="ghost small" @click="openAnnotationStudio">{{ __("Annotate") }}</button>
+                    <button type="button" class="primary small" data-test="annotate-consultation" @click="openAnnotationStudio">
+                      <span aria-hidden="true">✎</span>
+                      {{ __("Annotate Consultation") }}
+                    </button>
                   </header>
                   <div v-if="annotations.length" class="chart-annotation-list">
                     <button
@@ -119,8 +114,40 @@
             </div>
           </template>
 
+          <template v-else-if="activeSection === 'procedures'">
+            <div class="procedures-section-stack" data-test="procedures-section">
+              <DegradedSectionNotice
+                v-if="isSectionDegraded('procedures')"
+                section="procedures"
+                :label="__('procedures')"
+                @retry="refresh"
+              />
+              <ProcedurePanel
+                :status-pills="STATUS_PILLS"
+                :groups="groupedProcedures"
+                :total-count="procedureCount"
+                :doctor-name="currentPractitionerName"
+                :price-lists="priceLists"
+                :default-price-list="defaultPriceList"
+                :sync-disabled="!hasSessionContext || syncingBillables"
+                :anesthesia-recorded="anesthesiaRecorded"
+                :read-only="isEncounterLocked"
+                @refresh="refresh"
+                @activate-procedure="activateProcedure"
+                @sync-billables="syncBillablesForSession"
+              />
+            </div>
+          </template>
+
           <template v-else-if="activeSection === 'photos'">
-            <section class="section-panel photo-section-panel" data-test="photos-section">
+            <div class="photos-section-stack" data-test="photos-section">
+              <DegradedSectionNotice
+                v-if="isSectionDegraded('photos')"
+                section="photos"
+                :label="__('photos')"
+                @retry="refresh"
+              />
+            <section class="section-panel photo-section-panel">
               <header>
                 <div>
                   <strong>{{ __("Photos & Comparison") }}</strong>
@@ -137,169 +164,8 @@
                 :photo-compare="photoCompare"
                 :photo-sets="relevantPhotoSets"
                 :selected-photo-set-name="selectedPhotoSetName"
-                :allow-upload="true"
-                @upload="uploadPhotos(activeProcedure ? 'Procedure' : 'Visit')"
                 @select-photo-set="(name) => (selectedPhotoSetName = name)"
               />
-            </section>
-          </template>
-
-          <PrescriptionPanel
-            v-else-if="activeSection === 'prescriptions'"
-            :loading="prescriptionPanel.loading"
-            :saving="prescriptionPanel.saving"
-            :error="prescriptionPanel.error"
-            :has-session-context="hasSessionContext"
-            :has-encounter="Boolean(prescriptionPanel.encounter)"
-            :encounter-name="prescriptionPanel.encounter"
-            :rows="prescriptionPanel.rows"
-            :read-only="isEncounterLocked"
-            @refresh="() => loadPrescriptionPanel(true)"
-            @save="savePrescriptionPanel"
-          />
-
-          <ConsentPanel
-            v-else-if="activeSection === 'consent'"
-            :loading="consentPanel.loading"
-            :saving="consentPanel.saving"
-            :sending="consentPanel.sending"
-            :error="consentPanel.error"
-            :has-session-context="hasSessionContext"
-            :encounter-name="consentPanel.encounter"
-            :consents="consentPanel.consents"
-            :procedure-options="consentProcedureOptions"
-            :preview-html="consentPanel.previewHtml"
-            :preview-loading="consentPanel.previewLoading"
-            :default-signed-by="patient.patient_name || patient.name"
-            :reset-key="consentPanel.resetKey"
-            :read-only="isEncounterLocked"
-            @refresh="() => loadConsentPanel(true)"
-            @request-preview="requestConsentPreview"
-            @create="createConsentFromPanel"
-            @send-whatsapp="sendConsentViaWhatsApp"
-            @open-consent="openSignedConsent"
-            @resend-consent="resendConsentViaWhatsApp"
-            @cancel-consent="cancelRemoteConsent"
-          />
-
-          <section v-else class="workspace-shell review-shell" data-test="review-section">
-        <div class="workspace-tabview">
-          <div class="workspace-content review-section-stack">
-            <ProcedurePanel
-              :status-pills="STATUS_PILLS"
-              :groups="groupedProcedures"
-              :total-count="procedureCount"
-              :doctor-name="currentPractitionerName"
-              :price-lists="priceLists"
-              :default-price-list="defaultPriceList"
-              :sync-disabled="!hasSessionContext || syncingBillables"
-              :complete-disabled="!hasSessionContext || completingSession"
-              :anesthesia-recorded="anesthesiaRecorded"
-              :read-only="isEncounterLocked"
-              @refresh="refresh"
-              @activate-procedure="activateProcedure"
-              @sync-billables="syncBillablesForSession"
-              @complete-session="completeSession"
-            />
-
-            <section class="derma-timeline-workspace">
-              <header>
-                <div>
-                  <strong>{{ __("Treatment Timeline") }}</strong>
-                  <small>{{ visitTimeline.length ? __("{0} previous visit(s)").replace("{0}", visitTimeline.length) : __("No previous derma activity yet") }}</small>
-                </div>
-                <button type="button" class="ghost small" :disabled="chartOverlayMode === 'today'" @click="clearTimelineOverlay">
-                  {{ __("Clear Overlay") }}
-                </button>
-              </header>
-
-              <div v-if="visitTimeline.length" class="timeline-review-layout">
-                <div class="timeline-visit-list">
-                  <button
-                    v-for="visit in visitTimeline"
-                    :key="visit.key"
-                    type="button"
-                    class="timeline-visit-card"
-                    :class="{ active: selectedTimelineVisitKey === visit.key }"
-                    @click="selectTimelineVisit(visit)"
-                  >
-                    <span v-if="visit.preview_image" class="timeline-preview">
-                      <img :src="visit.preview_image" :alt="visit.date || visit.key" loading="lazy" />
-                    </span>
-                    <span v-else class="timeline-preview empty">{{ __("No photo") }}</span>
-                    <span class="timeline-copy">
-                      <strong>{{ formatDate(visit.date || visit.modified) || visit.key }}</strong>
-                      <small>{{ visit.summary || __("No details") }}</small>
-                      <em>{{ (visit.categories || []).join(", ") || __("Derma visit") }}</em>
-                    </span>
-                  </button>
-                </div>
-
-                <article v-if="selectedTimelineVisit" class="timeline-visit-detail">
-                  <header>
-                    <div>
-                      <strong>{{ formatDate(selectedTimelineVisit.date || selectedTimelineVisit.modified) || __("Selected visit") }}</strong>
-                      <small>{{ selectedTimelineVisit.summary }}</small>
-                    </div>
-                    <div class="timeline-detail-actions">
-                      <button type="button" class="ghost small" @click="compareTimelineVisit(selectedTimelineVisit)">
-                        {{ __("Compare with Today") }}
-                      </button>
-                      <button type="button" class="primary small" @click="overlayTimelineVisit(selectedTimelineVisit)">
-                        {{ __("Overlay Marks") }}
-                      </button>
-                    </div>
-                  </header>
-
-                  <div class="timeline-stat-grid">
-                    <span>
-                      <b>{{ selectedTimelineVisit.marks?.length || 0 }}</b>
-                      <small>{{ __("marks") }}</small>
-                    </span>
-                    <span>
-                      <b>{{ selectedTimelineVisit.procedures?.length || 0 }}</b>
-                      <small>{{ __("procedures") }}</small>
-                    </span>
-                    <span>
-                      <b>{{ selectedTimelineVisit.photo_sets?.length || 0 }}</b>
-                      <small>{{ __("photo sets") }}</small>
-                    </span>
-                  </div>
-
-                  <div v-if="selectedTimelineVisit.photo_sets?.length" class="timeline-photo-grid">
-                    <figure v-for="set in selectedTimelineVisit.photo_sets.slice(0, 4)" :key="set.name">
-                      <img v-if="set.preview_image" :src="set.preview_image" :alt="set.set_type || set.name" loading="lazy" />
-                      <span v-else>{{ __("No preview") }}</span>
-                      <figcaption>{{ set.set_type || set.body_view || set.name }}</figcaption>
-                    </figure>
-                  </div>
-
-                  <div v-if="selectedTimelineVisit.procedures?.length" class="timeline-section-list">
-                    <h4>{{ __("Procedures") }}</h4>
-                    <button
-                      v-for="procedure in selectedTimelineVisit.procedures.slice(0, 8)"
-                      :key="procedure.name"
-                      type="button"
-                      @click="openClinicalProcedure(procedure)"
-                    >
-                      <b>{{ procedure.title || procedure.template_label || procedure.procedure_template || procedure.name }}</b>
-                      <small>{{ procedure.derma_detail_text || procedure.notes || procedure.status }}</small>
-                    </button>
-                  </div>
-
-                  <div v-if="selectedTimelineVisit.status_changes?.length" class="timeline-section-list">
-                    <h4>{{ __("Follow-up Signals") }}</h4>
-                    <span v-for="(row, index) in selectedTimelineVisit.status_changes.slice(0, 8)" :key="`${row.status}-${index}`">
-                      <b>{{ row.status }}</b>
-                      <small>{{ [row.label, row.location].filter(Boolean).join(" · ") }}</small>
-                    </span>
-                  </div>
-                </article>
-              </div>
-
-              <div v-else class="timeline-empty-state">
-                {{ __("Previous visits, procedures, photos, and tracked marks will appear here after the patient has history.") }}
-              </div>
             </section>
 
             <section class="derma-compare-workspace">
@@ -413,6 +279,149 @@
                     </button>
                   </div>
                 </section>
+              </div>
+            </section>
+            </div>
+          </template>
+
+          <PrescriptionPanel
+            v-else-if="activeSection === 'prescriptions'"
+            :loading="prescriptionPanel.loading"
+            :saving="prescriptionPanel.saving"
+            :error="prescriptionPanel.error"
+            :has-session-context="hasSessionContext"
+            :has-encounter="Boolean(prescriptionPanel.encounter)"
+            :encounter-name="prescriptionPanel.encounter"
+            :rows="prescriptionPanel.rows"
+            :read-only="isEncounterLocked"
+            @refresh="() => loadPrescriptionPanel(true)"
+            @save="savePrescriptionPanel"
+          />
+
+          <ConsentPanel
+            v-else-if="activeSection === 'consent'"
+            :loading="consentPanel.loading"
+            :saving="consentPanel.saving"
+            :sending="consentPanel.sending"
+            :error="consentPanel.error"
+            :has-session-context="hasSessionContext"
+            :encounter-name="consentPanel.encounter"
+            :consents="consentPanel.consents"
+            :procedure-options="consentProcedureOptions"
+            :preview-html="consentPanel.previewHtml"
+            :preview-loading="consentPanel.previewLoading"
+            :default-signed-by="patient.patient_name || patient.name"
+            :reset-key="consentPanel.resetKey"
+            :read-only="isEncounterLocked"
+            @refresh="() => loadConsentPanel(true)"
+            @request-preview="requestConsentPreview"
+            @create="createConsentFromPanel"
+            @send-whatsapp="sendConsentViaWhatsApp"
+            @open-consent="openSignedConsent"
+            @resend-consent="resendConsentViaWhatsApp"
+            @cancel-consent="cancelRemoteConsent"
+          />
+
+          <section v-else-if="activeSection === 'review'" class="workspace-shell review-shell" data-test="review-section">
+        <div class="workspace-tabview">
+          <div class="workspace-content review-section-stack">
+            <section class="derma-timeline-workspace">
+              <header>
+                <div>
+                  <strong>{{ __("Treatment Timeline") }}</strong>
+                  <small>{{ visitTimeline.length ? __("{0} previous visit(s)").replace("{0}", visitTimeline.length) : __("No previous derma activity yet") }}</small>
+                </div>
+                <button type="button" class="ghost small" :disabled="chartOverlayMode === 'today'" @click="clearTimelineOverlay">
+                  {{ __("Clear Overlay") }}
+                </button>
+              </header>
+
+              <div v-if="visitTimeline.length" class="timeline-review-layout">
+                <div class="timeline-visit-list">
+                  <button
+                    v-for="visit in visitTimeline"
+                    :key="visit.key"
+                    type="button"
+                    class="timeline-visit-card"
+                    :class="{ active: selectedTimelineVisitKey === visit.key }"
+                    @click="selectTimelineVisit(visit)"
+                  >
+                    <span v-if="visit.preview_image" class="timeline-preview">
+                      <img :src="visit.preview_image" :alt="visit.date || visit.key" loading="lazy" />
+                    </span>
+                    <span v-else class="timeline-preview empty">{{ __("No photo") }}</span>
+                    <span class="timeline-copy">
+                      <strong>{{ formatDate(visit.date || visit.modified) || visit.key }}</strong>
+                      <small>{{ visit.summary || __("No details") }}</small>
+                      <em>{{ (visit.categories || []).join(", ") || __("Derma visit") }}</em>
+                    </span>
+                  </button>
+                </div>
+
+                <article v-if="selectedTimelineVisit" class="timeline-visit-detail">
+                  <header>
+                    <div>
+                      <strong>{{ formatDate(selectedTimelineVisit.date || selectedTimelineVisit.modified) || __("Selected visit") }}</strong>
+                      <small>{{ selectedTimelineVisit.summary }}</small>
+                    </div>
+                    <div class="timeline-detail-actions">
+                      <button type="button" class="ghost small" @click="compareTimelineVisit(selectedTimelineVisit)">
+                        {{ __("Compare with Today") }}
+                      </button>
+                      <button type="button" class="primary small" @click="overlayTimelineVisit(selectedTimelineVisit)">
+                        {{ __("Overlay Marks") }}
+                      </button>
+                    </div>
+                  </header>
+
+                  <div class="timeline-stat-grid">
+                    <span>
+                      <b>{{ selectedTimelineVisit.marks?.length || 0 }}</b>
+                      <small>{{ __("marks") }}</small>
+                    </span>
+                    <span>
+                      <b>{{ selectedTimelineVisit.procedures?.length || 0 }}</b>
+                      <small>{{ __("procedures") }}</small>
+                    </span>
+                    <span>
+                      <b>{{ selectedTimelineVisit.photo_sets?.length || 0 }}</b>
+                      <small>{{ __("photo sets") }}</small>
+                    </span>
+                  </div>
+
+                  <div v-if="selectedTimelineVisit.photo_sets?.length" class="timeline-photo-grid">
+                    <figure v-for="set in selectedTimelineVisit.photo_sets.slice(0, 4)" :key="set.name">
+                      <img v-if="set.preview_image" :src="set.preview_image" :alt="set.set_type || set.name" loading="lazy" />
+                      <span v-else>{{ __("No preview") }}</span>
+                      <figcaption>{{ set.set_type || set.body_view || set.name }}</figcaption>
+                    </figure>
+                  </div>
+
+                  <div v-if="selectedTimelineVisit.procedures?.length" class="timeline-section-list">
+                    <h4>{{ __("Procedures") }}</h4>
+                    <button
+                      v-for="procedure in selectedTimelineVisit.procedures.slice(0, 8)"
+                      :key="procedure.name"
+                      type="button"
+                      @click="openClinicalProcedure(procedure)"
+                    >
+                      <b>{{ procedure.title || procedure.template_label || procedure.procedure_template || procedure.name }}</b>
+                      <small>{{ procedure.derma_detail_text || procedure.notes || procedure.status }}</small>
+                    </button>
+                  </div>
+
+                  <div v-if="selectedTimelineVisit.status_changes?.length" class="timeline-section-list">
+                    <h4>{{ __("Follow-up Signals") }}</h4>
+                    <span v-for="(row, index) in selectedTimelineVisit.status_changes.slice(0, 8)" :key="`${row.status}-${index}`">
+                      <b>{{ row.status }}</b>
+                      <small>{{ [row.label, row.location].filter(Boolean).join(" · ") }}</small>
+                    </span>
+                  </div>
+                </article>
+              </div>
+
+              <div v-else class="timeline-empty-state">
+                {{ __("Previous visits, procedures, photos, and tracked marks will appear here after the patient has history.") }}
               </div>
             </section>
 
@@ -545,62 +554,6 @@
         </div>
       </section>
         </main>
-
-        <aside class="derma-console-side">
-          <DermaQuickActionsPanel
-            :active-procedure="activeProcedure"
-            :can-annotate="bodyTemplates.length > 0"
-            :allow-evidence="true"
-            :alerts="encounterAlertItems"
-            @new-procedure="openAnnotationStudio"
-            @prescription="setActiveSection('prescriptions')"
-            @upload-photos="uploadPhotos('Visit')"
-            @annotate="openAnnotationStudio"
-            @consent="setActiveSection('consent')"
-            @followup="setActiveSection('clinical')"
-            @alert-action="handleEncounterAlert"
-          />
-
-          <DermaEvidencePanel
-            :active-procedure="null"
-            :annotation-count="annotations.length"
-            :photo-set-count="relevantPhotoSets.length"
-            :summary="procedureArtifactText"
-            :photo-summary="photoPanelSummary"
-            :photo-compare="photoCompare"
-            :photo-sets="relevantPhotoSets"
-            :selected-photo-set-name="selectedPhotoSetName"
-            :allow-upload="true"
-            @upload="uploadPhotos('Visit')"
-            @select-photo-set="(name) => (selectedPhotoSetName = name)"
-          />
-
-          <section class="encounter-snapshot-panel compact">
-            <header>
-              <div>
-                <strong>{{ __("Visit Summary") }}</strong>
-                <small>{{ __("Current encounter status") }}</small>
-              </div>
-            </header>
-            <div class="encounter-stat-row">
-              <span><b>{{ procedureCount }}</b><small>{{ __("procedures") }}</small></span>
-              <span><b>{{ photoSets.length }}</b><small>{{ __("photo sets") }}</small></span>
-              <span><b>{{ followupItems.length }}</b><small>{{ __("follow-ups") }}</small></span>
-            </div>
-            <div class="encounter-recent-list">
-              <button
-                v-for="procedure in procedures.slice(0, 3)"
-                :key="procedure.name"
-                type="button"
-                @click="activateProcedure(procedure)"
-              >
-                <b>{{ procedure.title || procedure.template_label || procedure.procedure_template || procedure.name }}</b>
-                <small>{{ [procedure.status, procedure.derma_category, procedure.procedure_date || procedure.start_date].filter(Boolean).join(' · ') }}</small>
-              </button>
-              <p v-if="!procedures.length" class="panel-muted">{{ __("No procedure activity yet.") }}</p>
-            </div>
-          </section>
-        </aside>
       </section>
     </template>
   </div>
@@ -613,8 +566,8 @@ import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
 import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
-import DermaQuickActionsPanel from "./components/DermaQuickActionsPanel.vue"
 import DermaEvidencePanel from "./components/DermaEvidencePanel.vue"
+import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 
 const __ = window.__ || ((txt) => txt)
@@ -647,12 +600,34 @@ const MARK_STATUSES = ["Active", "Monitoring", "Improving", "Stable", "Worse", "
 const COMPARE_RESPONSE_STATUSES = ["Improving", "Stable", "Worse", "Resolved", "Monitoring"]
 
 const SECTION_TABS = [
-  { key: "clinical", label: __("Clinical Notes"), hint: __("SOAP") },
+  { key: "assessment", label: __("Assessment"), hint: __("Notes") },
+  { key: "procedures", label: __("Procedures"), hint: __("Treatment") },
   { key: "photos", label: __("Photos"), hint: __("Compare") },
   { key: "prescriptions", label: __("Prescription"), hint: __("Rx") },
   { key: "consent", label: __("Consent"), hint: __("Forms") },
-  { key: "review", label: __("Review"), hint: __("History") },
+  { key: "review", label: __("Review"), hint: __("Sign-off") },
 ]
+
+const SECTION_KEYS = SECTION_TABS.map((section) => section.key)
+const DEFAULT_SECTION = "assessment"
+
+// Stored preferences from the five-tab layout, so a returning user is not stranded.
+const SECTION_ALIASES = {
+  clinical: "assessment",
+  encounter: "assessment",
+  chart: "assessment",
+  notes: "assessment",
+  procedure: "procedures",
+  consents: "consent",
+}
+
+// Chart sections degrade independently on the server; these are the context_errors
+// labels (api.py get_patient_derma_chart) that make a tab unreliable.
+const SECTION_CONTEXT_LABELS = {
+  procedures: ["procedures"],
+  photos: ["photo sets", "previous photo sets"],
+  review: ["visit timeline", "inventory readiness", "follow-up intelligence"],
+}
 
 const DERMA_SECTION_STORAGE_KEY = "do_derma_chart_last_section"
 const DERMA_USER_SETTINGS_DOCTYPE = "Derma Chart"
@@ -694,6 +669,7 @@ const sessionCategory = ref("")
 const pastAppointment = ref("")
 const treatmentCase = ref("")
 const sectionPreferenceHydrated = ref(false)
+const sectionChosenByUser = ref(false)
 
 const procedureDraft = reactive({
   notes: "",
@@ -1341,28 +1317,32 @@ watch(
   }
 )
 
+/** The single owner of the "which tab" invariant: anything unrecognised lands on Assessment. */
 function normalizeDermaSection(section) {
-  if (section === "procedure" || section === "procedures") return "review"
-  if (section === "encounter" || section === "chart" || section === "notes") return "clinical"
-  if (section === "consents") return "consent"
-  if (["clinical", "photos", "prescriptions", "consent", "review"].includes(section)) return section
-  return "clinical"
+  if (SECTION_KEYS.includes(section)) return section
+  return SECTION_ALIASES[section] || DEFAULT_SECTION
+}
+
+function storedUserSettingsSection() {
+  try {
+    const settings = window.frappe?.get_user_settings?.(DERMA_USER_SETTINGS_DOCTYPE) || {}
+    return settings.last_section || settings.last_mode || ""
+  } catch (error) {
+    // User settings may not be bootstrapped yet; localStorage still answers.
+    return ""
+  }
+}
+
+function storedLocalSection() {
+  try {
+    return window.localStorage?.getItem(DERMA_SECTION_STORAGE_KEY) || ""
+  } catch (error) {
+    return ""
+  }
 }
 
 function loadStoredDermaSection() {
-  const fallback = "clinical"
-  try {
-    const settings = window.frappe?.get_user_settings?.(DERMA_USER_SETTINGS_DOCTYPE) || {}
-    return normalizeDermaSection(settings.last_section || settings.last_mode)
-  } catch (error) {
-    // Local fallback keeps the chart usable if user settings are not bootstrapped.
-  }
-  try {
-    const localSection = window.localStorage?.getItem(DERMA_SECTION_STORAGE_KEY)
-    return normalizeDermaSection(localSection)
-  } catch (error) {
-    return fallback
-  }
+  return normalizeDermaSection(storedUserSettingsSection() || storedLocalSection())
 }
 
 function persistDermaSection(section) {
@@ -1379,21 +1359,25 @@ function persistDermaSection(section) {
   }
 }
 
+/**
+ * Settings resolve after the first load. Never move a practitioner off a tab they
+ * already picked - the stored preference only seeds the very first render.
+ */
 async function hydrateDermaSectionPreference() {
   if (sectionPreferenceHydrated.value) return
   sectionPreferenceHydrated.value = true
+  if (sectionChosenByUser.value) return
   try {
     const response = await window.frappe?.model?.user_settings?.get?.(DERMA_USER_SETTINGS_DOCTYPE)
-    const savedSection = normalizeDermaSection(response?.last_section || response?.last_mode)
-    if (savedSection !== activeSection.value) {
-      activeSection.value = savedSection
-    }
+    const savedSection = response?.last_section || response?.last_mode
+    if (savedSection) activeSection.value = normalizeDermaSection(savedSection)
   } catch (error) {
     // The local fallback selected during setup remains valid.
   }
 }
 
 async function setActiveSection(section, tab = "") {
+  sectionChosenByUser.value = true
   activeSection.value = normalizeDermaSection(section)
   if (tab) activeWorkspaceTab.value = tab
   persistDermaSection(activeSection.value)
@@ -1402,9 +1386,9 @@ async function setActiveSection(section, tab = "") {
 
 async function ensureSectionData(section = activeSection.value, tab = activeWorkspaceTab.value) {
   const normalized = normalizeDermaSection(section)
-  if (normalized === "clinical") {
-    if (!patient.value.name && !props.context?.patient && !props.context?.encounter && !props.context?.appointment) return
-    await Promise.all([loadAssessment(), loadPrescriptionPanel()])
+  if (normalized === "assessment") {
+    if (!contextReady.value) return
+    await loadAssessment()
     return
   }
   if (normalized === "prescriptions") {
@@ -1418,6 +1402,12 @@ async function ensureSectionData(section = activeSection.value, tab = activeWork
   if (normalized === "review") {
     await ensureWorkspaceTab(tab || activeWorkspaceTab.value)
   }
+}
+
+function isSectionDegraded(section) {
+  const labels = SECTION_CONTEXT_LABELS[section] || []
+  const failed = data.value.context_errors || []
+  return labels.some((label) => failed.includes(label))
 }
 
 async function load(context = props.context) {
@@ -1635,7 +1625,7 @@ function handleEncounterAlert(alert) {
     return
   }
   if (alert.tab) {
-    setActiveSection(alert.tab === "compare" ? "photos" : "review")
+    setActiveSection(alert.tab === "inventory" ? "review" : "photos")
   }
 }
 
@@ -1652,7 +1642,7 @@ function activateProcedure(procedure) {
   applyProcedureToDraft(procedure)
   ensureSelectedBodyTemplate(true)
   chartMode.value = "perio"
-  setActiveSection("review")
+  setActiveSection("procedures")
   frappe.show_alert({ message: __("Procedure selected for review"), indicator: "blue" })
 }
 
@@ -1704,7 +1694,7 @@ function selectInventoryMark(item) {
     return
   }
   selectMark(mark)
-  setActiveSection("review")
+  setActiveSection("photos")
 }
 
 function selectFollowupMark(item) {
@@ -1714,7 +1704,7 @@ function selectFollowupMark(item) {
     return
   }
   selectMark(mark)
-  setActiveSection("review")
+  setActiveSection("photos")
 }
 
 async function createFollowupTask(item) {
@@ -1748,7 +1738,7 @@ function selectTemplate(template) {
   activeProcedureName.value = ""
   selectedTemplate.value = template
   activeWorkspaceTab.value = "procedure_history"
-  setActiveSection("review")
+  setActiveSection("procedures")
   if (template?.custom_derma_note_template && !procedureDraft.notes) {
     procedureDraft.notes = template.custom_derma_note_template
   }
@@ -1809,7 +1799,7 @@ function missingRequiredVariableFields() {
 }
 
 async function focusRequiredProcedureFields() {
-  await setActiveSection("review")
+  await setActiveSection("procedures")
   await nextTick()
   const firstMissing = document.querySelector(".derma-procedure-fields .missing input, .derma-procedure-fields .missing select, .derma-procedure-fields .missing textarea")
   firstMissing?.scrollIntoView?.({ behavior: "smooth", block: "center" })
@@ -1992,7 +1982,7 @@ async function createProcedure() {
     if (procedureName) {
       activeProcedureName.value = procedureName
       chartMode.value = "perio"
-      setActiveSection("review")
+      setActiveSection("procedures")
       frappe.show_alert({ message: __("Clinical Procedure created"), indicator: "green" })
     }
     selectedMarkNames.value = []

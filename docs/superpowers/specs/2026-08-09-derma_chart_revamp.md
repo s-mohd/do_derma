@@ -1,7 +1,7 @@
 # Derma Chart Revamp — Declutter The Page And Give Assessment Two Modes
 
 Date: 2026-08-09
-Status: **Phase 1 implemented & verified** (2026-08-09) — Phases 2–5 are Draft.
+Status: **Phases 1–2 implemented & verified** (2026-08-09) — Phases 3–5 are Draft.
 See [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -720,16 +720,18 @@ Tracer bullets — each is a vertical slice through every layer, independently s
 `docs/mockups/derma-chart-revamp.html` showing before/after for all six tabs.
 *Exit: the mockup opens locally and the layout is signed off before any code changes.*
 
-**Phase 1 — Assessment tab end-to-end.** `schema.py`, `install.py`, the `after_migrate` hook,
+**Phase 1 — Assessment tab end-to-end.** ✅ *Shipped 2026-08-09.* `schema.py`, `install.py`, the `after_migrate` hook,
 `Derma Settings` + its child doctype, `assessment.py`, the panel split, the mode toggle,
 the Practitioner Default field.
 *Exit: on a site where the Clinical Notes tab previously showed nothing, a practitioner writes
 a SOAP note, reloads, and it reopens in SOAP.*
 
-**Phase 2 — Tab spine.** Six tabs, right rail deleted, `DermaQuickActionsPanel` removed,
-Compare moved to Photos, one `Complete Encounter`, degraded-section reporting replacing all
-eight `Refresh` buttons, section-preference aliases and the `hydrate` fix.
-*Exit: no duplicated action remains on any screen and the page is full width.*
+**Phase 2 — Tab spine.** ✅ *Shipped 2026-08-09.* Six tabs, right rail deleted,
+`DermaQuickActionsPanel` removed, Compare moved to Photos, one `Complete Encounter`,
+degraded-section reporting replacing all eight `Refresh` buttons, section-preference aliases and
+the `hydrate` fix.
+*Exit: no duplicated action remains on any screen and the page is full width.* — met; proven by
+`tab-spine.spec.ts` and the four screenshots named in Verification.
 
 **Phase 3 — Annotation anchoring.** Studio accepts `clinicalProcedure` / `annotationName` /
 `marks`; per-row `Annotate (n)` on Procedures; `Annotate Consultation` on Assessment; anchor
@@ -803,6 +805,62 @@ labelled *Clinical Notes* with a *SOAP* hint. Renaming it is Phase 2, which also
 `data-test` rename. The right rail, the four duplicate `Annotate` buttons and the eight
 `Refresh` buttons are all still on screen — every one of them is Phase 2 or later.
 
+### Phase 2 — six deviations
+
+- **The template no longer carries a fallback branch; `normalizeDermaSection` does.** The plan
+  said `review` stops being the `v-else` and the fallback becomes `assessment`. As built, the
+  review branch is an explicit `v-else-if` and there is **no `v-else` at all**
+  (`DermaChart.vue:326`). `activeSection` is only ever written through `normalizeDermaSection`
+  — both at the ref initializer (`:678`) and in `setActiveSection` (`:1381`) — so the
+  normalizer is the single owner of the "which tab" invariant and the template does not get a
+  second, silently-diverging copy of it. Acceptance criterion 13 still holds, and the e2e test
+  proves it end to end rather than by inspection.
+
+- **"Retry reloads that section alone" is only true for the three panel tabs.** Prescription,
+  Consent and Assessment each have their own loader. Every other section — procedures, photos,
+  timeline, inventory, follow-ups — is a slice of the *one* `get_patient_derma_chart` payload,
+  so its retry is `refresh()`. Building per-section endpoints to make the criterion literally
+  true would have added five whitelisted endpoints for a path that fires only when a query is
+  already broken. Acceptance criterion 19 is met in effect (the section reloads) but not in
+  isolation, and that is the honest reading.
+
+- **Four rendered `Refresh` buttons came out, not eight.** The spec's count of eight included
+  the two full-page `Retry` buttons (which stay by design) and `AssessmentPanel:5`, already
+  removed in Phase 1. `AnesthesiaPanel.vue` keeps its Refresh because the file is explicitly
+  untouched and unimported — nothing it contains reaches the page. The e2e assertion is scoped
+  to the chart root, because **the `Refresh` still visible beside the page belongs to
+  do_health's sidebar** (`.do-health-section__refresh`), which this app does not own.
+
+- **`Complete Encounter` gained a `completing` prop.** Removing `Complete Session` would
+  otherwise have dropped the in-flight disabled state that the ProcedurePanel button had and
+  the header button did not. Consolidating to one rule — `!hasSessionContext || completing` —
+  is what the Current State section said the duplicate pair got wrong.
+
+- **`selectInventoryMark` / `selectFollowupMark` now route to Photos, not Review.** They select
+  a chart mark to feed the Compare panel's "Clinical Response" control, and Compare moved to
+  Photos. Leaving them pointed at Review would have reproduced the exact defect the spec
+  recorded for the rail's `Follow-up` button: navigation to a tab that no longer holds the
+  thing being navigated to. They are still two functions; collapsing them into
+  `selectMarkFromItem` stays Phase 4.
+
+- **`DermaEvidencePanel` lost its own `Upload` button.** With the panel mounted once, under a
+  Photos header that already carries `Upload Photo`, its button was the last surviving duplicate
+  of the six the spec counted. Two upload controls remain on the Photos tab and they are not
+  duplicates: `Upload Photo` saves a new photo, `Upload Today` pulls today's photo into the
+  Before/After comparison. The e2e test asserts that exact pair, so a third one fails.
+
+- **One CSS fix rode along.** `.chart-annotation-history > .panel-muted` had no padding, so at
+  full width its empty-state text escaped the card's bottom border. Visible in the Phase 2
+  screenshots; fixed with a three-line rule.
+
+Not deviations, worth recording: the `Annotate Consultation` button on the Assessment tab is
+**a label change only** — it still calls the zero-argument `openAnnotationStudio` and still
+anchors to the encounter. Real anchoring is Phase 3. The `Sync Billables` footer, the WhatsApp
+trio and the three lab/surface buttons are all still rendered; gating them is Phase 5. The ~25
+orphaned handlers and their dead state are still present (Phase 4) — their
+`setActiveSection("review")` targets were repointed at `"procedures"` so they do not encode a
+stale tab map, but they remain unreachable from the UI.
+
 One Current State claim needs correcting: the prior spec recorded
 `Custom Field where module = "Do Derma"` as returning `[]`. On this site it now returns 21 rows
 (15 pre-existing on `Clinical Procedure Template`, plus the 6 this phase created). The blocker
@@ -832,6 +890,31 @@ desk page.
 
 **Not yet run:** nothing for Phase 1. Phases 2–5 are unimplemented, and printing is deferred —
 a SOAP-documented visit still prints blank (see Open Questions).
+
+### Phase 2 — run 2026-08-09, all green
+
+| Command | Result |
+|---|---|
+| `run-tests --module do_derma.tests.test_api` | **8 passed** (5 pre-existing + 3 new `TestChartContextErrors`) |
+| `run-tests --module do_derma.tests.test_schema` | **4 passed** — no regression |
+| `run-tests --module do_derma.tests.test_assessment` | **14 passed** — no regression |
+| `bench --site dermaone.localhost migrate` | Clean, `after_migrate` ran |
+| `bench build --app do_derma` | Clean, 529 ms |
+| `yarn test:e2e` | **15 passed** (8 pre-existing + 7 new `tab-spine.spec.ts`) |
+| `ruff check` / `ruff format --check` | Unchanged from the pre-Phase-2 baseline — see note |
+
+The ruff note: this bench has no `ruff` on `PATH` and none in `env/bin`, so the run used
+`pipx run ruff`, a newer release than the project pins. It reports one `RUF005` in `api.py:1298`
+and would reformat `api.py` and `tests/test_api.py`. **All of it is pre-existing** — the same
+output was reproduced from a clean `git stash` of this branch. Phase 2 adds no new finding.
+
+Manual, against seeded data on `dermaone.localhost`: screenshots captured at 1500×1000 for
+Assessment, Procedures, Photos and Review. All four render full width with no right rail, six
+tabs in visit order, and a single `Complete Encounter` in the header. The first pass exposed the
+annotation-history padding bug, which was fixed and re-shot.
+
+**Not yet run for Phase 2:** nothing. Still outstanding across the feature — Phases 3–5, and
+printing (a SOAP-documented visit prints blank; see Open Questions).
 
 ### Commands
 
@@ -871,10 +954,13 @@ Test modules and what they assert (✅ = written and passing):
 | ✅ `test_write_is_whitelisted_to_the_active_mode` | A SOAP save cannot write `status` |
 | ✅ `TestAssessmentAccessGate` | `get_derma_assessment` / `set_derma_assessment_mode` gated |
 | ✅ e2e `assessment-modes.spec.ts` | Fields render; SOAP survives reload; switch preserves content |
+| ✅ `test_healthy_chart_reports_no_degraded_sections` | `context_errors` is empty on a healthy chart |
+| ✅ `test_context_errors_carries_labels_only` | The label is returned; no exception text in the payload |
+| ✅ `test_one_broken_section_leaves_the_others_intact` | One failed query degrades one section only |
+| ✅ e2e `tab-spine.spec.ts` | Six tabs, no rail; zero Refresh; one Complete + one annotate entry; upload only on Photos; degraded notice + Retry; `clinical` and an unknown value both land on Assessment |
 | `test_annotation_anchors_to_procedure` | Child row lands on `Clinical Procedure` — Phase 3 |
 | `test_resume_updates_in_place` | Re-save with `annotation_name` creates no second record — Phase 3 |
 | `test_promoted_mark_survives_resave` | The `api.py:1972` deletion guard still holds — Phase 3 |
-| `test_context_errors_carries_labels_only` | No exception text in the payload — Phase 2 |
 
 **Not yet run** — nothing; implementation has not started.
 
@@ -915,11 +1001,15 @@ does. Specs must keep setting the section explicitly via `ChartPage.setSection()
 | `chart/components/assessment/StructuredAssessmentFields.vue` | *(new)* Configured structured inputs |
 | `chart/components/AssessmentPanel.vue` | Deleted — replaced by the folder above |
 | `chart/components/DermaQuickActionsPanel.vue` | Deleted |
+| `chart/components/DegradedSectionNotice.vue` | *(new)* `⚠ Couldn't load … [Retry]` for one section |
+| `chart/components/PrescriptionPanel.vue` | Drop the `Refresh` button and its emit |
+| `chart/derma_chart.bundle.css` | Alert chips, section stacks, degraded notice, annotation-history padding |
+| `e2e/tests/tab-spine.spec.ts` | *(new)* The decluttering contract |
 | `chart/DermaChart.vue` | Six tabs; delete rail `:545-599`; delete ~25 orphans + dead state; degraded retry; section aliases; `hydrate` fix |
 | `chart/components/ProcedurePanel.vue` | Per-row `Annotate (n)`; `New Procedure`; `Copy marks from last visit`; drop `Complete Session`; gate lab + billing controls |
 | `chart/components/DermaEncounterHeader.vue` | Smart Alert chips; drop Refresh; wrap name + tooltip |
 | `chart/components/ConsentPanel.vue` | Gate WhatsApp trio; `Create` primary; validate on submit not mount |
-| `chart/components/DermaEvidencePanel.vue` | Single mount, Photos tab; hosts Compare |
+| `chart/components/DermaEvidencePanel.vue` | Single mount, Photos tab; drop its duplicate `Upload` |
 | `chart/annotation/DermaAnnotationStudio.jsx` | Accept `clinicalProcedure` / `annotationName` / `marks`; send the real anchor; name it in the header |
 | `do_derma/tests/test_schema.py` | *(new)* |
 | `do_derma/tests/test_assessment.py` | *(new)* |

@@ -1,7 +1,13 @@
 import { expect, Locator, Page } from "@playwright/test";
 import { ChartContext } from "../helpers/derma";
 
-export type SectionKey = "clinical" | "photos" | "prescriptions" | "consent" | "review";
+export type SectionKey =
+	| "assessment"
+	| "procedures"
+	| "photos"
+	| "prescriptions"
+	| "consent"
+	| "review";
 
 /**
  * The Derma Chart desk page (/app/derma-chart).
@@ -13,7 +19,7 @@ export type SectionKey = "clinical" | "photos" | "prescriptions" | "consent" | "
  *    element. `networkidle` never settles - the desk holds long-poll sockets open.
  * 2. The active section is persisted to localStorage under
  *    `do_derma_chart_last_section` (DermaChart.vue), so the chart does not
- *    reliably open on "clinical". Always set the section explicitly.
+ *    reliably open on "assessment". Always set the section explicitly.
  */
 export class ChartPage {
 	readonly page: Page;

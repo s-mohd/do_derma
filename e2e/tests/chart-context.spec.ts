@@ -36,8 +36,11 @@ test.describe("Derma Chart context", () => {
 		const chart = new ChartPage(page);
 		await chart.open(context);
 
-		await chart.setSection("clinical");
-		await expect(page.locator('[data-test="clinical-section"]')).toBeVisible();
+		await chart.setSection("assessment");
+		await expect(page.locator('[data-test="assessment-section"]')).toBeVisible();
+
+		await chart.setSection("procedures");
+		await expect(page.locator('[data-test="procedures-section"]')).toBeVisible();
 
 		await chart.setSection("photos");
 		await expect(page.locator('[data-test="photos-section"]')).toBeVisible();

@@ -29,9 +29,29 @@
     </div>
 
     <div class="encounter-actions">
-      <button type="button" class="ghost small" data-test="header-refresh" @click="$emit('refresh')">{{ __("Refresh") }}</button>
-      <button type="button" class="primary" data-test="complete-session" :disabled="!hasSessionContext" @click="$emit('complete')">
-        {{ __("Complete Encounter") }}
+      <button
+        type="button"
+        class="primary"
+        data-test="complete-session"
+        :disabled="!hasSessionContext || completing"
+        @click="$emit('complete')"
+      >
+        {{ completing ? __("Completing...") : __("Complete Encounter") }}
+      </button>
+    </div>
+
+    <div v-if="alerts.length" class="encounter-alert-chips" data-test="encounter-alerts">
+      <button
+        v-for="alert in alerts"
+        :key="alert.key"
+        type="button"
+        class="encounter-alert-chip"
+        :class="alert.tone"
+        :title="alert.detail"
+        @click="$emit('alert-action', alert)"
+      >
+        <b>{{ alert.label }}</b>
+        <small>{{ alert.detail }}</small>
       </button>
     </div>
   </header>
@@ -50,9 +70,11 @@ const props = defineProps({
   allergyText: { type: String, default: "" },
   insuranceLabel: { type: String, default: "" },
   hasSessionContext: { type: Boolean, default: false },
+  completing: { type: Boolean, default: false },
+  alerts: { type: Array, default: () => [] },
 })
 
-defineEmits(["refresh", "complete"])
+defineEmits(["complete", "alert-action"])
 
 const patientName = computed(() => props.patient.patient_name || props.patient.name || __("Patient"))
 const initials = computed(() => patientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "P")

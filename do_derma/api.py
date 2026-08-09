@@ -204,7 +204,9 @@ def _select_existing_fields(doctype: str, fields: list[str]) -> list[str]:
 	return selected
 
 
-def _safe_derma_context(label: str, fallback: Any, getter):
+def _safe_derma_context(label: str, fallback: Any, getter, errors: list[str] | None = None):
+	"""Degrade one chart section to its fallback. `errors` collects the section label
+	so the payload can say what broke; the traceback never leaves the server."""
 	try:
 		return getter()
 	except Exception:
@@ -212,6 +214,8 @@ def _safe_derma_context(label: str, fallback: Any, getter):
 			title=_("Derma Chart Context: {0}").format(label),
 			message=frappe.get_traceback(),
 		)
+		if errors is not None and label not in errors:
+			errors.append(label)
 		return fallback
 
 
@@ -1418,12 +1422,17 @@ def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None
 	patient = context["patient_id"]
 	appointment_id = context["appointment_id"]
 	encounter_id = context["encounter_id"]
-	procedures = _safe_derma_context(
+	context_errors: list[str] = []
+
+	def section(label: str, fallback: Any, getter):
+		return _safe_derma_context(label, fallback, getter, errors=context_errors)
+
+	procedures = section(
 		"procedures",
 		[],
 		lambda: _get_derma_procedures(patient, appointment=appointment_id, encounter=encounter_id),
 	)
-	annotation_context = _safe_derma_context(
+	annotation_context = section(
 		"annotations",
 		{"annotations": [], "encounter_annotations": [], "procedure_annotations": {}, "latest_annotation": None},
 		lambda: _load_derma_annotation_context(
@@ -1435,60 +1444,61 @@ def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None
 
 	return {
 		**context,
-		"procedure_templates": _safe_derma_context("procedure templates", [], _get_derma_procedure_templates),
+		"procedure_templates": section("procedure templates", [], _get_derma_procedure_templates),
 		"procedures": procedures,
 		"annotations": annotation_context["annotations"],
 		"encounter_annotations": annotation_context["encounter_annotations"],
 		"procedure_annotations": annotation_context["procedure_annotations"],
 		"latest_annotation": annotation_context["latest_annotation"],
-		"body_templates": _safe_derma_context("body templates", [], _get_body_templates),
-		"template_sets": _safe_derma_context("template sets", [], _get_template_sets),
-		"photo_sets": _safe_derma_context(
+		"body_templates": section("body templates", [], _get_body_templates),
+		"template_sets": section("template sets", [], _get_template_sets),
+		"photo_sets": section(
 			"photo sets",
 			[],
 			lambda: _get_derma_photo_sets(patient, appointment=appointment_id, encounter=encounter_id),
 		),
-		"previous_photo_sets": _safe_derma_context(
+		"previous_photo_sets": section(
 			"previous photo sets",
 			[],
 			lambda: _get_previous_photo_sets(patient, current_encounter=encounter_id),
 		),
-		"marks": _safe_derma_context(
+		"marks": section(
 			"marks",
 			[],
 			lambda: _get_marks(patient, appointment=appointment_id, encounter=encounter_id),
 		),
-		"previous_marks": _safe_derma_context(
+		"previous_marks": section(
 			"previous marks",
 			[],
 			lambda: _get_previous_marks(patient, current_encounter=encounter_id),
 		),
-		"categories": _safe_derma_context("categories", [], _get_categories),
-		"timeline": _safe_derma_context(
+		"categories": section("categories", [], _get_categories),
+		"timeline": section(
 			"patient timeline",
 			[],
 			lambda: get_patient_timeline(patient, current_encounter=encounter_id),
 		),
-		"visit_timeline": _safe_derma_context(
+		"visit_timeline": section(
 			"visit timeline",
 			[],
 			lambda: get_visit_timeline(patient, current_encounter=encounter_id),
 		),
-		"followup_items": _safe_derma_context(
+		"followup_items": section(
 			"follow-up intelligence",
 			[],
 			lambda: get_followup_intelligence(patient=patient, encounter=encounter_id, appointment=appointment_id),
 		),
-		"inventory_readiness": _safe_derma_context(
+		"inventory_readiness": section(
 			"inventory readiness",
 			[],
 			lambda: get_inventory_readiness(patient=patient, encounter=encounter_id, appointment=appointment_id),
 		),
-		"visit_summary": _safe_derma_context(
+		"visit_summary": section(
 			"visit summary",
 			"",
 			lambda: generate_visit_summary(encounter_id, patient),
 		),
+		"context_errors": context_errors,
 	}
 
 

@@ -35,7 +35,7 @@ test.describe("Assessment modes", () => {
 	async function openAssessment(page: import("@playwright/test").Page) {
 		const chart = new ChartPage(page);
 		await chart.open(context);
-		await chart.setSection("clinical");
+		await chart.setSection("assessment");
 		await expect(page.locator('[data-test="assessment-panel"]')).toBeVisible();
 		return chart;
 	}
