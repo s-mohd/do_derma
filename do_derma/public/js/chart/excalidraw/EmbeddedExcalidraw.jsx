@@ -82,7 +82,10 @@ function parseAnnotation(annotation) {
         mimeType: "image/png",
       })
 			return {
-        json_text: JSON.stringify({ elements, files, derma_template: serializeTemplate(chartTemplate) }),
+        json_text: JSON.stringify({
+          ...stripTemplateImagePayload(elements, files),
+          derma_template: serializeTemplate(chartTemplate),
+        }),
         file_data: await convertBlobToDataUrl(blob),
       }
     },
@@ -1069,6 +1072,30 @@ function normalizeBinaryFile(file) {
     id: file.id,
     created: file.created || Date.now(),
     lastRetrieved: file.lastRetrieved || Date.now(),
+  }
+}
+
+/**
+ * Drop the body template's base64 payload from what gets persisted. hydrateTemplateImageFiles()
+ * rebuilds it on load from the template's own URL, so the ~35 KB average it costs per annotation
+ * buys nothing.
+ *
+ * Keyed strictly on the template element, never on "is an image": a photo the practitioner
+ * inserted has no URL to rebuild from, so stripping it would destroy it. And the template
+ * *element* must survive - _sync_chart_marks_for_annotation returns early without it, which
+ * would silently stop every mark in the session being linked back to the annotation.
+ */
+function stripTemplateImagePayload(elements, files) {
+  const templateFileIds = new Set(
+    elements
+      .filter((element) => element.customData?.kind === "derma_template" && element.fileId)
+      .map((element) => element.fileId)
+  )
+  return {
+    elements: elements.map((element) =>
+      templateFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element
+    ),
+    files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !templateFileIds.has(fileId))),
   }
 }
 

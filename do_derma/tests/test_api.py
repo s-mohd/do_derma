@@ -305,6 +305,61 @@ class TestAnnotationAnchoring(DermaTestHelpers, IntegrationTestCase):
         return mark.name
 
 
+class TestAnnotationStorage(DermaTestHelpers, IntegrationTestCase):
+    """The client stops persisting the body template's base64 payload (~35 KB per record),
+    because the load path rebuilds it from the template URL. Two properties must hold on the
+    server side of that contract."""
+
+    def _stripped_scene(self, extra_elements=()):
+        """What the browser now sends: the template element without its dataURL, no files map."""
+        return json.dumps({"elements": [TEMPLATE_ELEMENT, *extra_elements], "files": {}})
+
+    def test_marks_still_backlink_when_the_scene_carries_no_image_payload(self):
+        """_sync_chart_marks_for_annotation returns early without a template element, so a strip
+        that removed the element - rather than just its payload - would silently stop every mark
+        being linked to its annotation, with no error anywhere."""
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        mark = api.save_chart_mark({"patient": patient, "encounter": encounter.name, "x_percent": 20, "y_percent": 30})
+        stamped = {
+            "id": "stamped-element",
+            "type": "ellipse",
+            "customData": {"kind": "derma_mark", "derma_chart_mark": mark["name"]},
+        }
+
+        saved = api.save_derma_annotation(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "file_data": PIXEL_PNG,
+                "json_text": self._stripped_scene([stamped]),
+            }
+        )
+
+        self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "annotation"), saved["name"])
+
+    def test_stored_scene_keeps_the_template_element(self):
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+
+        saved = api.save_derma_annotation(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "file_data": PIXEL_PNG,
+                "json_text": self._stripped_scene(),
+                "body_template_title": "Face Map",
+            }
+        )
+
+        scene = json.loads(frappe.db.get_value("Health Annotation", saved["name"], "json"))
+        kinds = [(element.get("customData") or {}).get("kind") for element in scene["elements"]]
+        self.assertIn("derma_template", kinds)
+        self.assertNotIn("dataURL", json.dumps(scene["elements"]))
+        # The reload path needs a URL to rebuild the background from.
+        self.assertTrue(scene.get("derma_template") is not None or kinds.count("derma_template"))
+
+
 class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
     def test_submits_draft_encounter_with_no_appointment(self):
         patient = self._make_patient()

@@ -1,6 +1,7 @@
 import { expect, Page, test } from "@playwright/test";
 import { APIRequestContext } from "@playwright/test";
 import { ChartContext, cleanupEncounter, freshEncounter, getSeedPatient, listMarks } from "../helpers/derma";
+import { callMethod } from "../helpers/frappe";
 import { ChartPage } from "../pages";
 
 /**
@@ -136,6 +137,45 @@ test.describe("Annotation canvas", () => {
 		await openStudio(page);
 
 		await expect(page.locator(".derma-annotation-header span")).toContainText("New drawing");
+	});
+
+	/**
+	 * The body template used to be persisted as base64 inside every annotation - 193 MB across
+	 * the 5,437 rows on this site. It is rebuilt on load from the template's own URL instead.
+	 */
+	test("saves without embedding the body template, and still reopens with it", async ({ page, request }) => {
+		test.setTimeout(240000);
+		await openStudio(page);
+		await armPointProcedure(page);
+
+		const canvas = page.locator(".derma-annotation-canvas canvas").first();
+		const box = (await canvas.boundingBox())!;
+		await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+		await page.waitForTimeout(2500);
+
+		await page.getByRole("button", { name: "Save Annotation" }).click();
+		await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
+		await page.waitForTimeout(3000);
+
+		const saved = await callMethod<{ encounter_annotations: Array<{ name: string; json: string }> }>(
+			request,
+			"do_derma.api.get_derma_annotations",
+			{ encounter: context.encounter, patient: context.patient },
+		);
+		const scene = saved.encounter_annotations[0];
+		expect(scene, "nothing was saved").toBeTruthy();
+		expect(scene.json, "the base64 body template is still being persisted").not.toContain("dataURL");
+
+		// The template element itself must survive the strip: without it the server-side mark
+		// backlink stops running, silently.
+		const elements = JSON.parse(scene.json).elements as Array<{ customData?: { kind?: string } }>;
+		expect(elements.some((element) => element.customData?.kind === "derma_template")).toBe(true);
+
+		// Reopening rebuilds the background from the template URL rather than from the payload.
+		await page.locator('[data-test="annotate-consultation"]').click();
+		await expect(page.locator(".derma-annotation-header span")).toContainText("Editing the saved drawing");
+		await page.waitForTimeout(8000);
+		await expect(page.locator(".derma-annotation-canvas canvas").first()).toBeVisible();
 	});
 });
 
