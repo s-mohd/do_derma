@@ -1874,8 +1874,17 @@ def _sync_chart_marks_for_annotation(
 		except Exception:
 			frappe.log_error(frappe.get_traceback(), "Failed syncing derma chart mark from annotation")
 
+	# A mark is only orphaned once the element that represents it has actually left the scene.
+	# Marks drawn with the area or freehand tool are stamped in real time and carry their
+	# element id, so without this they would be deleted on the next save of the same drawing -
+	# `tagged` only ever holds elements from the element-tagging branch above.
+	live_element_ids = {
+		element.get("id")
+		for element in elements
+		if isinstance(element, dict) and not element.get("isDeleted") and element.get("id")
+	}
 	for element_id, row in existing_by_element.items():
-		if element_id in tagged or row.get("clinical_procedure"):
+		if element_id in tagged or element_id in live_element_ids or row.get("clinical_procedure"):
 			continue
 		frappe.delete_doc("Derma Chart Mark", row.get("name"), ignore_permissions=True)
 

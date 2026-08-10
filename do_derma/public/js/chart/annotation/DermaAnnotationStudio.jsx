@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import EmbeddedExcalidraw, { BADGE_KIND, isAreaBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+import EmbeddedExcalidraw, { BADGE_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 
 const __ = window.__ || ((text) => text)
 
@@ -77,6 +77,16 @@ function procedureVariables(procedure = {}) {
   return procedure.derma_variables || procedure.variables || []
 }
 
+function taggingHint(procedure, label) {
+  if (isAreaBehavior(procedure)) {
+    return __("Tagging as: {0} - drag on the canvas to outline the treated area.").replace("{0}", label)
+  }
+  if (isFreehandBehavior(procedure)) {
+    return __("Tagging as: {0} - draw over the affected skin.").replace("{0}", label)
+  }
+  return __("Tagging as: {0} - click the canvas to place a mark.").replace("{0}", label)
+}
+
 function anchorDescription(context = {}) {
   if (context.clinicalProcedure) {
     return `${__("Procedure")} — ${context.procedureLabel || context.clinicalProcedure}`
@@ -133,6 +143,10 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
   }
   items.sort((a, b) => a.centroidY - b.centroidY || a.centroidX - b.centroidX)
   return items.map((item, index) => ({ ...item, badgeNum: index + 1 }))
+}
+
+function sanitizeMarkVariables(values = {}) {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== ""))
 }
 
 function markIdentity(element = {}) {
@@ -291,6 +305,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [placedMarkCount, setPlacedMarkCount] = useState(0)
   // Bumped by the canvas on every scene change, so the badge layer follows what is drawn.
   const [sceneRevision, setSceneRevision] = useState(0)
+  // Set while the variable editor is bound to an existing mark rather than to the next one.
+  const [editingMark, setEditingMark] = useState(null)
 
   const anchorDoctype = context.clinicalProcedure ? "Clinical Procedure" : "Patient Encounter"
   const anchorName = context.clinicalProcedure || context.encounter || ""
@@ -350,18 +366,37 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   function toggleProcedure(procedure) {
     const name = procedureLabel(procedure)
+    // Arming a procedure means "the next mark", so it ends any edit of an existing one.
+    setEditingMark(null)
     setSelectedProcedures((current) => current.includes(name) ? current.filter((row) => row !== name) : [...current, name])
     setActiveProcedure((current) => (current === name ? "" : name))
   }
 
   function updateProcedureValue(procedureName, field, value) {
-    setProcedureValues((current) => ({
-      ...current,
-      [procedureName]: {
-        ...(current[procedureName] || {}),
-        [field.variable_name || field.fieldname]: value,
-      },
-    }))
+    const key = field.variable_name || field.fieldname
+    setProcedureValues((current) => {
+      const next = { ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }
+      if (editingMark?.procedure === procedureName) persistMarkVariables(next[procedureName])
+      return next
+    })
+  }
+
+  /**
+   * The Derma Chart Mark owns a mark's variables; the canvas element caches them so badges and
+   * the legend can read them without a round trip. Written in that order, never one alone.
+   */
+  async function persistMarkVariables(values) {
+    const target = editingMark
+    if (!target?.name) return
+    try {
+      await window.frappe.call({
+        method: "do_derma.api.save_chart_mark",
+        args: { values: { name: target.name, patient: context.patient, ...sanitizeMarkVariables(values) } },
+      })
+      embeddedRef.current?.updateMarkVariables?.({ markName: target.name, variables: values })
+    } catch (error) {
+      window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: error.message || String(error), indicator: "red" })
+    }
   }
 
   function updatePartValue(partName, field, value) {
@@ -398,6 +433,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             region_label: payload.region_label,
             x_percent: payload.x_percent,
             y_percent: payload.y_percent,
+            // Present for drawn marks (area, freehand). It is the idempotency key the annotation
+            // fan-out matches elements to marks by.
+            annotation_json: payload.annotation_json || null,
             ...(payload.procedure_variables || {}),
           },
         },
@@ -411,8 +449,24 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
   }
 
-  function handleMarkSelected({ mark }) {
-    window.frappe?.show_alert?.({ message: __("Selected mark {0}").replace("{0}", mark), indicator: "blue" })
+  /**
+   * Clicking a mark reopens the variable editor bound to it, so a stroke or stamp can be
+   * corrected after the fact instead of being redrawn.
+   */
+  function handleMarkSelected({ mark, element }) {
+    const custom = element?.customData || {}
+    const procedureTemplateName = custom.procedure_template
+    const procedure = procedures.find((row) => row.name === procedureTemplateName)
+    if (!procedure) {
+      window.frappe?.show_alert?.({ message: __("Selected mark {0}").replace("{0}", mark), indicator: "blue" })
+      return
+    }
+    const name = procedureLabel(procedure)
+    setEditingMark({ name: mark, elementId: element?.id, procedure: name })
+    setActiveProcedure(name)
+    setSelectedProcedures((current) => (current.includes(name) ? current : [...current, name]))
+    setProcedureValues((current) => ({ ...current, [name]: { ...(custom.procedure_variables || {}) } }))
+    setDrawer("")
   }
 
   function handleRegionSelected(region) {
@@ -504,13 +558,22 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         </header>
 
         {activeProcedure ? (
-          <div className="derma-annotation-tagging-banner">
+          <div className="derma-annotation-tagging-banner" data-test="annotation-tagging-mode">
             <span>
-              {isAreaBehavior(activeProcedureDoc)
-                ? __("Tagging as: {0} - drag on the canvas to outline the treated area.").replace("{0}", activeProcedure)
-                : __("Tagging as: {0} - click the canvas to place a mark.").replace("{0}", activeProcedure)}
+              {editingMark
+                ? __("Editing a saved {0} mark - changes save as you type.").replace("{0}", activeProcedure)
+                : taggingHint(activeProcedureDoc, activeProcedure)}
             </span>
-            <button type="button" className="ghost small stop-tagging" onClick={() => setActiveProcedure("")}>{__("Stop Tagging")}</button>
+            <button
+              type="button"
+              className="ghost small stop-tagging"
+              onClick={() => {
+                setEditingMark(null)
+                setActiveProcedure("")
+              }}
+            >
+              {editingMark ? __("Done") : __("Stop Tagging")}
+            </button>
           </div>
         ) : null}
 
@@ -580,14 +643,16 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
         <aside className="derma-annotation-right">
           <div className="derma-annotation-panel">
-            <h3>{__("Procedure Variables")}</h3>
+            <h3>{editingMark ? __("Editing Mark") : __("Procedure Variables")}</h3>
             {activeProcedureDoc ? (
-              <VariableEditor
-                title={activeProcedure}
-                fields={procedureVariables(activeProcedureDoc)}
-                values={procedureValues[activeProcedure] || {}}
-                onChange={(field, value) => updateProcedureValue(activeProcedure, field, value)}
-              />
+              <div data-test="annotation-variable-editor" data-editing-mark={editingMark?.name || ""}>
+                <VariableEditor
+                  title={activeProcedure}
+                  fields={procedureVariables(activeProcedureDoc)}
+                  values={procedureValues[activeProcedure] || {}}
+                  onChange={(field, value) => updateProcedureValue(activeProcedure, field, value)}
+                />
+              </div>
             ) : <p className="derma-annotation-empty">{__("Select a procedure, then click the canvas to place a tagged mark.")}</p>}
           </div>
 

@@ -2,6 +2,7 @@ import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } f
 import { createRoot } from "react-dom/client"
 
 const GENERATED_BY_MARKS = "render_chart_marks"
+const MIN_DRAWN_MARK_SIZE = 6
 export const BADGE_KIND = "derma_badge"
 
 const convertBlobToDataUrl = (blob) =>
@@ -43,6 +44,7 @@ function parseAnnotation(annotation) {
 	// signature to compare against, that is an endless updateScene loop.
 	const badgeSignature = useRef("")
 	const markLayerRef = useRef("")
+	const selectedMarkRef = useRef("")
 	const dermaToolRef = useRef("draw")
 	const requestedToolRef = useRef("draw")
 	const previousDraggingIdRef = useRef(null)
@@ -50,7 +52,7 @@ function parseAnnotation(annotation) {
 	function applyDermaTool(nextTemplate) {
 		const effectiveTemplate = nextTemplate !== undefined ? nextTemplate : template
 		const requested = requestedToolRef.current
-		const resolved = requested === "mark" && isAreaBehavior(effectiveTemplate) ? "area" : requested
+		const resolved = requested === "mark" ? placementToolFor(effectiveTemplate) : requested
 		dermaToolRef.current = resolved
 		if (api) setDermaTool(api, resolved, effectiveTemplate)
 	}
@@ -127,6 +129,7 @@ function parseAnnotation(annotation) {
     },
     renderTemplateParts: (parts) => renderTemplateParts(api, parts),
     setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
+    updateMarkVariables: (payload) => updateMarkVariables(api, payload),
     resetView: () => fitToTemplate(api),
   }))
 
@@ -239,7 +242,7 @@ function parseAnnotation(annotation) {
           if (hitElement?.customData?.derma_history) return
 	          const hitMark = hitElement?.customData?.mark_name || hitElement?.customData?.derma_chart_mark
 	          if (hitMark) {
-	            onMarkSelected?.({ mark: hitMark, elementId: hitElement.id })
+	            onMarkSelected?.({ mark: hitMark, elementId: hitElement.id, element: hitElement })
 	            return
 	          }
 	          if (!api) return
@@ -270,17 +273,31 @@ function parseAnnotation(annotation) {
 	            markLayerRef.current = signature
 	            onSceneChanged?.()
 	          }
-	          if (dermaToolRef.current === "area") {
-	            const draggingId = appState?.draggingElement?.id || appState?.newElement?.id || null
-	            const previousId = previousDraggingIdRef.current
-	            if (previousId && draggingId !== previousId) {
-	              const finished = elements.find((element) => element.id === previousId)
-	              if (finished && !finished.isDeleted && !finished.customData?.kind && (finished.width || finished.height)) {
-	                tagAreaElement(api, finished, template, procedureVariablesRef.current)
-	                onMarkPlaced?.(buildAreaPlacementPayload(api, template, chartTemplate, finished, procedureVariablesRef.current))
+	          // Selecting a mark is Excalidraw's own hit-test, read back from appState. Only while
+	          // no placement tool is armed, so the selection insertProcedureStamp makes on the
+	          // stamp it just placed does not count as "edit this one".
+	          if (dermaToolRef.current === "select") {
+	            const selected = selectedMarkElement(elements, appState)
+	            const selectedId = selected?.id || ""
+	            if (selectedId !== selectedMarkRef.current) {
+	              selectedMarkRef.current = selectedId
+	              if (selected) {
+	                const custom = selected.customData || {}
+	                onMarkSelected?.({
+	                  mark: custom.mark_name || custom.derma_chart_mark,
+	                  elementId: selected.id,
+	                  element: selected,
+	                })
 	              }
 	            }
-	            previousDraggingIdRef.current = draggingId
+	          }
+	          const drawingTool = dermaToolRef.current
+	          if (drawingTool === "area" || drawingTool === "draw") {
+	            const finished = findCommittedElement(elements, appState, previousDraggingIdRef)
+	            if (finished) {
+	              tagDrawnElement(api, finished, template, procedureVariablesRef.current, drawingTool)
+	              onMarkPlaced?.(buildDrawnPlacementPayload(api, template, chartTemplate, finished, procedureVariablesRef.current, drawingTool))
+	            }
 	          }
 	        }}
 	      />
@@ -301,6 +318,20 @@ export function isAreaBehavior(template) {
   // drag-to-size rectangle over the actual treated region instead of a fixed-size point stamp.
   const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
   return behavior.includes("area") || behavior.includes("hatch") || behavior.includes("five_lines")
+}
+
+export function isFreehandBehavior(template) {
+  // Irregular regions - a graft, a scar, a patch of melasma - that a rectangle misrepresents.
+  // The pen takes the procedure's colour and the finished stroke becomes one Derma Chart Mark.
+  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
+  return behavior.includes("freehand") || behavior.includes("stroke") || behavior.includes("paint")
+}
+
+/** Which drawing tool a procedure's marker behaviour asks for. */
+function placementToolFor(template) {
+  if (isAreaBehavior(template)) return "area"
+  if (isFreehandBehavior(template)) return "draw"
+  return "mark"
 }
 
 export function mountEmbeddedExcalidraw(element, props = {}) {
@@ -389,7 +420,37 @@ function buildPlacementPayload(api, template, chartTemplate, origin, stamp, proc
   }
 }
 
-function tagAreaElement(api, element, template, procedureVariables = {}) {
+/**
+ * A stroke's true geometry lives in the scene; the mark carries its centroid, because
+ * x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged areas
+ * already make.
+ */
+function drawnElementCentre(element, shape) {
+  const points = element.points || []
+  if (shape !== "freehand" || !points.length) {
+    return { x: element.x + (element.width || 0) / 2, y: element.y + (element.height || 0) / 2 }
+  }
+  return {
+    x: element.x + points.reduce((sum, point) => sum + point[0], 0) / points.length,
+    y: element.y + points.reduce((sum, point) => sum + point[1], 0) / points.length,
+  }
+}
+
+/** The element the user just finished drawing, or null while they are still drawing it. */
+function findCommittedElement(elements, appState, previousIdRef) {
+  const draggingId = appState?.draggingElement?.id || appState?.newElement?.id || null
+  const previousId = previousIdRef.current
+  previousIdRef.current = draggingId
+  if (!previousId || draggingId === previousId) return null
+  const finished = elements.find((element) => element.id === previousId)
+  if (!finished || finished.isDeleted || finished.customData?.kind) return null
+  if (!finished.width && !finished.height) return null
+  // A flick of the pen is not a clinical finding.
+  if (Math.abs(finished.width || 0) < MIN_DRAWN_MARK_SIZE && Math.abs(finished.height || 0) < MIN_DRAWN_MARK_SIZE) return null
+  return finished
+}
+
+function tagDrawnElement(api, element, template, procedureVariables = {}, tool = "area") {
   if (!api) return
   const elements = api.getSceneElements().map((sceneElement) => {
     if (sceneElement.id !== element.id) return sceneElement
@@ -403,20 +464,24 @@ function tagAreaElement(api, element, template, procedureVariables = {}) {
         marker_behavior: template?.custom_derma_marker_behavior,
         marker_color: template?.custom_derma_marker_color,
         procedure_variables: sanitizeVariables(procedureVariables),
+        shape: tool === "draw" ? "freehand" : "area",
       },
     }
   })
   api.updateScene({ elements, commitToHistory: true })
 }
 
-function buildAreaPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}) {
+function buildDrawnPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}, tool = "area") {
+  const shape = tool === "draw" ? "freehand" : "area"
   const bounds = getTemplateBounds(api)
-  const centerX = element.x + (element.width || 0) / 2
-  const centerY = element.y + (element.height || 0) / 2
+  const centre = drawnElementCentre(element, shape)
+  const centerX = centre.x
+  const centerY = centre.y
   const xPercent = bounds ? clamp(((centerX - bounds.x) / bounds.width) * 100, 0, 100) : 50
   const yPercent = bounds ? clamp(((centerY - bounds.y) / bounds.height) * 100, 0, 100) : 50
   return {
     temp_element_ids: [element.id],
+    annotation_json: JSON.stringify({ element_id: element.id, shape }),
     scene_x: centerX,
     scene_y: centerY,
     x_percent: xPercent,
@@ -429,6 +494,17 @@ function buildAreaPlacementPayload(api, template, chartTemplate, element, proced
     body_view: chartTemplate?.title,
     procedure_variables: sanitizeVariables(procedureVariables),
   }
+}
+
+/** Refresh a mark's cached variables on canvas after the mark itself has been updated. */
+function updateMarkVariables(api, payload = {}) {
+  if (!api || !payload.markName) return
+  const elements = api.getSceneElements().map((element) => {
+    const custom = element.customData || {}
+    if (custom.mark_name !== payload.markName && custom.derma_chart_mark !== payload.markName) return element
+    return { ...element, customData: { ...custom, procedure_variables: sanitizeVariables(payload.variables) } }
+  })
+  api.updateScene({ elements, commitToHistory: false })
 }
 
 function linkMarkElements(api, payload = {}) {
@@ -1104,6 +1180,17 @@ function normalizeBinaryFile(file) {
  * export with the drawing and are visible while working, but they are derived state: never
  * committed to undo history, and stripped from what gets persisted.
  */
+/** The single selected element, when it is a mark the practitioner drew or stamped. */
+function selectedMarkElement(elements = [], appState = {}) {
+  const selectedIds = Object.entries(appState.selectedElementIds || {})
+    .filter(([, isSelected]) => isSelected)
+    .map(([id]) => id)
+  if (selectedIds.length !== 1) return null
+  const element = elements.find((candidate) => candidate.id === selectedIds[0])
+  if (!element || element.isDeleted || element.customData?.kind !== "derma_mark") return null
+  return element.customData?.mark_name || element.customData?.derma_chart_mark ? element : null
+}
+
 /** Everything a badge is derived from: which marks exist, where they are, what they carry. */
 function markLayerSignature(elements = []) {
   return elements

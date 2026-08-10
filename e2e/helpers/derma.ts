@@ -81,6 +81,7 @@ export const SEED = {
 	procedureCategory: "E2E Injectables",
 	pointTemplate: "E2E Filler",
 	areaTemplate: "E2E Area Peel",
+	freehandTemplate: "E2E Freehand Graft",
 	bodyTemplate: "E2E Face Map",
 	bodyParts: ["E2E Left Cheek", "E2E Right Cheek"],
 	consentTitle: "E2E Consent",

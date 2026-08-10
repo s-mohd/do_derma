@@ -69,7 +69,7 @@
   {"fieldname": "side", "fieldtype": "Select", "label": "Side", "options": "\nLeft\nRight\nBilateral\nMidline"},
   {"fieldname": "x_percent", "fieldtype": "Float", "in_list_view": 1, "label": "X Position (%)", "reqd": 1},
   {"fieldname": "y_percent", "fieldtype": "Float", "in_list_view": 1, "label": "Y Position (%)", "reqd": 1},
-  {"fieldname": "marker_behavior", "fieldtype": "Select", "in_list_view": 1, "label": "Marker Behavior", "options": "numbered_dot\nblue_dot\ntriangle\nhatch\nx_mark\ntarget\narea\nfinding_dot"},
+  {"fieldname": "marker_behavior", "fieldtype": "Select", "in_list_view": 1, "label": "Marker Behavior", "options": "numbered_dot\nblue_dot\nthree_dots\ntriangle\ntriangle_cluster\nhatch\nfive_lines\nx_mark\ntarget\narea\nfinding_dot\nfreehand"},
   {"fieldname": "marker_color", "fieldtype": "Data", "label": "Marker Color"},
   {"fieldname": "marker_label", "fieldtype": "Data", "label": "Marker Label"},
   {"default": "0", "fieldname": "sequence", "fieldtype": "Int", "label": "Sequence"},

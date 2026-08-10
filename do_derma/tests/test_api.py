@@ -288,6 +288,40 @@ class TestAnnotationAnchoring(DermaTestHelpers, IntegrationTestCase):
         self.assertTrue(frappe.db.exists("Derma Chart Mark", promoted))
         self.assertFalse(frappe.db.exists("Derma Chart Mark", unpromoted))
 
+    def test_resave_does_not_duplicate_a_drawn_mark(self):
+        """A drawn mark (area or freehand) is saved the moment it is committed, so the annotation
+        save must only re-link it. The element carries the same id both times, which is the key
+        the fan-out matches on."""
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        element_id = "freehand-element-1"
+        mark = api.save_chart_mark(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "x_percent": 40,
+                "y_percent": 55,
+                "annotation_json": json.dumps({"element_id": element_id, "shape": "freehand"}),
+            }
+        )
+        stroke = {
+            "id": element_id,
+            "type": "freedraw",
+            "customData": {"kind": "derma_mark", "derma_chart_mark": mark["name"], "shape": "freehand"},
+        }
+        payload = self._annotation_payload(
+            patient=patient,
+            encounter=encounter.name,
+            json_text=json.dumps({"elements": [TEMPLATE_ELEMENT, stroke]}),
+        )
+
+        first = api.save_derma_annotation(payload)
+        api.save_derma_annotation({**payload, "annotation_name": first["name"]})
+
+        marks = frappe.get_all("Derma Chart Mark", filters={"encounter": encounter.name}, pluck="name")
+        self.assertEqual(marks, [mark["name"]])
+        self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "annotation"), first["name"])
+
     def _make_orphan_mark(self, patient, annotation, clinical_procedure=None):
         """A mark whose element_id is absent from the scene, so the sync's deletion loop
         considers it - the promoted one must still survive."""

@@ -40,6 +40,7 @@ ITEM_GROUP = "E2E Derma"
 PROCEDURE_CATEGORY = "E2E Injectables"
 POINT_TEMPLATE = "E2E Filler"
 AREA_TEMPLATE = "E2E Area Peel"
+FREEHAND_TEMPLATE = "E2E Freehand Graft"
 BODY_TEMPLATE = "E2E Face Map"
 BODY_PART_NAMES = ("E2E Left Cheek", "E2E Right Cheek")
 CONSENT_TEMPLATE = "E2E Consent"
@@ -348,16 +349,18 @@ def _ensure_procedure_templates(
 	body_template: str | None,
 	summary: dict[str, Any],
 ) -> list[str]:
-	"""Two Clinical Procedure Templates: one point-stamped, one drag-to-area.
+	"""Three Clinical Procedure Templates, one per placement path.
 
-	``isAreaBehavior()`` in EmbeddedExcalidraw.jsx treats
-	``area``/``hatch``/``five_lines`` as drag-to-size and everything else as a
-	point stamp, so those two behaviors cover both placement paths.
+	``placementToolFor()`` in EmbeddedExcalidraw.jsx routes
+	``area``/``hatch``/``five_lines`` to a drag-to-size rectangle,
+	``freehand``/``stroke``/``paint`` to the pen, and everything else to a point
+	stamp, so these three behaviors cover every path a practitioner can take.
 	"""
 
 	specs = (
 		(POINT_TEMPLATE, "numbered_dot", "#c0392b"),
 		(AREA_TEMPLATE, "area", "#8e44ad"),
+		(FREEHAND_TEMPLATE, "freehand", "#0e7490"),
 	)
 
 	names: list[str] = []
