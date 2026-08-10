@@ -371,7 +371,8 @@ not render SOAP notes (carried over from the revamp spec's Open Questions).
 - Backfill the 5,437 legacy annotations, if the storage saving is wanted retroactively.
 - Reviving the dead element-tagged branch of `_sync_chart_marks_for_annotation`.
 - Revamp Phases 4 (orphan triage) and 5 (feature toggles).
-- Print formats keyed off the stamped assessment mode.
+- ~~Print formats keyed off the stamped assessment mode.~~ ✅ *Shipped 2026-08-10* — see
+  `2026-08-10-assessment_print_formats.md`.
 
 ## Files to touch (summary)
 

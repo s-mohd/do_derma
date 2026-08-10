@@ -765,6 +765,9 @@ toggle is turned on, with no rebuild in between.
   *Default:* printing is deferred by decision, so **the pilot must not print SOAP-documented
   encounters** until both formats gain a block keyed off `custom_derma_assessment_mode`. This
   is the first item of follow-up work, not an optional polish.
+  **Resolved 2026-08-10** by `2026-08-10-assessment_print_formats.md`: both formats now carry a
+  marker-delimited call to the `derma_assessment_html` Jinja global, injected and repaired by
+  `after_migrate`. The pilot may print.
 
 - **Does the clinic want anesthesia recorded at all?** `AnesthesiaPanel.vue` is 268 written
   lines against stub endpoints and a `Dental Anesthesia` child table.
@@ -1214,7 +1217,8 @@ does. Specs must keep setting the section explicitly via `ChartPage.setSection()
 
 ## Phase 2 (future, not in this spec)
 
-- Print formats for both encounter templates, keyed off the stamped mode. **First item.**
+- ~~Print formats for both encounter templates, keyed off the stamped mode. **First item.**~~
+  ✅ *Shipped 2026-08-10* — see `2026-08-10-assessment_print_formats.md`.
 - Wiring `AnesthesiaPanel` and implementing its two endpoints, or deleting it.
 - WhatsApp consent sending; billing sync.
 - Reviving the dead element-tagged fan-out branch of `_sync_chart_marks_for_annotation`.
