@@ -293,7 +293,7 @@ def _ensure_body_template_image() -> str | None:
 				"doctype": "File",
 				"file_name": BODY_TEMPLATE_IMAGE_NAME,
 				"is_private": 0,
-				"content": _solid_png(*BODY_TEMPLATE_IMAGE_SIZE, BODY_TEMPLATE_IMAGE_RGB),
+				"content": solid_png(*BODY_TEMPLATE_IMAGE_SIZE, BODY_TEMPLATE_IMAGE_RGB),
 			}
 		)
 		file_doc.insert(ignore_permissions=True)
@@ -515,7 +515,7 @@ def _ensure_no_access_user() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+def solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
 	"""Minimal single-colour PNG encoder.
 
 	Keeps a real image out of the repo. Excalidraw needs an image with genuine

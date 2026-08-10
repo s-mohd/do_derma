@@ -110,6 +110,41 @@ class DermaTestHelpers:
             }
         ).insert(ignore_permissions=True)
 
+    def _make_procedure_template_with_category(self, category_title):
+        """A template and category of this test's own.
+
+        `_get_or_create_procedure_template` returns whatever row the site happens
+        to hold first, and `create_derma_chart_procedure` lets the template's own
+        category win over the payload's - so a test that cares about the category
+        must not share a template with the rest of the suite.
+        """
+        token = frappe.generate_hash(length=8)
+        category = None
+        if frappe.db.exists("DocType", "Derma Procedure Category"):
+            category = frappe.get_doc(
+                {
+                    "doctype": "Derma Procedure Category",
+                    "title": f"{category_title} {token}" if category_title else None,
+                    "workflow": "Aesthetic",
+                    "marker_behavior": "numbered_dot",
+                }
+            ).insert(ignore_permissions=True).name
+
+        doc = frappe.get_doc(
+            {
+                "doctype": "Clinical Procedure Template",
+                "template": f"Derma{token}",
+                "item_code": f"Derma{token}",
+                "description": f"Derma{token} - category fixture.",
+                "item_group": frappe.db.get_value("Item Group", {}, "name"),
+            }
+        )
+        doc.set("is_billable", 0)
+        doc.insert(ignore_permissions=True)
+        if category and api._has_field("Clinical Procedure Template", "custom_derma_category"):
+            frappe.db.set_value("Clinical Procedure Template", doc.name, "custom_derma_category", category)
+        return doc.name
+
     def _make_limited_user(self):
         email = f"derma-no-access-{frappe.generate_hash(length=6)}@example.com"
         if not frappe.db.exists("User", email):
@@ -491,13 +526,13 @@ class TestCreateChartProcedure(DermaTestHelpers, IntegrationTestCase):
         fixed Select. Writing the category straight through threw and lost the whole procedure."""
         patient = self._make_patient()
         encounter = self._make_encounter(patient)
+        template = self._make_procedure_template_with_category("A Category No Select Offers")
 
         result = api.create_derma_chart_procedure(
             {
                 "patient": patient,
                 "encounter": encounter.name,
-                "procedure_template": self._get_or_create_procedure_template(),
-                "category": "A Category No Select Offers",
+                "procedure_template": template,
                 "product_name": "Botulinum",
             }
         )
