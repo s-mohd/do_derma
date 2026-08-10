@@ -45,6 +45,25 @@
             <option v-for="size in ROW_BATCH_OPTIONS" :key="size" :value="size">{{ size }}</option>
           </select>
         </label>
+        <button
+          type="button"
+          class="ghost small"
+          data-test="procedure-copy-marks"
+          :disabled="readOnly || !previousMarkCount"
+          :title="previousMarkCount ? '' : __('This patient has no marks on an earlier visit.')"
+          @click="emit('copy-marks')"
+        >
+          {{ __("Copy marks from last visit") }}
+        </button>
+        <button
+          type="button"
+          class="primary small"
+          data-test="procedure-new"
+          :disabled="readOnly"
+          @click="emit('new-procedure')"
+        >
+          {{ __("New Procedure") }}
+        </button>
         <span v-if="readOnly" class="badge read-only-badge">{{ __("Read only") }}</span>
         <span v-if="anesthesiaRecorded" class="badge anesthesia-badge">{{ __("Anesthesia recorded") }}</span>
       </div>
@@ -423,6 +442,7 @@ const props = defineProps({
   syncDisabled: { type: Boolean, default: false },
   anesthesiaRecorded: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
+  previousMarkCount: { type: Number, default: 0 },
 })
 
 const emit = defineEmits([
@@ -430,6 +450,8 @@ const emit = defineEmits([
   "sync-billables",
   "activate-procedure",
   "annotate-procedure",
+  "new-procedure",
+  "copy-marks",
   "edit-surfaces",
   "create-lab-case",
   "open-lab-case",

@@ -227,6 +227,19 @@ export const MARK_FIELDS = [
 	"status",
 ];
 
+/**
+ * do_derma.api.save_chart_mark. It back-fills the visit context, so a mark can be
+ * planted on an encounter without knowing its appointment.
+ */
+export async function saveMark(
+	request: APIRequestContext,
+	values: Partial<DermaChartMark> & { patient: string },
+): Promise<DermaChartMark> {
+	return callMethod<DermaChartMark>(request, "do_derma.api.save_chart_mark", {
+		values: { x_percent: 50, y_percent: 50, ...values },
+	});
+}
+
 export async function listMarks(
 	request: APIRequestContext,
 	filters: Record<string, unknown>,

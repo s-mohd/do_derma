@@ -447,3 +447,136 @@ class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
         result = api.complete_derma_session(encounter=encounter.name, patient=patient)
 
         self.assertFalse(result["encounter_submitted"])
+
+
+class TestCreateChartProcedure(DermaTestHelpers, IntegrationTestCase):
+    """The Procedures tab's New Procedure button is this endpoint's first caller, so the
+    contract it now depends on is pinned here rather than assumed."""
+
+    def test_creates_a_procedure_from_a_template_alone(self):
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        template = self._get_or_create_procedure_template()
+
+        result = api.create_derma_chart_procedure(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "procedure_template": template,
+                "notes": "Created from the Procedures tab.",
+            }
+        )
+
+        procedure = result["clinical_procedure"]
+        self.assertEqual(procedure["patient"], patient)
+        self.assertEqual(procedure["procedure_template"], template)
+        self.assertEqual(procedure["status"], "Draft")
+
+    def test_requires_an_encounter(self):
+        """The button is disabled without one; the server must not rely on that."""
+        patient = self._make_patient()
+        with self.assertRaises(frappe.ValidationError):
+            api.create_derma_chart_procedure(
+                {"patient": patient, "procedure_template": self._get_or_create_procedure_template()}
+            )
+
+    def test_requires_a_procedure_template(self):
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        with self.assertRaises(frappe.ValidationError):
+            api.create_derma_chart_procedure({"patient": patient, "encounter": encounter.name})
+
+    def test_a_clinic_named_category_does_not_break_the_treatment_entry(self):
+        """Derma Procedure Category is clinic-defined; Derma Treatment Entry.procedure_type is a
+        fixed Select. Writing the category straight through threw and lost the whole procedure."""
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+
+        result = api.create_derma_chart_procedure(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "procedure_template": self._get_or_create_procedure_template(),
+                "category": "A Category No Select Offers",
+                "product_name": "Botulinum",
+            }
+        )
+
+        self.assertTrue(result["clinical_procedure"]["name"])
+        self.assertEqual(result["treatment_entry"]["procedure_type"], "Other")
+
+    def test_a_recognised_category_is_kept(self):
+        """The mapping's single owner - all three treatment-entry writers go through it."""
+        self.assertEqual(api._treatment_procedure_type("Biopsy"), "Biopsy")
+        self.assertEqual(api._treatment_procedure_type("Botox"), "Botox")
+        self.assertEqual(api._treatment_procedure_type("A Category No Select Offers"), "Other")
+        self.assertEqual(api._treatment_procedure_type(None), "Other")
+
+
+class TestCarryForwardMarks(DermaTestHelpers, IntegrationTestCase):
+    """Copy marks from last visit. The copy must be a new mark on the new encounter with
+    none of the source's links carried across, or the previous visit's procedure, finding
+    and annotation would be re-used by a visit they do not belong to."""
+
+    def _make_mark(self, patient, encounter, **values):
+        payload = {"patient": patient, "encounter": encounter, "x_percent": 40, "y_percent": 60}
+        payload.update(values)
+        return api.save_chart_mark(json.dumps(payload))
+
+    def test_copies_a_mark_onto_the_current_encounter(self):
+        patient = self._make_patient()
+        previous = self._make_encounter(patient)
+        current = self._make_encounter(patient)
+        source = self._make_mark(patient, previous.name, product_name="Botulinum")
+
+        result = api.carry_forward_marks(
+            [source["name"]], patient=patient, encounter=current.name, status="Monitoring"
+        )
+
+        self.assertEqual(len(result["marks"]), 1)
+        copy = frappe.get_doc("Derma Chart Mark", result["marks"][0]["name"])
+        self.assertNotEqual(copy.name, source["name"])
+        self.assertEqual(copy.encounter, current.name)
+        self.assertEqual(copy.product_name, "Botulinum")
+        self.assertEqual(copy.status, "Monitoring")
+
+    def test_copy_carries_no_link_from_the_source_visit(self):
+        patient = self._make_patient()
+        previous = self._make_encounter(patient)
+        current = self._make_encounter(patient)
+        procedure = self._make_clinical_procedure(patient)
+        source = self._make_mark(patient, previous.name, clinical_procedure=procedure.name)
+        self.assertEqual(frappe.db.get_value("Derma Chart Mark", source["name"], "clinical_procedure"), procedure.name)
+
+        result = api.carry_forward_marks([source["name"]], patient=patient, encounter=current.name)
+
+        copy = frappe.get_doc("Derma Chart Mark", result["marks"][0]["name"])
+        self.assertFalse(copy.clinical_procedure)
+        self.assertFalse(copy.finding)
+        self.assertFalse(copy.treatment_entry)
+        self.assertFalse(copy.annotation)
+
+    def test_skips_a_mark_already_on_this_encounter(self):
+        """Re-running the copy must not fan a visit's own marks out into duplicates."""
+        patient = self._make_patient()
+        current = self._make_encounter(patient)
+        source = self._make_mark(patient, current.name)
+
+        result = api.carry_forward_marks([source["name"]], patient=patient, encounter=current.name)
+
+        self.assertEqual(result["marks"], [])
+
+    def test_refuses_a_mark_belonging_to_another_patient(self):
+        patient = self._make_patient()
+        other = self._make_patient()
+        current = self._make_encounter(patient)
+        foreign = self._make_mark(other, self._make_encounter(other).name)
+
+        with self.assertRaises(frappe.ValidationError):
+            api.carry_forward_marks([foreign["name"]], patient=patient, encounter=current.name)
+
+    def test_is_gated(self):
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user(self._make_limited_user())
+        with self.assertRaises(frappe.PermissionError):
+            api.carry_forward_marks(["does-not-matter"], patient="does-not-matter")

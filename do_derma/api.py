@@ -1571,7 +1571,7 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 			treatment.clinical_procedure = procedure.name
 		category = template_doc.get("custom_derma_category") or values.get("category") or "Other"
 		treatment.workflow = "Aesthetic" if category in {"Botox", "Filler", "Laser", "Peel"} else "Medical"
-		treatment.procedure_type = category
+		treatment.procedure_type = _treatment_procedure_type(category)
 		treatment.body_view = values.get("body_view")
 		treatment.body_region = _normalize_derma_body_region(
 			values.get("body_region") or values.get("body_template_title") or values.get("body_template") or values.get("body_view")
@@ -1594,6 +1594,14 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 		"clinical_procedure": procedure.as_dict(),
 		"treatment_entry": treatment.as_dict() if treatment else None,
 	}
+
+
+def _treatment_procedure_type(category: str | None) -> str:
+	"""Derma Procedure Category is clinic-defined, Derma Treatment Entry.procedure_type is a
+	fixed Select. A category the Select does not offer lands on Other rather than throwing."""
+	field = frappe.get_meta("Derma Treatment Entry").get_field("procedure_type")
+	options = (field.options or "").split("\n") if field else []
+	return category if category in options else "Other"
 
 
 def _has_derma_treatment_data(values: dict[str, Any]) -> bool:
@@ -2814,7 +2822,7 @@ def _upsert_treatment_from_mark(mark_doc, template_doc=None) -> dict[str, Any]:
 	if _has_field("Derma Treatment Entry", "clinical_procedure"):
 		treatment.clinical_procedure = mark_doc.clinical_procedure
 	treatment.workflow = "Aesthetic" if category in {"Botox", "Filler", "Laser", "Peel"} else "Medical"
-	treatment.procedure_type = category if category in {"Botox", "Filler", "Laser", "Peel"} else "Other"
+	treatment.procedure_type = _treatment_procedure_type(category)
 	treatment.body_view = mark_doc.body_view
 	treatment.body_region = _normalize_derma_body_region(mark_doc.body_region or mark_doc.body_template or mark_doc.body_view)
 	treatment.region_label = mark_doc.region_label
@@ -2852,7 +2860,7 @@ def _create_batch_treatment_entry(mark_docs, procedure, template_doc, payload: d
 	if _has_field("Derma Treatment Entry", "clinical_procedure"):
 		treatment.clinical_procedure = procedure.name
 	treatment.workflow = "Aesthetic" if category in {"Botox", "Filler", "Laser", "Peel"} else "Medical"
-	treatment.procedure_type = category if category in {"Botox", "Filler", "Laser", "Peel"} else "Other"
+	treatment.procedure_type = _treatment_procedure_type(category)
 	treatment.body_view = _join_unique(mark.body_view for mark in mark_docs)
 	treatment.body_region = _normalize_derma_body_region(
 		payload.get("body_region") or mark_docs[0].body_region or mark_docs[0].body_template or mark_docs[0].body_view

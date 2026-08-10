@@ -1,8 +1,9 @@
 # Derma Chart Revamp — Declutter The Page And Give Assessment Two Modes
 
 Date: 2026-08-09
-Status: **Phases 1–3 implemented & verified** (2026-08-09) — Phases 4–5 are Draft.
-See [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
+Status: **Phases 1–4 implemented & verified** (Phase 4 on 2026-08-10) — Phase 5 is Draft.
+Phase 4 deviated from the plan in three places, one of them a live bug it uncovered; see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
 
@@ -741,10 +742,13 @@ reads 1, and reopening resumes the drawing.* — met; proven end to end by
 `annotation-anchoring.spec.ts`, which draws, saves, re-reads the anchor from the server, and
 re-saves to prove the resumed scene survived.
 
-**Phase 4 — Orphan triage.** `Copy marks from last visit` and `New Procedure` get real
-buttons; the remaining ~20 orphans and their dead state are deleted.
+**Phase 4 — Orphan triage.** ✅ *Shipped 2026-08-10.* `Copy marks from last visit` and
+`New Procedure` get real buttons on the Procedures tab; 82 orphaned declarations and their
+dead state are deleted; `selectInventoryMark`/`selectFollowupMark` collapse into
+`selectMarkFromItem`.
 *Exit: `DermaChart.vue` is materially smaller and every remaining handler is reachable from
-the UI.*
+the UI.* — met: **2,825 → 2,057 lines (−768, 27%)**, and the reachability closure reports
+zero unreferenced declarations of 184.
 
 **Phase 5 — Feature toggles.** The three `Derma Settings` booleans gate the WhatsApp, lab and
 billing controls.
@@ -915,7 +919,86 @@ that value. The broken-body-template-image fallback promised in Open Questions r
 `e2e_seed.py` fixture set gained one `Clinical Procedure` — without a saved procedure there is
 no row to hang a per-row `Annotate` button on, so the criterion was untestable.
 
+### Phase 4 — three deviations
+
+- **`createProcedure` was rewritten, not revived.** The plan said `New Procedure` would get a
+  real entry point onto the existing handler. Reading it showed why that could not work: its 75
+  lines gate on `selectedTemplate`, `readinessBlockers`, `procedureDraft` and
+  `focusRequiredProcedureFields`, and every one of those belongs to a procedure-draft form that
+  Phase 2 removed from the template. `selectedTemplate`'s only setter was `selectTemplate` —
+  itself an orphan — so a literally-revived button would have printed *"Select a procedure
+  template…"* forever. As built it is a `frappe.ui.Dialog` that picks a `Clinical Procedure
+  Template` and posts template + notes; `buildProcedurePayload` was inlined rather than kept as
+  a single-use helper. Net: 75 lines of unreachable gating replaced by 40 that work.
+
+- **The cut was four times the size the plan estimated, because dead state comes in two tiers.**
+  The plan said "the remaining ~20 orphans". A transitive-closure sweep over declarations with
+  zero references found **72**, not 20 — the spec's inventory counted only the handlers whose
+  deadness was visible, missing everything kept alive solely by another orphan. A second tier
+  then had to be read by hand, because a closure cannot see it: state that is **written but
+  never read**. `excalidrawRef` is never bound to anything (no `<EmbeddedExcalidraw>` survives
+  in the template), so every `excalidrawRef.value?.…` call was an optional-chain no-op and
+  `refitChartAfterLayout` was three of them; `chartMode` is initialised `"perio"` and only ever
+  assigned `"perio"`; `chartExpanded` is never written at all, so its watch never fires; and the
+  whole `procedureDraft` subsystem — `procedureVariables`, `applyMarkToDraft`,
+  `applyProcedureToDraft`, `markValueForField` — is written on every mark selection and read by
+  nothing. Removing those orphaned 10 more declarations on the next sweep. **A future editor
+  should re-run the closure rather than trust this list**; the tooling is a throwaway script,
+  but the two-tier shape is the durable finding.
+
+- **The riskiest part of this phase was not the deletion — it was the bug the revival exposed.**
+  `create_derma_chart_procedure` (`api.py:1574`) wrote the clinic-defined `Derma Procedure
+  Category` straight into `Derma Treatment Entry.procedure_type`, which is a fixed eleven-option
+  Select. The first press of the new button on the seeded site threw *Procedure Type cannot be
+  "E2E Injectables"* and lost the whole procedure. It had never fired because the endpoint had
+  no caller. The two other treatment-entry writers did guard, but against four options rather
+  than eleven, so a `Biopsy` mark was silently stored as `Other`. `_treatment_procedure_type`
+  now owns the mapping for all three, reading the Select's real options from meta and falling
+  back to `Other`. This is the phase's only `api.py` change and its only behaviour change
+  outside the chart page.
+
+Not deviations, worth recording: `selectMarkFromItem` collapsed the two mark selectors exactly
+as planned, reading `item.mark || item.marks?.[0]` so one function serves both the inventory and
+follow-up shapes. `loadBodyTemplate` became synchronous once its refit call went. The
+`Copy marks` **disabled** state — no earlier visit — is asserted only by its binding and not by
+e2e, because the seeded patient accumulates marks from every other spec and can never be shown
+without one. Phase 5's controls (the WhatsApp trio, the three lab/surface buttons,
+`Sync Billables`) are all still rendered.
+
 ## Verification
+
+### Phase 4 — run 2026-08-10, all green
+
+| Command | Result |
+|---|---|
+| `run-tests --module do_derma.tests.test_api` | **29 passed** (19 pre-existing + 10 new) |
+| `run-tests --module do_derma.tests.test_assessment` | **14 passed** — no regression |
+| `run-tests --module do_derma.tests.test_schema` | **4 passed** — no regression |
+| `bench --site dermaone.localhost migrate` | Clean, `after_migrate` ran |
+| `bench build --app do_derma` | Clean, 529 ms |
+| `npx playwright test` | **40 passed** (38 pre-existing + 2 new `orphan-triage.spec.ts`) |
+| `ruff check apps/do_derma` | 5 findings, **all pre-existing** — unchanged from Phase 3 |
+
+New backend tests:
+
+| Test | Asserts |
+|---|---|
+| `test_creates_a_procedure_from_a_template_alone` | The dialog's minimal payload is enough |
+| `test_requires_an_encounter` / `test_requires_a_procedure_template` | The server does not rely on the button's disabled state |
+| `test_a_clinic_named_category_does_not_break_the_treatment_entry` | The bug above: a category the Select does not offer lands on `Other` instead of throwing |
+| `test_a_recognised_category_is_kept` | The mapping's single owner keeps `Biopsy` and `Botox` |
+| `test_copies_a_mark_onto_the_current_encounter` | The copy lands on this visit with the source's clinical detail |
+| `test_copy_carries_no_link_from_the_source_visit` | Procedure/finding/treatment/annotation links are all cleared |
+| `test_skips_a_mark_already_on_this_encounter` | Re-running cannot fan a visit's own marks into duplicates |
+| `test_refuses_a_mark_belonging_to_another_patient` | Cross-patient copy is refused |
+| `test_is_gated` | `carry_forward_marks` refuses a user without a clinical role |
+
+Manual, against seeded data on `dermaone.localhost`: both dialogs were driven end to end in
+Chromium by the e2e specs, which re-read the created `Clinical Procedure` and the copied
+`Derma Chart Mark` from the server rather than trusting the toast.
+
+**Not yet run for Phase 4:** nothing. Still outstanding across the feature — Phase 5, and
+printing (a SOAP-documented visit prints blank; see Open Questions).
 
 ### Phase 1 — run 2026-08-09, all green
 
@@ -1041,6 +1124,9 @@ Test modules and what they assert (✅ = written and passing):
 | ✅ `test_resume_updates_in_place` | Re-save with `annotation_name` creates no second record |
 | ✅ `test_promoted_mark_survives_resave` | The deletion guard holds: the promoted mark lives, the unpromoted one is cleaned up |
 | ✅ e2e `annotation-anchoring.spec.ts` | Each entry point names its own anchor in the studio header; a drawing made on a procedure row lands on that `Clinical Procedure`, its badge reads `Annotate (1)`, and reopening resumes the scene rather than blanking it |
+| ✅ `TestCreateChartProcedure` (4) | `New Procedure`'s payload, its two required arguments, and the fixed-Select mapping |
+| ✅ `TestCarryForwardMarks` (5) | `Copy marks` copies rather than moves, clears every source link, is idempotent per encounter, refuses another patient's mark, and is gated |
+| ✅ e2e `orphan-triage.spec.ts` | Both new dialogs drive their endpoint end to end, verified by re-reading the created `Clinical Procedure` and the copied mark from the server |
 
 ### The `data-test` contract
 
@@ -1083,8 +1169,8 @@ does. Specs must keep setting the section explicitly via `ChartPage.setSection()
 | `chart/components/PrescriptionPanel.vue` | Drop the `Refresh` button and its emit |
 | `chart/derma_chart.bundle.css` | Alert chips, section stacks, degraded notice, annotation-history padding |
 | `e2e/tests/tab-spine.spec.ts` | *(new)* The decluttering contract |
-| `chart/DermaChart.vue` | Six tabs; delete rail `:545-599`; delete ~25 orphans + dead state; degraded retry; section aliases; `hydrate` fix |
-| `chart/components/ProcedurePanel.vue` | Per-row `Annotate (n)`; `New Procedure`; `Copy marks from last visit`; drop `Complete Session`; gate lab + billing controls |
+| `chart/DermaChart.vue` | Six tabs; delete rail `:545-599`; degraded retry; section aliases; `hydrate` fix. **Phase 4:** delete 82 orphaned declarations + write-only state (−768 lines); rewrite `createProcedure` as a dialog; add `copyMarksFromLastVisit` + `lastVisitMarks`; collapse the two mark selectors into `selectMarkFromItem` |
+| `chart/components/ProcedurePanel.vue` | Per-row `Annotate (n)`; drop `Complete Session`; gate lab + billing controls. **Phase 4:** `New Procedure` and `Copy marks from last visit` buttons, `previousMarkCount` prop, two new emits |
 | `chart/components/DermaEncounterHeader.vue` | Smart Alert chips; drop Refresh; wrap name + tooltip |
 | `chart/components/ConsentPanel.vue` | Gate WhatsApp trio; `Create` primary; validate on submit not mount |
 | `chart/components/DermaEvidencePanel.vue` | Single mount, Photos tab; drop its duplicate `Upload` |
@@ -1096,4 +1182,7 @@ does. Specs must keep setting the section explicitly via `ChartPage.setSection()
 | `do_derma/tests/test_assessment.py` | *(new)* |
 | `do_derma/tests/test_api.py` | Extend `TestClinicalAccessGate`; annotation anchoring tests |
 | `e2e/{tests,pages}` | Update the `data-test` selector contract |
+| `do_derma/api.py` (Phase 4) | `_treatment_procedure_type` *(new)* — one owner for the category → fixed-Select mapping, used by all three treatment-entry writers |
+| `e2e/helpers/derma.ts` | `saveMark()` — plant a mark on a chosen encounter |
+| `e2e/tests/orphan-triage.spec.ts` | *(new)* The two revived entry points |
 | `docs/mockups/derma-chart-revamp.html` | *(new)* Before/after mockup, Phase 0 |
