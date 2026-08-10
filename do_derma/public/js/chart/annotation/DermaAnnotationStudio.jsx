@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import EmbeddedExcalidraw, { isAreaBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+import EmbeddedExcalidraw, { BADGE_KIND, isAreaBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 
 const __ = window.__ || ((text) => text)
 
@@ -95,6 +95,7 @@ function resumedTemplateName(annotation) {
 
 function collectBadgeItems(elements, partValues, parts, procedures) {
   const items = []
+  const seenMarks = new Set()
   for (const element of elements || []) {
     if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
     const procedureTemplateName = element.customData?.procedure_template
@@ -102,6 +103,11 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
     const params = element.customData?.procedure_variables || element.customData?.variables || {}
     const hasParams = Object.values(params).some((value) => value !== "" && value !== null && value !== undefined)
     if (!hasParams) continue
+    // A stamp is several elements sharing one group - a dot, its ring, its number - and they
+    // are one clinical mark, so they get one badge between them.
+    const markKey = markIdentity(element)
+    if (seenMarks.has(markKey)) continue
+    seenMarks.add(markKey)
     const centroid = elementCentroid(element)
     const procedure = procedures.find((row) => row.name === procedureTemplateName)
     items.push({
@@ -127,6 +133,11 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
   }
   items.sort((a, b) => a.centroidY - b.centroidY || a.centroidX - b.centroidX)
   return items.map((item, index) => ({ ...item, badgeNum: index + 1 }))
+}
+
+function markIdentity(element = {}) {
+  const custom = element.customData || {}
+  return custom.derma_chart_mark || custom.mark_name || element.groupIds?.[0] || element.id
 }
 
 function elementCentroid(element = {}) {
@@ -192,7 +203,9 @@ function badgeElements(items) {
     const color = item.color || "#0ea5e9"
     const x = item.centroidX - 11
     const y = item.topY - 30
-    const groupId = makeId("badge")
+    // Deterministic, so an unchanged badge layer produces an unchanged signature and the
+    // canvas can skip the redraw instead of looping on its own onChange.
+    const groupId = `derma-badge-${item.badgeNum}`
     return [
       {
         id: `${groupId}-rect`,
@@ -220,7 +233,7 @@ function badgeElements(items) {
         updated: now,
         link: null,
         locked: true,
-        customData: { _badge: true },
+        customData: { kind: BADGE_KIND },
       },
       {
         id: `${groupId}-text`,
@@ -256,7 +269,7 @@ function badgeElements(items) {
         containerId: null,
         originalText: label,
         lineHeight: 1.25,
-        customData: { _badge: true },
+        customData: { kind: BADGE_KIND },
       },
     ]
   })
@@ -276,6 +289,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [saving, setSaving] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
   const [placedMarkCount, setPlacedMarkCount] = useState(0)
+  // Bumped by the canvas on every scene change, so the badge layer follows what is drawn.
+  const [sceneRevision, setSceneRevision] = useState(0)
 
   const anchorDoctype = context.clinicalProcedure ? "Clinical Procedure" : "Patient Encounter"
   const anchorName = context.clinicalProcedure || context.encounter || ""
@@ -321,6 +336,17 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   useEffect(() => {
     embeddedRef.current?.setProcedureVariables?.(procedureValues[activeProcedure] || {})
   }, [activeProcedure, procedureValues])
+
+  const badgeItems = useMemo(() => {
+    if (!includeBadges) return []
+    const elements = (embeddedRef.current?.getElements?.() || []).filter((element) => !element.isDeleted)
+    return collectBadgeItems(elements, partValues, selectedParts, procedures)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneRevision, includeBadges, partValues, selectedParts, procedures])
+
+  useEffect(() => {
+    embeddedRef.current?.setBadgeElements?.(badgeElements(badgeItems))
+  }, [badgeItems])
 
   function toggleProcedure(procedure) {
     const name = procedureLabel(procedure)
@@ -400,10 +426,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
     setSaving(true)
     try {
-      const elements = (embeddedRef.current?.getElements?.() || []).filter((element) => !element.isDeleted)
-      const badgeItems = collectBadgeItems(elements, partValues, selectedParts, procedures)
-      const addedBadges = includeBadges ? badgeElements(badgeItems) : []
-      const exported = await embeddedRef.current?.exportScene?.({ extraElements: addedBadges })
+      // The badges on screen are already in the scene, so they are the badges that export and
+      // the badges this table describes - one computation, three outputs that cannot disagree.
+      const exported = await embeddedRef.current?.exportScene?.()
       if (!exported) {
         window.frappe?.msgprint?.(__("The drawing surface is still loading."))
         return
@@ -469,9 +494,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             >
               {__("Fit")}
             </button>
-            <label>
+            <label data-test="annotation-badges-toggle" data-badge-count={badgeItems.length}>
               <input type="checkbox" checked={includeBadges} onChange={(event) => setIncludeBadges(event.target.checked)} />
-              {__("Badges")}
+              {badgeItems.length ? `${__("Badges")} (${badgeItems.length})` : __("Badges")}
             </label>
             <button type="button" className="ghost" onClick={onClose}>{__("Cancel")}</button>
             <button type="button" className="primary" disabled={saving || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
@@ -549,6 +574,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             onMarkPlaced={handleMarkPlaced}
             onMarkSelected={handleMarkSelected}
             onRegionSelected={handleRegionSelected}
+            onSceneChanged={() => setSceneRevision((revision) => revision + 1)}
           />
         </main>
 

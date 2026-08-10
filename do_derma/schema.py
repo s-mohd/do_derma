@@ -63,6 +63,18 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"depends_on": SOAP_ONLY,
 		},
 	],
+	# do_health owns this child table; do_derma adds the column that carries the badge legend
+	# rendered under a saved drawing. Its patch (add_derma_annotation_data_field) is recorded as
+	# applied on sites where the field is nonetheless absent, which is what this module repairs.
+	"Health Annotation Table": [
+		{
+			"fieldname": "annotation_data",
+			"fieldtype": "Long Text",
+			"label": "Annotation Data",
+			"insert_after": "type",
+			"read_only": 1,
+		},
+	],
 	"Healthcare Practitioner": [
 		{
 			"fieldname": "custom_derma_default_assessment_mode",

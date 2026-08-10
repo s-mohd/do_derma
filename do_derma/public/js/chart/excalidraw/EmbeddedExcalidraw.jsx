@@ -2,6 +2,7 @@ import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } f
 import { createRoot } from "react-dom/client"
 
 const GENERATED_BY_MARKS = "render_chart_marks"
+export const BADGE_KIND = "derma_badge"
 
 const convertBlobToDataUrl = (blob) =>
   new Promise((resolve, reject) => {
@@ -20,7 +21,7 @@ function parseAnnotation(annotation) {
   }
 }
 
-	const EmbeddedExcalidraw = forwardRef(({ initialAnnotation, selectedTemplate, bodyTemplate, procedureVariables, marks, onMarkPlaced, onMarkSelected, onRegionSelected }, ref) => {
+	const EmbeddedExcalidraw = forwardRef(({ initialAnnotation, selectedTemplate, bodyTemplate, procedureVariables, marks, onMarkPlaced, onMarkSelected, onRegionSelected, onSceneChanged }, ref) => {
 	const [api, setApi] = useState(null)
 	const [excalidrawModule, setExcalidrawModule] = useState(null)
 	const [template, setTemplate] = useState(selectedTemplate || null)
@@ -38,6 +39,10 @@ function parseAnnotation(annotation) {
 	// scene, so it must not run against a canvas that is about to receive - or has just
 	// received - a resumed drawing.
 	const pendingSceneImport = useRef(initialAnnotation?.name || "")
+	// Badge elements are pushed back into the scene, which re-fires onChange. Without a
+	// signature to compare against, that is an endless updateScene loop.
+	const badgeSignature = useRef("")
+	const markLayerRef = useRef("")
 	const dermaToolRef = useRef("draw")
 	const requestedToolRef = useRef("draw")
 	const previousDraggingIdRef = useRef(null)
@@ -63,16 +68,16 @@ function parseAnnotation(annotation) {
 
 	useImperativeHandle(ref, () => ({
 		getElements: () => api?.getSceneElements?.() || [],
-		exportScene: async (options = {}) => {
+		exportScene: async () => {
 			if (!api || !excalidrawModule?.exportToBlob) return null
 			const elements = api.getSceneElements()
 			const files = normalizeBinaryFiles(api.getFiles())
 			if (!elements || !elements.length) {
 				return { json_text: JSON.stringify({ elements: [], files: {} }), file_data: "" }
 			}
-			const extraElements = options.extraElements || []
+			// Badges are already in the scene, so the export picks them up once.
 			const blob = await excalidrawModule.exportToBlob({
-        elements: extraElements.length ? [...elements, ...extraElements] : elements,
+        elements,
         appState: {
           ...api.getAppState(),
           exportBackground: true,
@@ -121,6 +126,7 @@ function parseAnnotation(annotation) {
       applyDermaTool()
     },
     renderTemplateParts: (parts) => renderTemplateParts(api, parts),
+    setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
     resetView: () => fitToTemplate(api),
   }))
 
@@ -256,6 +262,14 @@ function parseAnnotation(annotation) {
 		          }
 	        }}
 	        onChange={(elements, appState) => {
+	          // Excalidraw fires onChange on every appState tick, so signalling unconditionally
+	          // would re-render the host, re-render Excalidraw and fire onChange again forever.
+	          // Badges derive from the mark layer alone, so that is what is watched.
+	          const signature = markLayerSignature(elements)
+	          if (signature !== markLayerRef.current) {
+	            markLayerRef.current = signature
+	            onSceneChanged?.()
+	          }
 	          if (dermaToolRef.current === "area") {
 	            const draggingId = appState?.draggingElement?.id || appState?.newElement?.id || null
 	            const previousId = previousDraggingIdRef.current
@@ -1085,6 +1099,31 @@ function normalizeBinaryFile(file) {
  * *element* must survive - _sync_chart_marks_for_annotation returns early without it, which
  * would silently stop every mark in the session being linked back to the annotation.
  */
+/**
+ * Swap the badge layer for a freshly numbered one. Badges are ordinary scene elements so they
+ * export with the drawing and are visible while working, but they are derived state: never
+ * committed to undo history, and stripped from what gets persisted.
+ */
+/** Everything a badge is derived from: which marks exist, where they are, what they carry. */
+function markLayerSignature(elements = []) {
+  return elements
+    .filter((element) => !element.isDeleted && element.customData?.kind === "derma_mark")
+    .map((element) => {
+      const variables = JSON.stringify(element.customData?.procedure_variables || {})
+      return `${element.id}:${Math.round(element.x || 0)}:${Math.round(element.y || 0)}:${variables}`
+    })
+    .join("|")
+}
+
+function syncBadgeLayer(api, badges = [], signatureRef) {
+  if (!api) return
+  const signature = badges.map((badge) => `${badge.id}:${Math.round(badge.x)}:${Math.round(badge.y)}:${badge.text || ""}`).join("|")
+  if (signature === signatureRef.current) return
+  signatureRef.current = signature
+  const existing = api.getSceneElements().filter((element) => element.customData?.kind !== BADGE_KIND)
+  api.updateScene({ elements: [...existing, ...badges], commitToHistory: false })
+}
+
 function stripTemplateImagePayload(elements, files) {
   const templateFileIds = new Set(
     elements
@@ -1092,9 +1131,9 @@ function stripTemplateImagePayload(elements, files) {
       .map((element) => element.fileId)
   )
   return {
-    elements: elements.map((element) =>
-      templateFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element
-    ),
+    elements: elements
+      .filter((element) => element.customData?.kind !== BADGE_KIND)
+      .map((element) => (templateFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element)),
     files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !templateFileIds.has(fileId))),
   }
 }
