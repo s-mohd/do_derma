@@ -1,8 +1,9 @@
 # Derma Chart Revamp — Declutter The Page And Give Assessment Two Modes
 
 Date: 2026-08-09
-Status: **Phases 1–4 implemented & verified** (Phase 4 on 2026-08-10) — Phase 5 is Draft.
-Phase 4 deviated from the plan in three places, one of them a live bug it uncovered; see
+Status: **Implemented & verified** (2026-08-10) — all five phases shipped.
+Phase 5 deviated from the plan in three places, one of them a finding that changes *which*
+controls the lab toggle has to hide; see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -750,9 +751,11 @@ dead state are deleted; `selectInventoryMark`/`selectFollowupMark` collapse into
 the UI.* — met: **2,825 → 2,057 lines (−768, 27%)**, and the reachability closure reports
 zero unreferenced declarations of 184.
 
-**Phase 5 — Feature toggles.** The three `Derma Settings` booleans gate the WhatsApp, lab and
-billing controls.
-*Exit: nothing renders that does not work.*
+**Phase 5 — Feature toggles.** ✅ *Shipped 2026-08-10.* The three `Derma Settings` booleans
+reach the chart payload as a `settings` block and gate the WhatsApp, lab and billing controls.
+*Exit: nothing renders that does not work.* — met; proven by `feature-toggles.spec.ts`, which
+asserts the absence with every toggle off and the reappearance of each control when its own
+toggle is turned on, with no rebuild in between.
 
 ## Open Questions
 
@@ -965,7 +968,75 @@ e2e, because the seeded patient accumulates marks from every other spec and can 
 without one. Phase 5's controls (the WhatsApp trio, the three lab/surface buttons,
 `Sync Billables`) are all still rendered.
 
+### Phase 5 — three deviations
+
+- **The two lab-case buttons the plan wanted to gate were already unreachable, and the visible
+  broken lab controls were somewhere else.** `lab_case` appears nowhere in `api.py`, so
+  `row.lab_case_name` and `row.lab_case_recommended` are always `undefined` and both buttons'
+  `v-if`s were already permanently false. What *did* render and do nothing was the **Lab filter
+  dropdown** in the advanced-filter panel — every option but `All` filters on a field the server
+  never sends, so it can only ever empty the table — and the **Lab follow-up summary tile**,
+  permanently `0`. `enable_lab_cases` therefore gates five things, not three: the filter, the
+  tile, and the three buttons the spec named. Gating only the named three would have satisfied
+  the letter of acceptance criterion 11 while leaving two no-op controls on screen.
+
+- **`SETTINGS_DOCTYPE` moved out of `assessment.py` into a new `do_derma/settings.py`.** The plan
+  put the toggle read in `api.py`. With a second consumer of the singleton, "how Derma Settings
+  is fetched and how it degrades when absent" needed one owner, and assessment is the wrong home
+  for it. `get_settings_doc()` now holds the missing-doctype check and the `log_error` fallback
+  that `get_structured_fieldnames` used to carry inline; `assessment.py` imports it. Net:
+  `assessment.py` is 6 lines shorter and the degrade path is tested once instead of twice.
+
+- **`settings` is not routed through `_safe_derma_context`.** Every other section in
+  `get_patient_derma_chart` is, but `get_feature_toggles()` cannot raise — the only failing call
+  inside it is already caught — and wrapping it would put a `"feature toggles"` label into
+  `context_errors`, which the frontend maps to *tabs*. A label with no tab would be a
+  degraded-section notice that never renders. Direct call; `context_errors` stays meaningful.
+
+Not deviations, worth recording: **no whitelisted endpoint was added**, so
+`TestClinicalAccessGate` needed no extension — the toggles ride on `get_patient_derma_chart`,
+which was already gated. The toggles gate *rendering only*; `sync_derma_billables` keeps its
+current server behaviour because `complete_derma_session` (`api.py:2444`) calls it internally,
+and refusing it behind a UI toggle would break visit completion. The three handlers behind the
+gates (`sendConsentViaWhatsApp`, `resendConsentViaWhatsApp`, `cancelRemoteConsent`) and the three
+unbound `ProcedurePanel` emits are all left in place, exactly as the decision said: a toggle is a
+cheaper reversal than a revert. `Sync Billables` also gained its missing `__()` wrapper, the one
+string in that footer that was never translatable.
+
 ## Verification
+
+### Phase 5 — run 2026-08-10, all green
+
+| Command | Result |
+|---|---|
+| `run-tests --module do_derma.tests.test_settings` | **6 passed** (new) |
+| `run-tests --module do_derma.tests.test_api` | **29 passed** — no regression |
+| `run-tests --module do_derma.tests.test_assessment` | **14 passed** — no regression |
+| `run-tests --module do_derma.tests.test_schema` | **4 passed** — no regression |
+| `bench --site dermaone.localhost migrate` | Clean, `after_migrate` ran |
+| `bench build --app do_derma` | Clean, 531 ms |
+| `npx playwright test` | **44 passed** (40 pre-existing + 4 new `feature-toggles.spec.ts`) |
+| `ruff check apps/do_derma` | 5 findings, **all pre-existing** — unchanged from Phase 4 |
+
+New backend tests:
+
+| Test | Asserts |
+|---|---|
+| `test_every_toggle_is_reported` | The payload key set is exactly `FEATURE_TOGGLES`, all booleans |
+| `test_toggles_default_off` | Off is the shipped default |
+| `test_an_enabled_toggle_is_reported` | One toggle on does not turn the others on |
+| `test_an_unreadable_singleton_hides_everything` | A site without `Derma Settings` renders no unfinished control |
+| `test_chart_payload_carries_every_toggle` | `get_patient_derma_chart` returns the `settings` block |
+| `test_chart_payload_reflects_an_enabled_toggle` | The block is live, not a constant |
+
+Manual, against seeded data on `dermaone.localhost`: screenshots at 1500×1000 of Procedures and
+Consent with every toggle off and again with `enable_billing_sync` / `enable_whatsapp_consent`
+on. With the toggles off the Procedures footer is gone and the summary row drops to four tiles;
+the Consent header keeps `Create` alone. Turning the toggles on restores `Sync Billables (0)` and
+`Send via WhatsApp` on the next chart load, with no rebuild.
+
+**Not yet run for Phase 5:** nothing. Still outstanding across the feature — printing only
+(a SOAP-documented visit prints blank; see Open Questions).
 
 ### Phase 4 — run 2026-08-10, all green
 
@@ -1127,6 +1198,9 @@ Test modules and what they assert (✅ = written and passing):
 | ✅ `TestCreateChartProcedure` (4) | `New Procedure`'s payload, its two required arguments, and the fixed-Select mapping |
 | ✅ `TestCarryForwardMarks` (5) | `Copy marks` copies rather than moves, clears every source link, is idempotent per encounter, refuses another patient's mark, and is gated |
 | ✅ e2e `orphan-triage.spec.ts` | Both new dialogs drive their endpoint end to end, verified by re-reading the created `Clinical Procedure` and the copied mark from the server |
+| ✅ `TestFeatureToggles` (4) | Key set, off-by-default, independence, and the absent-singleton degrade |
+| ✅ `TestChartPayloadCarriesToggles` (2) | The `settings` block reaches the chart and tracks the singleton |
+| ✅ e2e `feature-toggles.spec.ts` | With all three off nothing unfinished renders on Procedures or Consent; each toggle independently brings its own control back without a rebuild |
 
 ### The `data-test` contract
 
@@ -1183,6 +1257,9 @@ does. Specs must keep setting the section explicitly via `ChartPage.setSection()
 | `do_derma/tests/test_api.py` | Extend `TestClinicalAccessGate`; annotation anchoring tests |
 | `e2e/{tests,pages}` | Update the `data-test` selector contract |
 | `do_derma/api.py` (Phase 4) | `_treatment_procedure_type` *(new)* — one owner for the category → fixed-Select mapping, used by all three treatment-entry writers |
-| `e2e/helpers/derma.ts` | `saveMark()` — plant a mark on a chosen encounter |
+| `e2e/helpers/derma.ts` | `saveMark()` — plant a mark on a chosen encounter. **Phase 5:** `setFeatureToggle` / `resetFeatureToggles` |
 | `e2e/tests/orphan-triage.spec.ts` | *(new)* The two revived entry points |
+| `do_derma/settings.py` | *(new, Phase 5)* One owner for the `Derma Settings` read; `get_feature_toggles()` |
+| `do_derma/tests/test_settings.py` | *(new, Phase 5)* |
+| `e2e/tests/feature-toggles.spec.ts` | *(new, Phase 5)* Nothing renders that does not work; each toggle restores its own control |
 | `docs/mockups/derma-chart-revamp.html` | *(new)* Before/after mockup, Phase 0 |

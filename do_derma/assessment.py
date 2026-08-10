@@ -11,6 +11,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from do_derma.settings import SETTINGS_DOCTYPE, get_settings_doc
+
 STRUCTURED = "Structured"
 SOAP = "SOAP"
 ASSESSMENT_MODES = (STRUCTURED, SOAP)
@@ -24,8 +26,6 @@ SOAP_FIELDS = (
 	"custom_derma_soap_assessment",
 	"custom_derma_soap_plan",
 )
-
-SETTINGS_DOCTYPE = "Derma Settings"
 
 # The Structured Assessment defaults, per CONTEXT.md. Seeded into Derma Settings
 # once; a clinic that edits the list keeps its edit across migrates.
@@ -87,17 +87,9 @@ def available_modes() -> list[str]:
 
 def get_structured_fieldnames() -> list[str]:
 	"""Configured field list, falling back to the defaults when unset."""
-	configured = []
-	if frappe.db.exists("DocType", SETTINGS_DOCTYPE):
-		try:
-			settings = frappe.get_cached_doc(SETTINGS_DOCTYPE)
-			configured = [
-				row.fieldname
-				for row in settings.get("structured_assessment_fields") or []
-				if row.fieldname and cint(row.enabled)
-			]
-		except Exception:
-			frappe.log_error(title=_("Derma Settings unreadable"), message=frappe.get_traceback())
+	settings = get_settings_doc()
+	rows = settings.get("structured_assessment_fields") if settings else None
+	configured = [row.fieldname for row in rows or [] if row.fieldname and cint(row.enabled)]
 	return configured or list(DEFAULT_STRUCTURED_FIELDS)
 
 

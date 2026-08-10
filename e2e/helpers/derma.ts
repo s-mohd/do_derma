@@ -1,5 +1,5 @@
 import { APIRequestContext } from "@playwright/test";
-import { callMethod, deleteDoc, getList } from "./frappe";
+import { callMethod, deleteDoc, getList, updateDoc } from "./frappe";
 
 // ---------------------------------------------------------------------------
 // Document shapes. Each doctype is labelled with the app that owns it, because
@@ -277,4 +277,30 @@ export async function cleanupEncounter(request: APIRequestContext, encounter: st
 	} catch {
 		// Submitted or linked encounters stay; they are inert for later runs.
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Derma Settings feature toggles (do_derma). They gate controls whose
+// integration is unfinished, so every spec that flips one must flip it back.
+// ---------------------------------------------------------------------------
+
+export const FEATURE_TOGGLES = [
+	"enable_whatsapp_consent",
+	"enable_lab_cases",
+	"enable_billing_sync",
+] as const;
+
+export type FeatureToggle = (typeof FEATURE_TOGGLES)[number];
+
+export async function setFeatureToggle(
+	request: APIRequestContext,
+	toggle: FeatureToggle,
+	enabled: boolean,
+): Promise<void> {
+	await updateDoc(request, "Derma Settings", "Derma Settings", { [toggle]: enabled ? 1 : 0 });
+}
+
+export async function resetFeatureToggles(request: APIRequestContext): Promise<void> {
+	const off = Object.fromEntries(FEATURE_TOGGLES.map((toggle) => [toggle, 0]));
+	await updateDoc(request, "Derma Settings", "Derma Settings", off);
 }

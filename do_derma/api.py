@@ -12,6 +12,7 @@ from frappe.utils.file_manager import save_file
 
 from do_derma import assessment
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
+from do_derma.settings import get_feature_toggles
 
 DERMA_FINDING_FIELDS = [
 	"name",
@@ -1503,6 +1504,7 @@ def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None
 			"",
 			lambda: generate_visit_summary(encounter_id, patient),
 		),
+		"settings": get_feature_toggles(),
 		"context_errors": context_errors,
 	}
 

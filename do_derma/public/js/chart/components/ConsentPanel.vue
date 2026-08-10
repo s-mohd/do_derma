@@ -3,8 +3,10 @@
     <header class="panel-header">
       <div class="actions">
         <button
+          v-if="enableWhatsappConsent"
           type="button"
           class="ghost"
+          data-test="consent-send-whatsapp"
           :disabled="loading || saving || sending || !canCreate"
           @click="emitSend"
         >
@@ -57,7 +59,7 @@
                   <span class="name">{{ row.consent_form_template || row.name }}</span>
                   <span class="meta">{{ consentMeta(row) }}</span>
                 </button>
-                <div v-if="canManageRemote(row)" class="consent-row-actions">
+                <div v-if="enableWhatsappConsent && canManageRemote(row)" class="consent-row-actions" data-test="consent-remote-actions">
                   <button type="button" class="ghost" :disabled="sending" @click="$emit('resend-consent', row)">{{ __("Resend") }}</button>
                   <button type="button" class="ghost danger" :disabled="sending" @click="$emit('cancel-consent', row)">{{ __("Cancel") }}</button>
                 </div>
@@ -90,6 +92,7 @@ const props = defineProps({
   defaultSignedBy: { type: String, default: "" },
   resetKey: { type: Number, default: 0 },
   readOnly: { type: Boolean, default: false },
+  enableWhatsappConsent: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(["request-preview", "create", "send-whatsapp", "open-consent", "resend-consent", "cancel-consent"])

@@ -26,6 +26,7 @@
       <button
         type="button"
         class="filter-toggle-btn"
+        data-test="procedure-filters-toggle"
         :class="{ active: advancedFiltersOpen || hasSecondaryFilters }"
         @click="advancedFiltersOpen = !advancedFiltersOpen"
       >
@@ -115,7 +116,7 @@
           <option value="undated">{{ __("No date") }}</option>
         </select>
       </label>
-      <label class="history-filter-control">
+      <label v-if="enableLabCases" class="history-filter-control" data-test="procedure-lab-filter">
         <span>{{ __("Lab") }}</span>
         <select v-model="labFilter">
           <option value="all">{{ __("All") }}</option>
@@ -159,7 +160,7 @@
         <span>{{ __("Missing notes") }}</span>
         <strong>{{ historyStats.missingNotes }}</strong>
       </div>
-      <div class="summary-tile">
+      <div v-if="enableLabCases" class="summary-tile">
         <span>{{ __("Lab follow-up") }}</span>
         <strong>{{ historyStats.labFollowUp }}</strong>
       </div>
@@ -236,9 +237,10 @@
                     <span>{{ row.derma_detail_text }}</span>
                   </button>
                   <button
-                    v-else-if="rowAllowsSurfaces(row)"
+                    v-else-if="enableLabCases && rowAllowsSurfaces(row)"
                     type="button"
                     class="detail-chip detail-chip-button"
+                    data-test="procedure-edit-surfaces"
                     :class="{ muted: !formatSurfaceText(row) }"
                     :disabled="!isEditable(row)"
                     @click="isEditable(row) ? $emit('edit-surfaces', row) : null"
@@ -251,21 +253,23 @@
                     <span>{{ __("No details") }}</span>
                   </span>
 
-                  <template v-if="row.lab_case_name">
+                  <template v-if="enableLabCases && row.lab_case_name">
                     <button
                       class="detail-chip detail-chip-button"
                       :class="labCaseStatusClass(row.lab_case_status)"
                       type="button"
+                      data-test="procedure-open-lab-case"
                       @click="$emit('open-lab-case', row)"
                     >
                       <i class="fa-solid fa-flask"></i>
                       <span>{{ row.lab_case_status || __("Lab linked") }}</span>
                     </button>
                   </template>
-                  <template v-else-if="row.lab_case_recommended && isEditable(row)">
+                  <template v-else-if="enableLabCases && row.lab_case_recommended && isEditable(row)">
                     <button
                       class="detail-chip detail-chip-button lab-suggested"
                       type="button"
+                      data-test="procedure-create-lab-case"
                       @click="$emit('create-lab-case', row)"
                     >
                       <i class="fa-solid fa-flask"></i>
@@ -412,15 +416,16 @@
       </button>
     </div>
 
-    <div class="invoice-footer">
+    <div v-if="enableBillingSync" class="invoice-footer">
       <button
         type="button"
         class="invoice-btn ghost"
+        data-test="procedure-sync-billables"
         :class="{ disabled: syncDisabled || readOnly }"
         :disabled="syncDisabled || readOnly"
         @click="$emit('sync-billables')"
       >
-        Sync Billables ({{ totalCount }})
+        {{ __("Sync Billables") }} ({{ totalCount }})
       </button>
     </div>
 
@@ -443,6 +448,8 @@ const props = defineProps({
   anesthesiaRecorded: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
   previousMarkCount: { type: Number, default: 0 },
+  enableLabCases: { type: Boolean, default: false },
+  enableBillingSync: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([

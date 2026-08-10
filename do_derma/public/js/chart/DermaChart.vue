@@ -133,6 +133,8 @@
                 :anesthesia-recorded="anesthesiaRecorded"
                 :read-only="isEncounterLocked"
                 :previous-mark-count="lastVisitMarks.length"
+                :enable-lab-cases="!!featureToggles.enable_lab_cases"
+                :enable-billing-sync="!!featureToggles.enable_billing_sync"
                 @refresh="refresh"
                 @activate-procedure="activateProcedure"
                 @annotate-procedure="annotateProcedure"
@@ -317,6 +319,7 @@
             :default-signed-by="patient.patient_name || patient.name"
             :reset-key="consentPanel.resetKey"
             :read-only="isEncounterLocked"
+            :enable-whatsapp-consent="!!featureToggles.enable_whatsapp_consent"
             @refresh="() => loadConsentPanel(true)"
             @request-preview="requestConsentPreview"
             @create="createConsentFromPanel"
@@ -701,6 +704,9 @@ const loadedTabs = reactive({
   consents: false,
 })
 
+// Controls whose integration is unfinished stay hidden until Derma Settings turns
+// them on. An unloaded chart hides them too, so nothing renders before we know.
+const featureToggles = computed(() => data.value.settings || {})
 const patient = computed(() => data.value.patient || {})
 const appointment = computed(() => data.value.appointment || {})
 const encounter = computed(() => data.value.encounter || {})

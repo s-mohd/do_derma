@@ -8,6 +8,7 @@ from frappe.tests import IntegrationTestCase
 import do_derma.api as api
 from do_derma import assessment
 from do_derma.schema import ensure_derma_schema
+from do_derma.settings import SETTINGS_DOCTYPE
 from do_derma.tests.test_api import DermaTestHelpers
 
 
@@ -29,7 +30,7 @@ class AssessmentTestBase(DermaTestHelpers, IntegrationTestCase):
 
 class TestStructuredLayout(AssessmentTestBase):
 	def _set_configured_fields(self, fieldnames):
-		settings = frappe.get_doc(assessment.SETTINGS_DOCTYPE)
+		settings = frappe.get_doc(SETTINGS_DOCTYPE)
 		original = [
 			{"fieldname": row.fieldname, "enabled": row.enabled}
 			for row in settings.get("structured_assessment_fields") or []
@@ -41,7 +42,7 @@ class TestStructuredLayout(AssessmentTestBase):
 		settings.save(ignore_permissions=True)
 
 	def _restore_fields(self, rows):
-		settings = frappe.get_doc(assessment.SETTINGS_DOCTYPE)
+		settings = frappe.get_doc(SETTINGS_DOCTYPE)
 		settings.set("structured_assessment_fields", [])
 		for row in rows:
 			settings.append("structured_assessment_fields", row)
@@ -60,7 +61,7 @@ class TestStructuredLayout(AssessmentTestBase):
 		self.assertEqual(fieldnames, ["symptoms", "diagnosis"])
 
 	def test_disabled_rows_are_dropped(self):
-		settings = frappe.get_doc(assessment.SETTINGS_DOCTYPE)
+		settings = frappe.get_doc(SETTINGS_DOCTYPE)
 		original = [
 			{"fieldname": row.fieldname, "enabled": row.enabled}
 			for row in settings.get("structured_assessment_fields") or []
