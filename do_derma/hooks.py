@@ -13,7 +13,19 @@ app_license = "mit"
 
 app_include_js = [
 	"/assets/do_derma/js/derma_sidebar.js",
+	"/assets/do_derma/js/annotations_button.js",
 ]
+
+app_include_css = [
+	"/assets/do_derma/css/annotations_button.css",
+]
+
+# Surfaces this app's drawings on the two documents that can hold them. The shims are thin on
+# purpose - the shared implementation lives in annotations_button.js.
+doctype_js = {
+	"Patient Encounter": "public/js/doctype/patient_encounter.js",
+	"Clinical Procedure": "public/js/doctype/clinical_procedure.js",
+}
 
 fixtures = [
 	{"dt": "Custom Field", "filters": {"module": "Do Derma"}},

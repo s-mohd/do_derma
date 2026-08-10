@@ -1,0 +1,65 @@
+/* Styles for the Annotations dialog opened from Patient Encounter and Clinical Procedure.
+   Loaded globally because the dialog renders over any desk form, not inside the Derma Chart. */
+
+.derma-annotation-cards {
+  display: grid;
+  gap: 12px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.derma-annotation-card {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  background: var(--card-bg);
+}
+
+.derma-annotation-card img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--border-color);
+  cursor: zoom-in;
+  background: var(--subtle-fg);
+}
+
+.derma-annotation-card-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.derma-annotation-legend,
+.derma-annotation-preview-legend {
+  overflow-x: auto;
+  font-size: var(--text-sm);
+}
+
+.derma-annotation-preview-pane {
+  display: grid;
+  grid-template-columns: 58% 42%;
+  gap: 16px;
+  align-items: start;
+}
+
+.derma-annotation-preview-pane img {
+  width: 100%;
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+@media (max-width: 768px) {
+  .derma-annotation-preview-pane {
+    grid-template-columns: 1fr;
+  }
+
+  .derma-annotation-card {
+    grid-template-columns: 60px 1fr;
+  }
+}

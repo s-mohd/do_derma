@@ -1033,7 +1033,9 @@ def _load_derma_annotation_context(
 	}
 
 
-def _load_annotations_for_parents(parents: list[tuple[str, str]]) -> list[dict[str, Any]]:
+def _load_annotations_for_parents(parents: list[tuple[str, str]], include_scene: bool = True) -> list[dict[str, Any]]:
+	"""Annotations hanging off the given parents. `include_scene` drops the `json` column, which
+	averages 35 KB a row and is dead weight for anything that only lists them."""
 	if not parents or not _has_doctype("Health Annotation Table") or not _has_doctype("Health Annotation"):
 		return []
 	parent_names = [name for _, name in parents if name]
@@ -1054,7 +1056,10 @@ def _load_annotations_for_parents(parents: list[tuple[str, str]]) -> list[dict[s
 	annotation_names = [row.get("annotation") for row in child_rows if row.get("annotation")]
 	if not annotation_names:
 		return []
-	annotation_fields = _select_existing_fields("Health Annotation", ["name", "annotation_template", "image", "json", "creation", "modified"])
+	wanted = ["name", "annotation_template", "image", "json", "creation", "modified"]
+	if not include_scene:
+		wanted.remove("json")
+	annotation_fields = _select_existing_fields("Health Annotation", wanted)
 	annotations = {
 		row.name: row
 		for row in frappe.get_all(
@@ -1708,6 +1713,35 @@ def get_derma_annotations(encounter: str | None = None, patient: str | None = No
 	_ensure_clinical_access()
 	procedure_names = [clinical_procedure] if clinical_procedure else []
 	return _load_derma_annotation_context(encounter=encounter, patient=patient, procedure_names=procedure_names)
+
+
+ANNOTATION_SUMMARY_PARENTS = ("Patient Encounter", "Clinical Procedure")
+
+
+@frappe.whitelist()
+def get_derma_annotation_summary(doctype: str, docname: str):
+	"""Annotations on one encounter or procedure, for the desk form's toolbar button.
+
+	Deliberately omits the scene JSON: this runs on every form refresh and the button only needs
+	a thumbnail, a date and the badge legend.
+	"""
+	_ensure_clinical_access()
+	if doctype not in ANNOTATION_SUMMARY_PARENTS:
+		frappe.throw(_("Annotations are only kept on an encounter or a procedure."))
+	if not docname or not frappe.db.exists(doctype, docname):
+		return []
+
+	rows = _load_annotations_for_parents([(doctype, docname)], include_scene=False)
+	return [
+		{
+			"name": row.get("name"),
+			"image": row.get("image"),
+			"creation": row.get("creation"),
+			"annotation_data": row.get("annotation_data"),
+			"label": row.get("custom_derma_body_template_title") or row.get("annotation_template") or _("Drawing"),
+		}
+		for row in rows
+	]
 
 
 def _save_health_annotation(

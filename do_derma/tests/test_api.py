@@ -145,6 +145,41 @@ class TestClinicalAccessGate(DermaTestHelpers, IntegrationTestCase):
         )
         self.assertEqual(result["patient"], patient)
 
+    def test_annotation_summary_is_gated(self):
+        """It reads another patient's drawings if it is not, and it is reachable from any desk
+        form, so it is the easiest of these to call unnoticed."""
+        frappe.set_user(self._make_limited_user())
+        with self.assertRaises(frappe.PermissionError):
+            api.get_derma_annotation_summary("Patient Encounter", "does-not-matter")
+
+
+class TestAnnotationSummary(DermaTestHelpers, IntegrationTestCase):
+    def test_lists_an_encounter_annotation_without_the_scene(self):
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        saved = api.save_derma_annotation(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "file_data": PIXEL_PNG,
+                "json_text": json.dumps({"elements": [TEMPLATE_ELEMENT]}),
+            }
+        )
+
+        rows = api.get_derma_annotation_summary("Patient Encounter", encounter.name)
+
+        self.assertEqual([row["name"] for row in rows], [saved["name"]])
+        self.assertNotIn("json", rows[0])
+        self.assertTrue(rows[0]["label"])
+
+    def test_returns_empty_for_an_unknown_document(self):
+        self.assertEqual(api.get_derma_annotation_summary("Patient Encounter", "HLC-ENC-does-not-exist"), [])
+
+    def test_rejects_a_doctype_that_cannot_hold_annotations(self):
+        patient = self._make_patient()
+        with self.assertRaises(frappe.ValidationError):
+            api.get_derma_annotation_summary("Patient", patient)
+
 
 class TestSaveChartMark(DermaTestHelpers, IntegrationTestCase):
     def test_round_trips_position_and_patient(self):
