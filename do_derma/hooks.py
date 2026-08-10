@@ -32,6 +32,10 @@ fixtures = [
 	{"dt": "Property Setter", "filters": {"module": "Do Derma"}},
 ]
 
+# Lets a Patient Encounter print format render the assessment without carrying a copy of
+# the field list. Injected into the site's formats by printing/inject.py.
+jinja = {"methods": ["do_derma.printing.render.derma_assessment_html"]}
+
 # Runs on every migrate, bypassing Patch Log, so a site whose patches are recorded
 # as applied but whose fields are missing converges anyway. Idempotent.
 after_migrate = "do_derma.install.after_migrate"
