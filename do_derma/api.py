@@ -2011,15 +2011,19 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		patient=patient,
 		procedure_names=[clinical_procedure or docname] if doctype == "Clinical Procedure" else [],
 	)
-	latest = None
 	if doctype == "Clinical Procedure":
-		procedure_rows = context.get("procedure_annotations", {}).get(clinical_procedure or docname, [])
-		latest = procedure_rows[0] if procedure_rows else None
+		rows = context.get("procedure_annotations", {}).get(clinical_procedure or docname, [])
 	else:
-		latest = context.get("latest_annotation")
-	if latest and doctype == "Clinical Procedure":
-		_link_procedure_annotation(clinical_procedure or docname, latest.get("name"))
-	return latest
+		rows = context.get("encounter_annotations") or context.get("annotations") or []
+	# The anchor can hold several drawings: hand back the one actually saved, or a
+	# picker-resumed older drawing would get the newest one's name and overwrite it
+	# on the studio's next save.
+	saved_row = next((row for row in rows if row.get("name") == annotation_name), None)
+	if not saved_row:
+		saved_row = rows[0] if rows else None
+	if saved_row and doctype == "Clinical Procedure":
+		_link_procedure_annotation(clinical_procedure or docname, saved_row.get("name"))
+	return saved_row
 
 
 def _link_procedure_annotation(clinical_procedure: str | None, annotation: str | None) -> None:

@@ -1,5 +1,12 @@
 import { expect, Page, test } from "@playwright/test";
-import { ChartContext, cleanupEncounter, freshEncounter, getSeedPatient } from "../helpers/derma";
+import {
+	ChartContext,
+	cleanupClinicalProcedure,
+	cleanupEncounter,
+	freshClinicalProcedure,
+	freshEncounter,
+	getSeedPatient,
+} from "../helpers/derma";
 import { callMethod } from "../helpers/frappe";
 import { ChartPage } from "../pages";
 
@@ -11,31 +18,41 @@ import { ChartPage } from "../pages";
  * Being in the scene brings two obligations, and both are asserted here: badges must not survive
  * into the persisted JSON (they are derived), and pushing them back into the scene must not
  * re-trigger its own onChange forever.
+ *
+ * Tagging lives exclusively in the procedure popup (the consultation popup is a plain
+ * sketchpad), so every spec here annotates a private draft Clinical Procedure.
  */
 test.describe("Annotation badges", () => {
 	let context: ChartContext;
+	let procedure: string;
 
 	test.beforeEach(async ({ request }) => {
 		const patient = await getSeedPatient(request);
 		const encounter = await freshEncounter(request, patient);
 		context = { patient, encounter: encounter.name };
+		procedure = (await freshClinicalProcedure(request, patient, encounter.name)).name;
 	});
 
 	test.afterEach(async ({ request }) => {
 		if (context.encounter) await cleanupEncounter(request, context.encounter);
+		if (procedure) await cleanupClinicalProcedure(request, procedure);
 	});
 
 	async function openStudioWithProcedure(page: Page): Promise<void> {
 		const chart = new ChartPage(page);
 		await chart.open(context);
-		await chart.setSection("assessment");
-		await chart.root.locator('[data-test="annotate-consultation"]').click();
+		await chart.setSection("procedures");
+		// A fresh procedure has no drawings, so Annotate opens the studio directly.
+		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
 		await expect(page.locator(".derma-annotation-canvas canvas").first()).toBeVisible();
 		await page.waitForTimeout(6000);
 
-		await page.getByRole("button", { name: "Procedures", exact: true }).click();
-		await page.getByRole("button", { name: "E2E Filler" }).click();
-		await page.getByRole("button", { name: "Procedures", exact: true }).click();
+		// Scoped to the studio: the procedures tab behind it has its own "E2E Filler" row button.
+		const studio = page.locator(".derma-annotation-modal");
+		await studio.getByRole("button", { name: "Procedures", exact: true }).click();
+		await studio.getByRole("button", { name: "E2E Filler" }).click();
+		// The drawer only closes from its own toggle now - canvas clicks leave it alone.
+		await studio.getByRole("button", { name: "Procedures", exact: true }).click();
 		await page.waitForTimeout(500);
 	}
 
@@ -85,7 +102,7 @@ test.describe("Annotation badges", () => {
 		expect(await badgeCount(page)).toBe("2");
 	});
 
-	test("keeps badges out of the saved scene", async ({ page, request }) => {
+	test("keeps badges out of the saved scene and reviews the output", async ({ page, request }) => {
 		test.setTimeout(240000);
 		await openStudioWithProcedure(page);
 		await setProductVariable(page, "Restylane");
@@ -95,14 +112,22 @@ test.describe("Annotation badges", () => {
 
 		await page.getByRole("button", { name: "Save Annotation" }).click();
 		await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
+
+		// The review dialog shows the output image beside the legend built from the same items.
+		const review = page.locator('.modal.show [data-test="annotation-review"]');
+		await expect(review).toBeVisible({ timeout: 15000 });
+		await expect(review).toContainText("Restylane");
+		await page.locator(".modal.show").getByRole("button", { name: "Close", exact: true }).click();
 		await page.waitForTimeout(3000);
 
-		const saved = await callMethod<{ encounter_annotations: Array<{ json: string; annotation_data?: string }> }>(
-			request,
-			"do_derma.api.get_derma_annotations",
-			{ encounter: context.encounter, patient: context.patient },
-		);
-		const scene = saved.encounter_annotations[0];
+		const saved = await callMethod<{
+			procedure_annotations: Record<string, Array<{ json: string; annotation_data?: string }>>;
+		}>(request, "do_derma.api.get_derma_annotations", {
+			encounter: context.encounter,
+			patient: context.patient,
+			clinical_procedure: procedure,
+		});
+		const scene = saved.procedure_annotations[procedure][0];
 		const elements = JSON.parse(scene.json).elements as Array<{ customData?: { kind?: string } }>;
 
 		expect(elements.some((element) => element.customData?.kind === "derma_badge"), "badges were persisted").toBe(false);

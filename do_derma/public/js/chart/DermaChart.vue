@@ -1583,19 +1583,60 @@ async function refreshVisitSummary() {
   data.value = { ...data.value, visit_summary: response.message || "" }
 }
 
-async function openAnnotationHistory(annotation) {
+function openAnnotationHistory(annotation) {
+  openAnnotationReviewDialog(annotation)
+}
+
+/** Output image beside its annotation details, with a print path. Shown after
+ * every save and when a saved thumbnail is opened. `annotation_data` is
+ * server-stored HTML whose values were escaped at generation time. */
+function openAnnotationReviewDialog(annotation) {
   if (!annotation) return
   const preview = annotationPreview(annotation)
-  frappe.msgprint({
-    title: annotationTemplateLabel(annotation),
-    message: `
-      <div class="derma-annotation-preview-dialog">
-        ${preview ? `<img src="${escapeHtml(preview)}" alt="">` : `<p>${__("No preview image available.")}</p>`}
-        ${annotation.annotation_data ? `<div class="derma-annotation-preview-data">${annotation.annotation_data}</div>` : ""}
-      </div>
-    `,
-    indicator: "blue",
+  const legend = annotation.annotation_data || ""
+  const dialog = new frappe.ui.Dialog({
+    title: `${__("Annotation")} · ${annotationTemplateLabel(annotation)}`,
+    size: "extra-large",
+    fields: [{ fieldname: "review", fieldtype: "HTML" }],
+    primary_action_label: __("Print"),
+    primary_action: () => printAnnotationReview(annotation),
+    secondary_action_label: __("Close"),
+    secondary_action: () => dialog.hide(),
+    on_hide: () => dialog.$wrapper.remove(),
   })
+  dialog.fields_dict.review.$wrapper.html(`
+    <div class="derma-annotation-review" data-test="annotation-review">
+      <div class="derma-annotation-review-image">
+        ${preview ? `<img src="${escapeHtml(preview)}" alt="">` : `<p>${__("No preview image available.")}</p>`}
+      </div>
+      <div class="derma-annotation-review-data">
+        ${legend || `<p class="panel-muted">${__("No annotation details.")}</p>`}
+      </div>
+    </div>
+  `)
+  dialog.show()
+  dialog.$wrapper.find(".modal-dialog").css("max-width", "92vw")
+}
+
+function printAnnotationReview(annotation) {
+  const preview = annotationPreview(annotation)
+  const legend = annotation.annotation_data || ""
+  const title = escapeHtml(annotationTemplateLabel(annotation))
+  const printWindow = window.open("", "_blank")
+  if (!printWindow) {
+    frappe.show_alert({ message: __("Allow pop-ups to print the annotation."), indicator: "orange" })
+    return
+  }
+  printWindow.document.write(`<!doctype html>
+    <html><head><title>${title}</title></head>
+    <body style="font-family:sans-serif;margin:24px;">
+      <h2 style="margin:0 0 12px;">${title}</h2>
+      ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:70vh;" alt="">` : ""}
+      <div style="margin-top:16px;">${legend}</div>
+    </body></html>`)
+  printWindow.document.close()
+  printWindow.focus()
+  setTimeout(() => printWindow.print(), 350)
 }
 
 function annotationPreview(annotation) {
@@ -1621,6 +1662,7 @@ function openAnnotationStudio(anchor = {}) {
     context: {
       patient: patient.value.name,
       patientName: patient.value.patient_name || patient.value.name,
+      patientSex: patient.value.sex || "",
       encounter: encounter.value.name,
       appointment: appointment.value.name || props.context?.appointment,
       clinicalProcedure,
@@ -1633,8 +1675,9 @@ function openAnnotationStudio(anchor = {}) {
     annotation:
       anchor.annotation !== undefined ? anchor.annotation : latestAnnotationForAnchor(clinicalProcedure),
     marks: marksForAnchor(clinicalProcedure),
-    onSaved: async () => {
+    onSaved: async (saved) => {
       await refresh()
+      openAnnotationReviewDialog(saved)
     },
   })
 }

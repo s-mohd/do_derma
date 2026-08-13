@@ -1,5 +1,14 @@
 import { expect, Page, test } from "@playwright/test";
-import { ChartContext, cleanupEncounter, freshEncounter, getSeedPatient, listMarks, SEED } from "../helpers/derma";
+import {
+	ChartContext,
+	cleanupClinicalProcedure,
+	cleanupEncounter,
+	freshClinicalProcedure,
+	freshEncounter,
+	getSeedPatient,
+	listMarks,
+	SEED,
+} from "../helpers/derma";
 import { callMethod } from "../helpers/frappe";
 import { ChartPage } from "../pages";
 
@@ -13,28 +22,35 @@ import { ChartPage } from "../pages";
  */
 test.describe("Semantic freehand strokes", () => {
 	let context: ChartContext;
+	let procedure: string;
 
+	// Tagging lives in the procedure popup now, so each spec annotates a
+	// private draft Clinical Procedure on a private encounter.
 	test.beforeEach(async ({ request }) => {
 		const patient = await getSeedPatient(request);
 		const encounter = await freshEncounter(request, patient);
 		context = { patient, encounter: encounter.name };
+		procedure = (await freshClinicalProcedure(request, patient, encounter.name)).name;
 	});
 
 	test.afterEach(async ({ request }) => {
 		if (context.encounter) await cleanupEncounter(request, context.encounter);
+		if (procedure) await cleanupClinicalProcedure(request, procedure);
 	});
 
 	async function openStudioWithFreehand(page: Page): Promise<void> {
 		const chart = new ChartPage(page);
 		await chart.open(context);
-		await chart.setSection("assessment");
-		await chart.root.locator('[data-test="annotate-consultation"]').click();
+		await chart.setSection("procedures");
+		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
 		await expect(page.locator(".derma-annotation-canvas canvas").first()).toBeVisible();
 		await page.waitForTimeout(6000);
 
-		await page.getByRole("button", { name: "Procedures", exact: true }).click();
-		await page.getByRole("button", { name: SEED.freehandTemplate }).click();
-		await page.getByRole("button", { name: "Procedures", exact: true }).click();
+		// Scoped to the studio: the procedures tab behind it has row buttons of its own.
+		const studio = page.locator(".derma-annotation-modal");
+		await studio.getByRole("button", { name: "Procedures", exact: true }).click();
+		await studio.getByRole("button", { name: SEED.freehandTemplate }).click();
+		await studio.getByRole("button", { name: "Procedures", exact: true }).click();
 		await page.waitForTimeout(500);
 	}
 
@@ -87,12 +103,12 @@ test.describe("Semantic freehand strokes", () => {
 		await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
 		await page.waitForTimeout(3000);
 
-		const saved = await callMethod<{ encounter_annotations: Array<{ json: string }> }>(
+		const saved = await callMethod<{ procedure_annotations: Record<string, Array<{ json: string }>> }>(
 			request,
 			"do_derma.api.get_derma_annotations",
-			{ encounter: context.encounter, patient: context.patient },
+			{ encounter: context.encounter, patient: context.patient, clinical_procedure: procedure },
 		);
-		const elements = JSON.parse(saved.encounter_annotations[0].json).elements as Array<{
+		const elements = JSON.parse(saved.procedure_annotations[procedure][0].json).elements as Array<{
 			type: string;
 			points?: number[][];
 			customData?: { kind?: string; shape?: string };

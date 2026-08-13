@@ -1,6 +1,14 @@
 import { expect, Page, test } from "@playwright/test";
 import { APIRequestContext } from "@playwright/test";
-import { ChartContext, cleanupEncounter, freshEncounter, getSeedPatient, listMarks } from "../helpers/derma";
+import {
+	ChartContext,
+	cleanupClinicalProcedure,
+	cleanupEncounter,
+	freshClinicalProcedure,
+	freshEncounter,
+	getSeedPatient,
+	listMarks,
+} from "../helpers/derma";
 import { callMethod } from "../helpers/frappe";
 import { ChartPage } from "../pages";
 
@@ -16,6 +24,7 @@ import { ChartPage } from "../pages";
  */
 test.describe("Annotation canvas", () => {
 	let context: ChartContext;
+	let procedure: string;
 
 	// A pristine draft encounter per test, not the shared seeded one. These specs click bare
 	// canvas, and any drawing already there turns the click into a mark *selection* instead
@@ -24,17 +33,31 @@ test.describe("Annotation canvas", () => {
 		const patient = await getSeedPatient(request);
 		const encounter = await freshEncounter(request, patient);
 		context = { patient, encounter: encounter.name };
+		procedure = (await freshClinicalProcedure(request, patient, encounter.name)).name;
 	});
 
 	test.afterEach(async ({ request }) => {
 		if (context.encounter) await cleanupEncounter(request, context.encounter);
+		if (procedure) await cleanupClinicalProcedure(request, procedure);
 	});
 
+	/** The consultation popup: a plain sketchpad, enough for the viewport specs. */
 	async function openStudio(page: Page): Promise<Page> {
 		const chart = new ChartPage(page);
 		await chart.open(context);
 		await chart.setSection("assessment");
 		await chart.root.locator('[data-test="annotate-consultation"]').click();
+		await expect(page.locator(".derma-annotation-canvas canvas").first()).toBeVisible();
+		await page.waitForTimeout(6000);
+		return page;
+	}
+
+	/** The procedure popup, where tagging lives. The fresh procedure opens without a picker. */
+	async function openProcedureStudio(page: Page): Promise<Page> {
+		const chart = new ChartPage(page);
+		await chart.open(context);
+		await chart.setSection("procedures");
+		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
 		await expect(page.locator(".derma-annotation-canvas canvas").first()).toBeVisible();
 		await page.waitForTimeout(6000);
 		return page;
@@ -101,7 +124,7 @@ test.describe("Annotation canvas", () => {
 	for (const zoomedIn of [false, true]) {
 		test(`maps a centre click to the template centre ${zoomedIn ? "while zoomed in" : "at fit"}`, async ({ page, request }) => {
 			test.setTimeout(240000);
-			await openStudio(page);
+			await openProcedureStudio(page);
 			await armPointProcedure(page);
 
 			const canvas = page.locator(".derma-annotation-canvas canvas").first();
@@ -145,7 +168,7 @@ test.describe("Annotation canvas", () => {
 	 */
 	test("saves without embedding the body template, and still reopens with it", async ({ page, request }) => {
 		test.setTimeout(240000);
-		await openStudio(page);
+		await openProcedureStudio(page);
 		await armPointProcedure(page);
 
 		const canvas = page.locator(".derma-annotation-canvas canvas").first();
@@ -157,12 +180,12 @@ test.describe("Annotation canvas", () => {
 		await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
 		await page.waitForTimeout(3000);
 
-		const saved = await callMethod<{ encounter_annotations: Array<{ name: string; json: string }> }>(
+		const saved = await callMethod<{ procedure_annotations: Record<string, Array<{ name: string; json: string }>> }>(
 			request,
 			"do_derma.api.get_derma_annotations",
-			{ encounter: context.encounter, patient: context.patient },
+			{ encounter: context.encounter, patient: context.patient, clinical_procedure: procedure },
 		);
-		const scene = saved.encounter_annotations[0];
+		const scene = saved.procedure_annotations[procedure]?.[0];
 		expect(scene, "nothing was saved").toBeTruthy();
 		expect(scene.json, "the base64 body template is still being persisted").not.toContain("dataURL");
 
@@ -172,7 +195,16 @@ test.describe("Annotation canvas", () => {
 		expect(elements.some((element) => element.customData?.kind === "derma_template")).toBe(true);
 
 		// Reopening rebuilds the background from the template URL rather than from the payload.
-		await page.locator('[data-test="annotate-consultation"]').click();
+		// The post-save review dialog sits over the chart; the procedure now has a drawing,
+		// so Annotate offers the picker.
+		const review = page.locator('.modal.show [data-test="annotation-review"]');
+		await review.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+		if (await review.isVisible()) {
+			await page.locator(".modal.show").getByRole("button", { name: "Close", exact: true }).click();
+			await expect(review).toBeHidden();
+		}
+		await page.locator('[data-test="procedure-annotate"]').first().click();
+		await page.locator('.modal.show [data-test="annotation-picker-edit"]').first().click();
 		await expect(page.locator(".derma-annotation-header span")).toContainText("Editing the saved drawing");
 		await page.waitForTimeout(8000);
 		await expect(page.locator(".derma-annotation-canvas canvas").first()).toBeVisible();
@@ -180,9 +212,11 @@ test.describe("Annotation canvas", () => {
 });
 
 async function armPointProcedure(page: Page): Promise<void> {
-	await page.getByRole("button", { name: "Procedures", exact: true }).click();
-	await page.getByRole("button", { name: "E2E Filler" }).click();
-	await page.getByRole("button", { name: "Procedures", exact: true }).click();
+	// Scoped to the studio: the procedures tab behind it has its own "E2E Filler" row button.
+	const studio = page.locator(".derma-annotation-modal");
+	await studio.getByRole("button", { name: "Procedures", exact: true }).click();
+	await studio.getByRole("button", { name: "E2E Filler" }).click();
+	await studio.getByRole("button", { name: "Procedures", exact: true }).click();
 	await page.waitForTimeout(500);
 }
 

@@ -336,6 +336,31 @@ class TestAnnotationAnchoring(DermaTestHelpers, IntegrationTestCase):
         self.assertEqual(second["name"], first["name"])
         self.assertEqual(self._child_annotations("Clinical Procedure", procedure.name), [first["name"]])
 
+    def test_resaving_an_older_annotation_returns_that_annotation(self):
+        """A procedure can hold several drawings; resuming an older one must hand
+        back that drawing, or the studio's next save overwrites the wrong one."""
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        procedure = self._make_clinical_procedure(patient)
+        first = api.save_derma_annotation(
+            self._annotation_payload(patient=patient, encounter=encounter.name, clinical_procedure=procedure.name)
+        )
+        second = api.save_derma_annotation(
+            self._annotation_payload(patient=patient, encounter=encounter.name, clinical_procedure=procedure.name)
+        )
+        self.assertNotEqual(second["name"], first["name"])
+
+        resumed = api.save_derma_annotation(
+            self._annotation_payload(
+                patient=patient,
+                encounter=encounter.name,
+                clinical_procedure=procedure.name,
+                annotation_name=first["name"],
+            )
+        )
+
+        self.assertEqual(resumed["name"], first["name"])
+
     def test_promoted_mark_survives_resave(self):
         patient = self._make_patient()
         encounter = self._make_encounter(patient)

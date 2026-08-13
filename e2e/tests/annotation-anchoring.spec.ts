@@ -72,9 +72,10 @@ async function drawAreaMark(page: Page): Promise<void> {
 	await expect(canvas).toBeVisible();
 	await page.waitForTimeout(6000);
 
-	await page.getByRole("button", { name: "Procedures", exact: true }).click();
-	await page.getByRole("button", { name: SEED.areaTemplate }).click();
-	await page.getByRole("button", { name: "Procedures", exact: true }).click();
+	const studio = page.locator(".derma-annotation-modal");
+	await studio.getByRole("button", { name: "Procedures", exact: true }).click();
+	await studio.getByRole("button", { name: SEED.areaTemplate }).click();
+	await studio.getByRole("button", { name: "Procedures", exact: true }).click();
 
 	const box = (await canvas.boundingBox())!;
 	await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
@@ -115,7 +116,20 @@ async function openProcedureStudio(
 async function saveAndClose(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "Save Annotation" }).click();
 	await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
+	await dismissReviewDialog(page);
 	await page.waitForTimeout(3000);
+}
+
+/** Saving opens the output-image review dialog over the chart; close it before moving on. */
+async function dismissReviewDialog(page: Page): Promise<void> {
+	const review = page.locator('.modal.show [data-test="annotation-review"]');
+	try {
+		await review.waitFor({ state: "visible", timeout: 15000 });
+	} catch {
+		return;
+	}
+	await page.locator(".modal.show").getByRole("button", { name: "Close", exact: true }).click();
+	await expect(review).toBeHidden();
 }
 
 /**

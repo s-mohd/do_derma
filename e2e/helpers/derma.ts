@@ -163,6 +163,40 @@ export async function getSeedClinicalProcedure(
 	return { name: rows[0].name, encounter: rows[0].custom_patient_encounter ?? null };
 }
 
+/**
+ * A private draft Clinical Procedure hanging off the given encounter, for specs
+ * that annotate procedures: the studio opens fresh on it (no picker), and its
+ * drawings cannot leak into another spec's assertions.
+ */
+export async function freshClinicalProcedure(
+	request: APIRequestContext,
+	patient: string,
+	encounter: string,
+): Promise<ClinicalProcedure> {
+	const practitioner = await getSeedPractitioner(request);
+	const [company] = await getList<{ name: string }>(request, "Company", { fields: ["name"], limit: 1 });
+
+	return callMethod<ClinicalProcedure>(request, "frappe.client.insert", {
+		doc: {
+			doctype: "Clinical Procedure",
+			patient,
+			procedure_template: SEED.pointTemplate,
+			practitioner,
+			company: company?.name,
+			custom_patient_encounter: encounter,
+			status: "Draft",
+		},
+	});
+}
+
+export async function cleanupClinicalProcedure(request: APIRequestContext, name: string): Promise<void> {
+	try {
+		await deleteDoc(request, "Clinical Procedure", name);
+	} catch {
+		// Linked procedures stay; they are inert for later runs.
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Chart context
 // ---------------------------------------------------------------------------

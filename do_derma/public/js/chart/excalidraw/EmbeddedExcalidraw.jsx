@@ -48,6 +48,9 @@ function parseAnnotation(annotation) {
 	const dermaToolRef = useRef("draw")
 	const requestedToolRef = useRef("draw")
 	const previousDraggingIdRef = useRef(null)
+	// Selection / filled-values / hidden state for the template-part layer, kept in a
+	// ref so a template reload can re-apply it after re-rendering the polygons.
+	const partStateRef = useRef({ hidden: false, selected: "", filled: [] })
 
 	function applyDermaTool(nextTemplate) {
 		const effectiveTemplate = nextTemplate !== undefined ? nextTemplate : template
@@ -127,7 +130,22 @@ function parseAnnotation(annotation) {
       requestedToolRef.current = tool || "select"
       applyDermaTool()
     },
-    renderTemplateParts: (parts) => renderTemplateParts(api, parts),
+    renderTemplateParts: (parts) => {
+      renderTemplateParts(api, parts)
+      styleTemplateParts(api, partStateRef.current)
+    },
+    setPartStates: (state) => {
+      partStateRef.current = {
+        ...partStateRef.current,
+        selected: state?.selected || "",
+        filled: state?.filled || [],
+      }
+      styleTemplateParts(api, partStateRef.current)
+    },
+    setPartsHidden: (hidden) => {
+      partStateRef.current = { ...partStateRef.current, hidden: Boolean(hidden) }
+      styleTemplateParts(api, partStateRef.current)
+    },
     setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
     updateMarkVariables: (payload) => updateMarkVariables(api, payload),
     resetView: () => fitToTemplate(api),
@@ -146,6 +164,7 @@ function parseAnnotation(annotation) {
       pendingSceneImport.current = ""
       adoptSceneTemplate(api, latestTemplateImage)
       renderChartMarks(api, marksRef.current)
+      styleTemplateParts(api, partStateRef.current)
     })
   }, [api, initialAnnotation?.name])
 
@@ -174,6 +193,7 @@ function parseAnnotation(annotation) {
 			loadTemplateIntoCanvas(api, chartTemplate, latestTemplateImage, loadingTemplateImage, templateLoadGeneration).then((loaded) => {
 				if (!loaded) return
 				renderTemplateParts(api, chartTemplate.parts || [])
+				styleTemplateParts(api, partStateRef.current)
 				renderChartMarks(api, marksRef.current)
 			})
 		}, [api, chartTemplate?.name, chartTemplate?.image])
@@ -675,10 +695,45 @@ function createTemplatePartElements(parts = [], bounds) {
           partName: part.part_name,
           source: part.source,
           variables: part.variables || [],
+          base_color: color,
+          base_opacity: Number(part.opacity || 0.14),
         },
       }
     })
     .filter(Boolean)
+}
+
+/**
+ * Three-state styling for the part layer: selected (bold solid), holding values
+ * (solid tint), empty (faint dashed) - plus a hide-all override. Geometry is
+ * spread through untouched so restyling never moves a polygon.
+ */
+function styleTemplateParts(api, state = {}) {
+  if (!api) return
+  const filled = new Set(state.filled || [])
+  let changed = false
+  const elements = api.getSceneElements().map((element) => {
+    if (element.isDeleted || element.customData?.kind !== "derma_template_part") return element
+    const partName = element.customData?.part_name || element.customData?.partName || ""
+    const baseColor = element.customData?.base_color || "#4dabf7"
+    const baseOpacity = Number(element.customData?.base_opacity || 0.14)
+    const isSelected = Boolean(partName) && state.selected === partName
+    const isFilled = filled.has(partName)
+    const next = {
+      opacity: state.hidden ? 0 : 100,
+      strokeWidth: isSelected ? 3 : isFilled ? 2 : 1,
+      strokeStyle: isSelected || isFilled ? "solid" : "dashed",
+      strokeColor: withAlpha(baseColor, isSelected ? 1 : 0.76),
+      backgroundColor: withAlpha(baseColor, isSelected ? 0.4 : isFilled ? 0.3 : baseOpacity),
+    }
+    const isSame = Object.entries(next).every(([key, value]) => element[key] === value)
+    if (isSame) return element
+    changed = true
+    return { ...element, ...next, versionNonce: Math.floor(Math.random() * 1000000000) }
+  })
+  if (!changed) return
+  api.updateScene({ elements, commitToHistory: false })
+  api.refresh?.()
 }
 
 function findTemplatePartAtPoint(api, sceneX, sceneY) {

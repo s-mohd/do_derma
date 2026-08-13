@@ -302,20 +302,39 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [selectedPart, setSelectedPart] = useState(null)
   const [saving, setSaving] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
-  const [placedMarkCount, setPlacedMarkCount] = useState(0)
+  const [showAllTemplates, setShowAllTemplates] = useState(false)
+  const [areasHidden, setAreasHidden] = useState(false)
   // Bumped by the canvas on every scene change, so the badge layer follows what is drawn.
   const [sceneRevision, setSceneRevision] = useState(0)
   // Set while the variable editor is bound to an existing mark rather than to the next one.
   const [editingMark, setEditingMark] = useState(null)
 
-  const anchorDoctype = context.clinicalProcedure ? "Clinical Procedure" : "Patient Encounter"
+  // The consultation popup is a plain sketchpad: no procedure tagging, no badges
+  // control, no right sidebar. Only a procedure anchor gets the full studio.
+  const isProcedureAnchor = Boolean(context.clinicalProcedure)
+  const anchorDoctype = isProcedureAnchor ? "Clinical Procedure" : "Patient Encounter"
   const anchorName = context.clinicalProcedure || context.encounter || ""
-  const templates = useMemo(() => (bodyTemplates || []).filter((template) => template.image), [bodyTemplates])
+  const allTemplates = useMemo(() => (bodyTemplates || []).filter((template) => template.image), [bodyTemplates])
+  // Default to the patient's sex; never an empty picker (unknown sex or zero matches shows all).
+  const sexMatchedTemplates = useMemo(() => {
+    const sex = context.patientSex
+    if (!sex) return allTemplates
+    const matched = allTemplates.filter((template) => !template.gender || template.gender === sex)
+    return matched.length ? matched : allTemplates
+  }, [allTemplates, context.patientSex])
+  const templates = showAllTemplates ? allTemplates : sexMatchedTemplates
+  const isSexFiltered = sexMatchedTemplates.length < allTemplates.length
   const procedures = useMemo(() => (procedureTemplates || []).filter((procedure) => procedure.name), [procedureTemplates])
   const templateGroups = useMemo(() => groupedTemplates(templates), [templates])
-  const selectedTemplate = templates.find((template) => template.name === selectedTemplateName) || templates[0] || null
+  // Resolve the selection against every template, so resuming a drawing made on an
+  // off-sex template never silently swaps its background.
+  const selectedTemplate =
+    allTemplates.find((template) => template.name === selectedTemplateName) || templates[0] || null
   const selectedParts = selectedTemplate?.parts || []
   const activeProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === activeProcedure)
+  // The editor binds to the mark being edited first, the armed procedure second.
+  const editorProcedureName = editingMark?.procedure || activeProcedure
+  const editorProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === editorProcedureName)
 
   useEffect(() => {
     if (!selectedTemplateName && templates[0]?.name) setSelectedTemplateName(templates[0].name)
@@ -363,6 +382,29 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   useEffect(() => {
     embeddedRef.current?.setBadgeElements?.(badgeElements(badgeItems))
   }, [badgeItems])
+
+  // Counts what is actually on the canvas, not what this session placed.
+  const markCount = useMemo(() => {
+    const elements = (embeddedRef.current?.getElements?.() || []).filter(
+      (element) => !element.isDeleted && element.customData?.kind === "derma_mark"
+    )
+    return new Set(elements.map(markIdentity)).size
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneRevision])
+
+  useEffect(() => {
+    const filled = Object.entries(partValues)
+      .filter(([, values]) => values && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined))
+      .map(([partName]) => partName)
+    embeddedRef.current?.setPartStates?.({
+      selected: selectedPart?.part_name || selectedPart?.partName || "",
+      filled,
+    })
+  }, [selectedPart, partValues, selectedTemplate?.name])
+
+  useEffect(() => {
+    embeddedRef.current?.setPartsHidden?.(areasHidden)
+  }, [areasHidden])
 
   function toggleProcedure(procedure) {
     const name = procedureLabel(procedure)
@@ -442,7 +484,6 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       })
       const mark = response.message
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
-      setPlacedMarkCount((count) => count + 1)
       window.frappe.show_alert?.({ message: __("Mark saved"), indicator: "green" })
     } catch (error) {
       window.frappe?.msgprint?.({ title: __("Unable to save mark"), message: error.message || String(error), indicator: "red" })
@@ -451,9 +492,11 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   /**
    * Clicking a mark reopens the variable editor bound to it, so a stroke or stamp can be
-   * corrected after the fact instead of being redrawn.
+   * corrected after the fact instead of being redrawn. It edits only: placement mode is
+   * armed exclusively by choosing a procedure in the drawer, and the drawer stays put.
    */
   function handleMarkSelected({ mark, element }) {
+    if (!isProcedureAnchor) return
     const custom = element?.customData || {}
     const procedureTemplateName = custom.procedure_template
     const procedure = procedures.find((row) => row.name === procedureTemplateName)
@@ -463,10 +506,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
     const name = procedureLabel(procedure)
     setEditingMark({ name: mark, elementId: element?.id, procedure: name })
-    setActiveProcedure(name)
-    setSelectedProcedures((current) => (current.includes(name) ? current : [...current, name]))
+    // Editing replaces placing: a click on a mark must never leave a stamp armed.
+    setActiveProcedure("")
     setProcedureValues((current) => ({ ...current, [name]: { ...(custom.procedure_variables || {}) } }))
-    setDrawer("")
   }
 
   function handleRegionSelected(region) {
@@ -526,7 +568,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   return (
     <div className="derma-annotation-modal" role="dialog" aria-modal="true">
       <div className="derma-annotation-backdrop" onClick={onClose} />
-      <section className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure ? "tagging" : ""}`}>
+      <section
+        className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure || editingMark ? "tagging" : ""} ${isProcedureAnchor ? "" : "no-right"}`}
+      >
         <header className="derma-annotation-header">
           <div>
             <strong data-test="annotation-anchor">{anchorDescription(context)}</strong>
@@ -538,7 +582,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
           </div>
           <div className="derma-annotation-header-actions">
             <button type="button" className={drawer === "templates" ? "active" : "ghost"} onClick={() => setDrawer(drawer === "templates" ? "" : "templates")}>{__("Templates")}</button>
-            <button type="button" className={drawer === "procedures" ? "active" : "ghost"} onClick={() => setDrawer(drawer === "procedures" ? "" : "procedures")}>{__("Procedures")}</button>
+            {isProcedureAnchor ? (
+              <button type="button" className={drawer === "procedures" ? "active" : "ghost"} onClick={() => setDrawer(drawer === "procedures" ? "" : "procedures")}>{__("Procedures")}</button>
+            ) : null}
             <button
               type="button"
               className="ghost"
@@ -548,20 +594,33 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             >
               {__("Fit")}
             </button>
-            <label data-test="annotation-badges-toggle" data-badge-count={badgeItems.length}>
-              <input type="checkbox" checked={includeBadges} onChange={(event) => setIncludeBadges(event.target.checked)} />
-              {badgeItems.length ? `${__("Badges")} (${badgeItems.length})` : __("Badges")}
-            </label>
+            {selectedParts.length ? (
+              <button
+                type="button"
+                className={areasHidden ? "active" : "ghost"}
+                data-test="annotation-hide-areas"
+                title={__("Fade the predefined area outlines for a clean view")}
+                onClick={() => setAreasHidden((hidden) => !hidden)}
+              >
+                {areasHidden ? __("Show Areas") : __("Hide Areas")}
+              </button>
+            ) : null}
+            {isProcedureAnchor ? (
+              <label data-test="annotation-badges-toggle" data-badge-count={badgeItems.length}>
+                <input type="checkbox" checked={includeBadges} onChange={(event) => setIncludeBadges(event.target.checked)} />
+                {badgeItems.length ? `${__("Badges")} (${badgeItems.length})` : __("Badges")}
+              </label>
+            ) : null}
             <button type="button" className="ghost" onClick={onClose}>{__("Cancel")}</button>
             <button type="button" className="primary" disabled={saving || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
           </div>
         </header>
 
-        {activeProcedure ? (
+        {activeProcedure || editingMark ? (
           <div className="derma-annotation-tagging-banner" data-test="annotation-tagging-mode">
             <span>
               {editingMark
-                ? __("Editing a saved {0} mark - changes save as you type.").replace("{0}", activeProcedure)
+                ? __("Editing a saved {0} mark - changes save as you type.").replace("{0}", editingMark.procedure)
                 : taggingHint(activeProcedureDoc, activeProcedure)}
             </span>
             <button
@@ -577,10 +636,21 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
           </div>
         ) : null}
 
-        {drawer ? <div className="derma-annotation-drawer-scrim" onClick={() => setDrawer("")} /> : null}
         {drawer ? <aside className="derma-annotation-left">
           {drawer === "templates" ? <div className="derma-annotation-panel">
             <h3>{__("Image Template")}</h3>
+            {isSexFiltered || showAllTemplates ? (
+              <label className="derma-template-show-all" data-test="annotation-show-all-templates">
+                <input
+                  type="checkbox"
+                  checked={showAllTemplates}
+                  onChange={(event) => setShowAllTemplates(event.target.checked)}
+                />
+                {showAllTemplates
+                  ? __("Showing all templates")
+                  : __("Show all (matching {0} only)").replace("{0}", __(context.patientSex || ""))}
+              </label>
+            ) : null}
             {templateGroups.map((group) => (
               <div className="derma-template-group" key={group.label}>
                 <h4>{group.label}</h4>
@@ -641,16 +711,16 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
           />
         </main>
 
-        <aside className="derma-annotation-right">
+        {isProcedureAnchor ? <aside className="derma-annotation-right">
           <div className="derma-annotation-panel">
             <h3>{editingMark ? __("Editing Mark") : __("Procedure Variables")}</h3>
-            {activeProcedureDoc ? (
+            {editorProcedureDoc ? (
               <div data-test="annotation-variable-editor" data-editing-mark={editingMark?.name || ""}>
                 <VariableEditor
-                  title={activeProcedure}
-                  fields={procedureVariables(activeProcedureDoc)}
-                  values={procedureValues[activeProcedure] || {}}
-                  onChange={(field, value) => updateProcedureValue(activeProcedure, field, value)}
+                  title={editorProcedureName}
+                  fields={procedureVariables(editorProcedureDoc)}
+                  values={procedureValues[editorProcedureName] || {}}
+                  onChange={(field, value) => updateProcedureValue(editorProcedureName, field, value)}
                 />
               </div>
             ) : <p className="derma-annotation-empty">{__("Select a procedure, then click the canvas to place a tagged mark.")}</p>}
@@ -670,11 +740,11 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
           <div className="derma-annotation-panel">
             <h3>{__("Marks Placed")}</h3>
-            <p className="derma-annotation-empty">
-              {placedMarkCount ? __("{0} mark(s) saved this session.").replace("{0}", placedMarkCount) : __("No marks placed yet.")}
+            <p className="derma-annotation-empty" data-test="annotation-mark-count" data-mark-count={markCount}>
+              {markCount ? __("{0} tagged mark(s) on this drawing.").replace("{0}", markCount) : __("No marks placed yet.")}
             </p>
           </div>
-        </aside>
+        </aside> : null}
       </section>
     </div>
   )

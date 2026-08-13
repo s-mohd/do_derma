@@ -4159,6 +4159,59 @@
     "left   main   right";
 }
 
+.derma-annotation-shell.no-right {
+  grid-template-columns: minmax(420px, 1fr);
+  grid-template-areas:
+    "header"
+    "main";
+}
+
+.derma-annotation-shell.no-right.drawer-open {
+  grid-template-columns: 280px minmax(420px, 1fr);
+  grid-template-areas:
+    "header header"
+    "left   main";
+}
+
+.derma-template-show-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+}
+
+.derma-annotation-review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 6px 2px;
+}
+
+.derma-annotation-review-image {
+  flex: 0 0 58%;
+  min-width: 280px;
+  text-align: center;
+}
+
+.derma-annotation-review-image img {
+  max-width: 100%;
+  max-height: 70vh;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.derma-annotation-review-data {
+  flex: 1;
+  min-width: 240px;
+  max-height: 70vh;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
 .derma-annotation-header {
   grid-area: header;
   display: flex;
@@ -4259,13 +4312,6 @@
 .derma-annotation-header-actions button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-}
-
-.derma-annotation-drawer-scrim {
-  position: absolute;
-  inset: 57px 300px 0 280px;
-  z-index: 4;
-  background: transparent;
 }
 
 .derma-annotation-left,
