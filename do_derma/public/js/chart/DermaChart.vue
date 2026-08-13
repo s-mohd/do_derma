@@ -58,6 +58,12 @@
               data-test="assessment-tick"
               :title="__('Assessment documented')"
             >✓</i>
+            <i
+              v-if="section.key === 'procedures' && procedureCount"
+              class="tab-count"
+              data-test="procedures-tab-count"
+              :title="__('{0} procedure(s) this visit').replace('{0}', procedureCount)"
+            >{{ procedureCount }}</i>
             <small v-if="section.key !== 'assessment' || !assessmentModeToggleVisible">{{ section.hint }}</small>
             <small
               v-else
@@ -160,7 +166,6 @@
                 :enable-lab-cases="!!featureToggles.enable_lab_cases"
                 :enable-billing-sync="!!featureToggles.enable_billing_sync"
                 @refresh="refresh"
-                @activate-procedure="activateProcedure"
                 @annotate-procedure="annotateProcedure"
                 @sync-billables="syncBillablesForSession"
                 @new-procedure="createProcedure"
@@ -1336,18 +1341,6 @@ function handleEncounterAlert(alert) {
   }
 }
 
-function activateProcedure(procedure) {
-  const name = procedure?.clinical_procedure || procedure?.name
-  if (!name) return
-  activeProcedureName.value = name
-  const templateName = procedure.procedure_template
-  const template = procedureTemplates.value.find((row) => row.name === templateName)
-  if (template) selectedTemplate.value = template
-  ensureSelectedBodyTemplate(true)
-  setActiveSection("procedures")
-  frappe.show_alert({ message: __("Procedure selected for review"), indicator: "blue" })
-}
-
 function openItem(itemCode) {
   if (itemCode) frappe.msgprint({ title: __("Inventory Item"), message: escapeHtml(itemCode), indicator: "blue" })
 }
@@ -1635,7 +1628,10 @@ function openAnnotationStudio(anchor = {}) {
     },
     bodyTemplates: bodyTemplates.value,
     procedureTemplates: procedureTemplates.value,
-    annotation: latestAnnotationForAnchor(clinicalProcedure),
+    // `annotation: null` is an explicit "start a fresh drawing" - only an
+    // absent key falls back to resuming the anchor's newest one.
+    annotation:
+      anchor.annotation !== undefined ? anchor.annotation : latestAnnotationForAnchor(clinicalProcedure),
     marks: marksForAnchor(clinicalProcedure),
     onSaved: async () => {
       await refresh()
@@ -1670,10 +1666,60 @@ function annotateProcedure(row) {
     frappe.msgprint(__("Save the procedure before annotating it."))
     return
   }
-  openAnnotationStudio({
-    clinicalProcedure,
-    procedureLabel: row.display_name || row.procedure_template || clinicalProcedure,
+  const procedureLabel = row.display_name || row.procedure_template || clinicalProcedure
+  const existing = procedureAnnotations.value[clinicalProcedure] || []
+  if (!existing.length) {
+    openAnnotationStudio({ clinicalProcedure, procedureLabel, annotation: null })
+    return
+  }
+  openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, annotations: existing })
+}
+
+/** A procedure can hold several drawings: resume one deliberately, or start fresh. */
+function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, annotations }) {
+  const dialog = new frappe.ui.Dialog({
+    title: `${__("Annotations")} · ${procedureLabel}`,
+    size: "large",
+    fields: [{ fieldname: "annotation_list", fieldtype: "HTML" }],
+    primary_action_label: __("New Annotation"),
+    primary_action: () => {
+      dialog.hide()
+      openAnnotationStudio({ clinicalProcedure, procedureLabel, annotation: null })
+    },
+    // Frappe keeps hidden modals in the DOM; a re-opened picker would stack a
+    // second copy of every data-test hook.
+    on_hide: () => dialog.$wrapper.remove(),
   })
+  const cards = annotations
+    .map((annotation, index) => {
+      const preview = annotationPreview(annotation)
+      return `
+        <div class="derma-annotation-pick">
+          <div class="derma-annotation-pick-row">
+            <span class="derma-annotation-pick-preview">
+              ${preview ? `<img src="${escapeHtml(preview)}" alt="" loading="lazy">` : `<span>${__("No preview")}</span>`}
+            </span>
+            <span class="derma-annotation-pick-meta">
+              <b>${escapeHtml(annotationTemplateLabel(annotation))}</b>
+              <small>${escapeHtml(formatDate(annotation.creation || annotation.modified))}</small>
+            </span>
+            <button type="button" class="btn btn-sm btn-default" data-test="annotation-picker-edit" data-index="${index}">
+              ${__("Edit")}
+            </button>
+          </div>
+          ${annotation.annotation_data ? `<div class="derma-annotation-pick-data">${annotation.annotation_data}</div>` : ""}
+        </div>
+      `
+    })
+    .join("")
+  const $wrapper = dialog.fields_dict.annotation_list.$wrapper
+  $wrapper.html(`<div class="derma-annotation-pick-list" data-test="annotation-picker">${cards}</div>`)
+  $wrapper.find('[data-test="annotation-picker-edit"]').on("click", (event) => {
+    const index = Number(event.currentTarget.getAttribute("data-index"))
+    dialog.hide()
+    openAnnotationStudio({ clinicalProcedure, procedureLabel, annotation: annotations[index] || null })
+  })
+  dialog.show()
 }
 
 async function loadAssessment(force = false) {
@@ -2115,7 +2161,17 @@ function normalizeProcedureRow(row) {
     procedure_date: date,
     date,
     tooth: row.derma_category || row.custom_derma_category || row.procedure_template || "Derma",
-    notes: row.notes || row.custom_derma_notes || row.derma_detail_text || "",
+    // derma_detail_text is a computed summary, never a note: pre-filling it here
+    // once let Save Note write that summary into the procedure note. The derma
+    // note (editable) outranks the core notes field (set_only_once, legacy).
+    notes: row.custom_derma_notes || row.notes || "",
+    note_sentence_template:
+      procedureTemplates.value.find((template) => template.name === row.procedure_template)
+        ?.custom_derma_note_template || "",
+    price_list: row.custom_derma_price_list || "",
+    price_override: row.custom_derma_price_override ?? null,
+    no_charge: Boolean(row.custom_derma_no_charge),
+    price_override_reason: row.custom_derma_price_override_reason || "",
     surface_profile: "none",
     render_style: "derma",
   }

@@ -759,6 +759,10 @@ def _get_derma_procedures(patient: str, appointment: str | None = None, encounte
 			"custom_patient_encounter",
 			"encounter",
 			"custom_derma_notes",
+			"custom_derma_price_list",
+			"custom_derma_price_override",
+			"custom_derma_no_charge",
+			"custom_derma_price_override_reason",
 		],
 	)
 	filters: dict[str, Any] = {}
@@ -887,7 +891,7 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 def _procedure_history_detail(row: dict[str, Any], marks: list[dict[str, Any]], treatments: list[dict[str, Any]]) -> str:
 	source = marks or treatments
 	if not source:
-		return row.get("notes") or row.get("custom_derma_notes") or ""
+		return row.get("custom_derma_notes") or row.get("notes") or ""
 	category = row.get("derma_category") or next((item.get("category") or item.get("procedure_type") for item in source if item.get("category") or item.get("procedure_type")), "")
 	locations = _join_unique(item.get("region_label") or item.get("body_region") or item.get("body_view") for item in source)
 	product = next((item.get("product_name") or item.get("device") for item in source if item.get("product_name") or item.get("device")), "")

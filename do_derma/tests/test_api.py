@@ -615,3 +615,83 @@ class TestCarryForwardMarks(DermaTestHelpers, IntegrationTestCase):
         frappe.set_user(self._make_limited_user())
         with self.assertRaises(frappe.PermissionError):
             api.carry_forward_marks(["does-not-matter"], patient="does-not-matter")
+
+
+class TestProcedureFieldUpdates(DermaTestHelpers, IntegrationTestCase):
+    """The chart's note dialog and price-override controls both ride on
+    update_clinical_procedure_fields; the derma billing fields are custom
+    fields created by ensure_derma_schema."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from do_derma.schema import ensure_derma_schema
+
+        ensure_derma_schema()
+
+    def setUp(self):
+        self.addCleanup(frappe.set_user, "Administrator")
+        frappe.set_user("Administrator")
+
+    def test_notes_and_price_override_round_trip(self):
+        # The core `notes` field is set_only_once (healthcare), so the note
+        # dialog writes custom_derma_notes instead.
+        procedure = self._make_clinical_procedure(self._make_patient())
+        api.update_clinical_procedure_fields(
+            procedure.name,
+            updates=json.dumps(
+                {
+                    "custom_derma_notes": "Post-care advice given.",
+                    "custom_derma_price_override": 120.5,
+                    "custom_derma_no_charge": 1,
+                    "custom_derma_price_list": None,
+                    "custom_derma_price_override_reason": "Loyalty discount",
+                }
+            ),
+        )
+        doc = frappe.get_doc("Clinical Procedure", procedure.name)
+        self.assertEqual(doc.custom_derma_notes, "Post-care advice given.")
+        self.assertEqual(doc.custom_derma_price_override, 120.5)
+        self.assertEqual(doc.custom_derma_no_charge, 1)
+        self.assertEqual(doc.custom_derma_price_override_reason, "Loyalty discount")
+
+    def test_note_edit_survives_a_second_save(self):
+        """set_only_once on the core notes field is exactly what broke Save Note."""
+        procedure = self._make_clinical_procedure(self._make_patient())
+        api.update_clinical_procedure_fields(
+            procedure.name, updates=json.dumps({"custom_derma_notes": "First note"})
+        )
+        api.update_clinical_procedure_fields(
+            procedure.name, updates=json.dumps({"custom_derma_notes": "Amended note"})
+        )
+        self.assertEqual(
+            frappe.db.get_value("Clinical Procedure", procedure.name, "custom_derma_notes"),
+            "Amended note",
+        )
+
+    def test_is_gated(self):
+        frappe.set_user(self._make_limited_user())
+        with self.assertRaises(frappe.PermissionError):
+            api.update_clinical_procedure_fields("does-not-matter", updates="{}")
+
+
+class TestDermaNoteTemplate(IntegrationTestCase):
+    """The procedure note dialog's template picker reads this doctype."""
+
+    def test_note_template_round_trips(self):
+        name = "Test Note Template"
+        if frappe.db.exists("Derma Note Template", name):
+            frappe.delete_doc("Derma Note Template", name, force=True)
+        doc = frappe.get_doc(
+            {
+                "doctype": "Derma Note Template",
+                "title": name,
+                "note": "Area cleaned and prepped. Aftercare leaflet handed over.",
+            }
+        ).insert(ignore_permissions=True)
+        self.addCleanup(frappe.delete_doc, "Derma Note Template", doc.name, force=True)
+        self.assertEqual(
+            frappe.db.get_value("Derma Note Template", name, "note"),
+            "Area cleaned and prepped. Aftercare leaflet handed over.",
+        )
+        self.assertFalse(frappe.db.get_value("Derma Note Template", name, "disabled"))

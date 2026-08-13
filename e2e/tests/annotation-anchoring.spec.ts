@@ -84,6 +84,34 @@ async function drawAreaMark(page: Page): Promise<void> {
 	await page.waitForTimeout(2000);
 }
 
+/**
+ * Annotate opens the studio directly while the procedure has no drawings; once
+ * it has any, a picker dialog offers each drawing plus "New Annotation". The
+ * seeded procedure is shared and accumulates across runs, so both paths are
+ * tolerated. `fresh` starts a new drawing; the default resumes the newest.
+ */
+async function openProcedureStudio(
+	page: Page,
+	chart: ChartPage,
+	opts: { fresh?: boolean } = {},
+): Promise<void> {
+	await chart.root.locator('[data-test="procedure-annotate"]').first().click();
+	const picker = page.locator('.modal.show [data-test="annotation-picker"]');
+	try {
+		await picker.waitFor({ state: "visible", timeout: 4000 });
+	} catch {
+		// No picker: the studio opened directly on a fresh drawing.
+	}
+	if (await picker.isVisible()) {
+		if (opts.fresh) {
+			await page.getByRole("button", { name: "New Annotation" }).click();
+		} else {
+			await picker.locator('[data-test="annotation-picker-edit"]').first().click();
+		}
+	}
+	await expect(page.locator(".derma-annotation-modal")).toBeVisible();
+}
+
 async function saveAndClose(page: Page): Promise<void> {
 	await page.getByRole("button", { name: "Save Annotation" }).click();
 	await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
@@ -128,9 +156,11 @@ test.describe("Annotation anchoring", () => {
 		await chart.open(context);
 		await chart.setSection("procedures");
 
-		const annotate = chart.root.locator('[data-test="procedure-annotate"]').first();
-		await expect(annotate, `no Annotate button on the seeded procedure ${procedure}`).toBeVisible();
-		await annotate.click();
+		await expect(
+			chart.root.locator('[data-test="procedure-annotate"]').first(),
+			`no Annotate button on the seeded procedure ${procedure}`,
+		).toBeVisible();
+		await openProcedureStudio(page, chart);
 
 		const anchor = page.locator('[data-test="annotation-anchor"]');
 		await expect(anchor).toBeVisible();
@@ -150,7 +180,7 @@ test.describe("Annotation anchoring", () => {
 		await chart.open(context);
 		await chart.setSection("procedures");
 
-		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
+		await openProcedureStudio(page, chart);
 		await drawRectangle(page);
 		await saveAndClose(page);
 
@@ -162,9 +192,9 @@ test.describe("Annotation anchoring", () => {
 		// Clinical Procedure, so this badge read 0 for every procedure before Phase 3.
 		await chart.setSection("procedures");
 		const annotate = chart.root.locator('[data-test="procedure-annotate"]').first();
-		await expect(annotate).toContainText("Annotate (1)");
+		await expect(annotate.locator(".icon-badge")).toHaveText("1");
 
-		await annotate.click();
+		await openProcedureStudio(page, chart);
 		await expect(page.locator(".derma-annotation-header span")).toContainText("Editing the saved drawing");
 		await page.waitForTimeout(8000);
 		await saveAndClose(page);
@@ -187,7 +217,7 @@ test.describe("Annotation anchoring", () => {
 		await chart.open(context);
 		await chart.setSection("procedures");
 
-		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
+		await openProcedureStudio(page, chart);
 		await drawAreaMark(page);
 		await saveAndClose(page);
 
@@ -196,7 +226,7 @@ test.describe("Annotation anchoring", () => {
 		expect(drawn.size, "the dragged area was never linked to a mark").toBeGreaterThan(0);
 
 		await chart.setSection("procedures");
-		await chart.root.locator('[data-test="procedure-annotate"]').first().click();
+		await openProcedureStudio(page, chart);
 		await expect(page.locator(".derma-annotation-header span")).toContainText("Editing the saved drawing");
 		await page.waitForTimeout(8000);
 		await saveAndClose(page);

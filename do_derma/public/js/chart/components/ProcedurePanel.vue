@@ -380,21 +380,31 @@
                 </template>
               </td>
               <td>{{ row.practitioner_name || row.practitioner || "—" }}</td>
-              <td>
-                <button class="ghost small" type="button" @click="$emit('activate-procedure', row)">{{ __("Use Chart") }}</button>
+              <td class="row-actions">
                 <button
                   v-if="getProcedureName(row)"
-                  class="ghost small"
+                  class="icon-btn"
                   type="button"
                   data-test="procedure-annotate"
-                  :title="__('Draw on this procedure')"
+                  :title="annotateLabel(row)"
+                  :aria-label="annotateLabel(row)"
                   @click="$emit('annotate-procedure', row)"
                 >
-                  <span aria-hidden="true">✎</span>
-                  {{ annotateLabel(row) }}
+                  <i class="fa-regular fa-pen-to-square"></i>
+                  <span v-if="Number(row.annotation_count || 0)" class="icon-badge">{{ row.annotation_count }}</span>
                 </button>
-                <button v-if="isEditable(row)" class="ghost small danger" type="button" @click="deleteRow(row)">Delete</button>
-                <span v-else class="text-muted">—</span>
+                <button
+                  v-if="isEditable(row)"
+                  class="icon-btn danger"
+                  type="button"
+                  data-test="procedure-delete"
+                  :title="__('Delete procedure')"
+                  :aria-label="__('Delete procedure')"
+                  @click="deleteRow(row)"
+                >
+                  <i class="fa-regular fa-trash-can"></i>
+                </button>
+                <span v-if="!getProcedureName(row) && !isEditable(row)" class="text-muted">—</span>
               </td>
             </tr>
           </template>
@@ -455,7 +465,6 @@ const props = defineProps({
 const emit = defineEmits([
   "refresh",
   "sync-billables",
-  "activate-procedure",
   "annotate-procedure",
   "new-procedure",
   "copy-marks",
@@ -1009,14 +1018,14 @@ function toEditorHtml(value) {
   return paragraphs.length ? `<p>${paragraphs.join("</p><p>")}</p>` : ""
 }
 
-async function fetchDentalNoteTemplate(templateName) {
-  if (!templateName) return ""
+async function fetchNoteTemplate(templateName) {
+  if (!templateName) return { raw_html: "", plain_text: "" }
   try {
     const resp = await frappe.call("frappe.client.get", {
-      doctype: "Dental Note Template",
+      doctype: "Derma Note Template",
       name: templateName,
     })
-    const raw = String(resp?.message?.default_text || "")
+    const raw = String(resp?.message?.note || "")
     return {
       raw_html: toEditorHtml(raw),
       plain_text: htmlToPlainText(raw),
@@ -1024,10 +1033,11 @@ async function fetchDentalNoteTemplate(templateName) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("Failed to fetch note template", err)
-    return {
-      raw_html: "",
-      plain_text: "",
-    }
+    frappe.show_alert({
+      message: __("Could not load note template {0}.").replace("{0}", templateName),
+      indicator: "red",
+    })
+    return null
   }
 }
 
@@ -1079,25 +1089,33 @@ async function openProcedureNoteDialog(row) {
     `)
   }
 
+  // The procedure template's own note sentence is the default when nothing is
+  // picked from the library.
+  const noteSentence = String(row.note_sentence_template || "").trim()
+
   const updateTemplatePreview = async () => {
     if (!dialog) return
     const templateName = dialog.get_value("note_template")
     if (!templateName) {
-      setTemplatePreview("", "")
+      setTemplatePreview(toEditorHtml(noteSentence), htmlToPlainText(noteSentence))
       return
     }
-    const templateData = await fetchDentalNoteTemplate(templateName)
+    const templateData = await fetchNoteTemplate(templateName)
+    if (!templateData) return
     setTemplatePreview(templateData.raw_html, templateData.plain_text)
   }
 
   const applyTemplateToNote = async () => {
     if (!dialog) return
     const templateName = dialog.get_value("note_template")
-    if (!templateName) {
+    if (!templateName && !noteSentence) {
       frappe.show_alert({ message: __("Select a note template first."), indicator: "orange" })
       return
     }
-    const templateData = await fetchDentalNoteTemplate(templateName)
+    const templateData = templateName
+      ? await fetchNoteTemplate(templateName)
+      : { raw_html: toEditorHtml(noteSentence), plain_text: htmlToPlainText(noteSentence) }
+    if (!templateData) return
     if (!templateData.raw_html && !templateData.plain_text) {
       frappe.show_alert({ message: __("Selected template has no text."), indicator: "orange" })
       return
@@ -1141,7 +1159,7 @@ async function openProcedureNoteDialog(row) {
         fieldname: "note_template",
         fieldtype: "Link",
         label: __("Apply Note Template"),
-        options: "Dental Note Template",
+        options: "Derma Note Template",
         hidden: editable ? 0 : 1,
         get_query: () => ({ filters: { disabled: 0 } }),
         onchange: updateTemplatePreview,
@@ -1179,7 +1197,11 @@ async function openProcedureNoteDialog(row) {
       }
       const nextValue = values?.note ?? ""
       updateLocal(row, "notes", nextValue)
-      saveRow(row, { silent: true })
+      const saved = await saveRow(row, { silent: true })
+      if (!saved) {
+        frappe.show_alert({ message: __("Could not save the note."), indicator: "red" })
+        return
+      }
       dialog.hide()
       frappe.show_alert({ message: __("Procedure note saved."), indicator: "green" })
     },
@@ -1197,6 +1219,7 @@ async function openProcedureNoteDialog(row) {
   }
   dialog.show()
   void renderRelatedHistory()
+  if (editable && noteSentence) void updateTemplatePreview()
 }
 
 function normalizePriceListName(value) {
@@ -1387,8 +1410,20 @@ async function repriceRow(row, priceList) {
   }
 }
 
+// Client row keys -> Clinical Procedure fieldnames (do_derma custom fields,
+// created by schema.py). Notes deliberately avoid the core `notes` field:
+// healthcare marks it set_only_once, so any edit after insert throws.
+const PROCEDURE_UPDATE_FIELD_MAP = {
+  price_override: "custom_derma_price_override",
+  price_list: "custom_derma_price_list",
+  no_charge: "custom_derma_no_charge",
+  price_override_reason: "custom_derma_price_override_reason",
+  notes: "custom_derma_notes",
+}
+
+/** Resolves true when the row is persisted (or there was nothing to save), false on failure. */
 function saveRow(row, opts = {}) {
-  if (!isPersistedRow(row)) return
+  if (!isPersistedRow(row)) return Promise.resolve(false)
   const payload = edits.value[row.name] || {}
   const updates = {}
   if (payload.price !== undefined) {
@@ -1418,12 +1453,15 @@ function saveRow(row, opts = {}) {
     updates.price_override_reason = String(payload.price_override_reason || "")
   }
   if (payload.notes !== undefined) updates.notes = String(payload.notes || "")
-  if (!Object.keys(updates).length) return
+  if (!Object.keys(updates).length) return Promise.resolve(true)
 
-  frappe
+  const serverUpdates = Object.fromEntries(
+    Object.entries(updates).map(([key, value]) => [PROCEDURE_UPDATE_FIELD_MAP[key] || key, value])
+  )
+  return frappe
     .call("do_derma.api.update_clinical_procedure_fields", {
       procedure_name: row.name,
-      updates,
+      updates: serverUpdates,
     })
     .then((resp) => {
       Object.assign(row, {
@@ -1466,6 +1504,7 @@ function saveRow(row, opts = {}) {
       if (!opts.silent) {
         frappe.show_alert({ message: __("Updated."), indicator: "green" })
       }
+      return true
     })
     .catch((err) => {
       if (!opts.silent) {
@@ -1473,6 +1512,7 @@ function saveRow(row, opts = {}) {
       }
       // eslint-disable-next-line no-console
       console.warn("Failed to update procedure row", err)
+      return false
     })
 }
 
@@ -2155,6 +2195,52 @@ function handleRowDoubleClick(row, event) {
   border-color: #fecaca;
   background: #fff1f2;
   color: #b91c1c;
+}
+
+.dental-chart-page .procedure-table td.row-actions {
+  white-space: nowrap;
+}
+
+.dental-chart-page .procedure-table .icon-btn {
+  position: relative;
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.dental-chart-page .procedure-table .icon-btn + .icon-btn {
+  margin-left: 6px;
+}
+
+.dental-chart-page .procedure-table .icon-btn:hover {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.dental-chart-page .procedure-table .icon-btn.danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
+.dental-chart-page .procedure-table .icon-btn .icon-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #087b75;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
 }
 
 .dental-chart-page .procedure-table td {

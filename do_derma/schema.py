@@ -75,6 +75,50 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"read_only": 1,
 		},
 	],
+	# The chart's note dialog and price-override controls write these through
+	# update_clinical_procedure_fields; without them the endpoint silently
+	# dropped every value. The note cannot ride on the core `notes` field, which
+	# healthcare marks set_only_once.
+	"Clinical Procedure": [
+		{
+			"fieldname": "custom_derma_notes",
+			"fieldtype": "Small Text",
+			"label": "Derma Notes",
+			"insert_after": "notes",
+		},
+		{
+			"fieldname": "custom_derma_billing_section",
+			"fieldtype": "Section Break",
+			"label": "Derma Billing",
+			"insert_after": "custom_derma_notes",
+			"collapsible": 1,
+		},
+		{
+			"fieldname": "custom_derma_price_list",
+			"fieldtype": "Link",
+			"label": "Price List",
+			"options": "Price List",
+			"insert_after": "custom_derma_billing_section",
+		},
+		{
+			"fieldname": "custom_derma_price_override",
+			"fieldtype": "Currency",
+			"label": "Price Override",
+			"insert_after": "custom_derma_price_list",
+		},
+		{
+			"fieldname": "custom_derma_no_charge",
+			"fieldtype": "Check",
+			"label": "No Charge",
+			"insert_after": "custom_derma_price_override",
+		},
+		{
+			"fieldname": "custom_derma_price_override_reason",
+			"fieldtype": "Small Text",
+			"label": "Price Override Reason",
+			"insert_after": "custom_derma_no_charge",
+		},
+	],
 	"Healthcare Practitioner": [
 		{
 			"fieldname": "custom_derma_default_assessment_mode",
