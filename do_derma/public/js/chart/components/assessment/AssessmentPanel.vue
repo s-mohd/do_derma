@@ -1,22 +1,5 @@
 <template>
   <section class="assessment-panel" data-test="assessment-panel">
-    <header v-if="hasEncounter" class="mode-banner" data-test="assessment-mode-banner">
-      <span class="mode-label">
-        {{ isStamped ? __("Written as") : __("Documenting as") }}
-        <b data-test="assessment-mode">{{ modeLabel }}</b>
-      </span>
-      <button
-        v-if="canChangeMode"
-        type="button"
-        class="ghost"
-        data-test="assessment-change-mode"
-        :disabled="saving || loading"
-        @click="requestModeChange"
-      >
-        {{ __("Change format") }}
-      </button>
-    </header>
-
     <p v-if="error" class="error-text" data-test="assessment-error">{{ error }}</p>
     <p v-if="submittedNote" class="status-note">{{ submittedNote }}</p>
 
@@ -102,7 +85,6 @@ const MODE_LABELS = { SOAP: "SOAP Note", Structured: "Structured Assessment" }
 
 const props = defineProps({
   mode: { type: String, default: STRUCTURED },
-  isStamped: { type: Boolean, default: false },
   availableModes: { type: Array, default: () => [STRUCTURED] },
   layout: { type: Array, default: () => [] },
   values: { type: Object, default: () => ({}) },
@@ -118,12 +100,11 @@ const props = defineProps({
   allowOnSubmitFields: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(["request-edit", "save", "change-mode"])
+const emit = defineEmits(["request-edit", "save"])
 
 const fieldsRef = ref(null)
 const isDirty = ref(false)
 
-const modeLabel = computed(() => __(MODE_LABELS[props.mode] || props.mode))
 const otherMode = computed(() => (props.mode === SOAP ? STRUCTURED : SOAP))
 const isSubmitted = computed(() => Number(props.docstatus ?? 0) === 1)
 
@@ -134,12 +115,6 @@ const canEdit = computed(() => {
   if (status === 1) return (props.allowOnSubmitFields || []).length > 0
   return false
 })
-
-// Changing format rewrites nothing, but it is only offered while the encounter
-// is still a draft and the site actually has both modes installed.
-const canChangeMode = computed(
-  () => props.hasEncounter && Number(props.docstatus ?? 0) === 0 && (props.availableModes || []).length > 1
-)
 
 const inactiveModeHasContent = computed(() => {
   const source = props.mode === SOAP ? props.values : props.soapValues
@@ -181,20 +156,6 @@ function hasContent(value) {
   return true
 }
 
-function requestModeChange() {
-  const target = otherMode.value
-  const question = __("Switch this visit to {0}? Nothing you have written is deleted.").replace(
-    "{0}",
-    __(MODE_LABELS[target])
-  )
-  const confirm = window.frappe?.confirm
-  if (!confirm) {
-    emit("change-mode", target)
-    return
-  }
-  confirm(question, () => emit("change-mode", target))
-}
-
 function submitDraft() {
   if (!props.editMode || props.saving) return
   const payload = fieldsRef.value?.collectPayload?.() || {}
@@ -212,28 +173,6 @@ function submitDraft() {
   margin-bottom: 12px;
 }
 
-.mode-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #f0fdfa;
-  border: 1px solid #99e0d5;
-  border-radius: 10px;
-  padding: 8px 12px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: #0f766e;
-}
-
-.mode-label {
-  flex: 1;
-  min-width: 0;
-}
-
-.mode-label b {
-  font-weight: 700;
-}
-
 button {
   border-radius: 8px;
   border: 1px solid #d1d5db;
@@ -241,12 +180,6 @@ button {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-}
-
-button.ghost {
-  background: #ffffff;
-  color: #0f766e;
-  border-color: #99e0d5;
 }
 
 button.primary {

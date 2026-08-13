@@ -156,17 +156,20 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 	mode = get_assessment_mode(encounter_doc)
 	structured_layout = get_structured_layout()
 	soap_layout = get_soap_layout()
+	values = serialize_values(encounter_doc, structured_layout)
+	soap_values = serialize_values(encounter_doc, soap_layout)
 	return {
 		"encounter": encounter_doc.name,
 		"docstatus": cint(encounter_doc.docstatus),
 		"mode": mode,
 		"is_stamped": bool(_stamped_mode(encounter_doc)),
+		"is_filled": any(_has_content(value) for value in [*values.values(), *soap_values.values()]),
 		"available_modes": available_modes(),
 		"soap_supported": soap_is_supported(),
 		"layout": structured_layout,
-		"values": serialize_values(encounter_doc, structured_layout),
+		"values": values,
 		"soap_layout": soap_layout,
-		"soap_values": serialize_values(encounter_doc, soap_layout),
+		"soap_values": soap_values,
 		"context_values": {
 			"patient": encounter_doc.get("patient"),
 			"appointment": encounter_doc.get("appointment"),
@@ -182,6 +185,7 @@ def empty_assessment() -> dict[str, Any]:
 		"docstatus": None,
 		"mode": STRUCTURED,
 		"is_stamped": False,
+		"is_filled": False,
 		"available_modes": available_modes(),
 		"soap_supported": soap_is_supported(),
 		"layout": structured_layout,

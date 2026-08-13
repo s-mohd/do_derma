@@ -207,6 +207,7 @@
 }
 
 .derma-section-tabs button {
+  position: relative;
   flex: 0 0 auto;
   min-width: 118px;
   display: grid;
@@ -238,6 +239,48 @@
 .derma-section-tabs button.active span,
 .derma-section-tabs button.active small {
   color: var(--derma-brand);
+}
+
+.derma-section-tabs button .tab-tick {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  font-style: normal;
+  font-weight: 900;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--derma-brand);
+}
+
+.derma-section-tabs .tab-mode-toggle {
+  display: inline-flex;
+  width: max-content;
+  border: 1px solid var(--derma-brand-light);
+  border-radius: 999px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.derma-section-tabs .tab-mode-toggle span {
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  color: var(--derma-text-muted);
+  cursor: pointer;
+}
+
+.derma-section-tabs .tab-mode-toggle span[data-active="true"] {
+  background: var(--derma-brand);
+  color: #ffffff;
+}
+
+.derma-section-tabs .tab-mode-toggle[data-locked="true"] {
+  opacity: 0.6;
+}
+
+.derma-section-tabs .tab-mode-toggle[data-locked="true"] span {
+  cursor: not-allowed;
 }
 
 .derma-console-grid {

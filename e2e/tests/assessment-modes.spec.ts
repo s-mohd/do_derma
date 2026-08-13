@@ -8,12 +8,13 @@ import {
 import { ChartPage } from "../pages";
 
 /**
- * Assessment Modes (spec 2026-08-09-derma_chart_revamp, Phase 1).
+ * Assessment Modes (spec 2026-08-13-assessment_tab_mode_toggle).
  *
- * This tab previously rendered "No fields found in Patient Encounter tab
- * custom_assessment" on any site lacking that Tab Break - which is every site.
- * The load-bearing property here is that a stamped mode survives a reload, so a
- * note always reopens in the format it was written in.
+ * The format switch lives on the Assessment tab button as a segmented
+ * SOAP/Structured toggle; the in-panel banner is gone. The load-bearing
+ * properties: a stamped mode survives a reload, switching away from a written
+ * format asks once (away from an empty one is instant), and the tab shows a
+ * tick once the visit holds any saved assessment content.
  *
  * Each spec takes a private draft encounter: these write and stamp, so sharing
  * the seeded one would poison whichever spec ran next.
@@ -40,26 +41,34 @@ test.describe("Assessment modes", () => {
 		return chart;
 	}
 
-	test("renders configured fields instead of the missing-tab message", async ({ page }) => {
+	/** A fresh encounter is empty, so switching to SOAP never needs the confirm. */
+	async function ensureSoap(page: import("@playwright/test").Page) {
+		const soap = page.locator('[data-test="assessment-mode-soap"]');
+		if ((await soap.getAttribute("data-active")) !== "true") {
+			await soap.click();
+		}
+		await expect(soap).toHaveAttribute("data-active", "true");
+	}
+
+	test("renders configured fields and the tab toggle instead of the banner", async ({ page }) => {
 		await openAssessment(page);
 
 		const panel = page.locator('[data-test="assessment-panel"]');
 		await expect(panel).not.toContainText("No fields found");
-		await expect(page.locator('[data-test="assessment-mode-banner"]')).toBeVisible();
-		await expect(page.locator('[data-test="assessment-mode"]')).toHaveText(
-			/SOAP Note|Structured Assessment/,
-		);
+		await expect(page.locator('[data-test="assessment-mode-banner"]')).toHaveCount(0);
+
+		await expect(page.locator('[data-test="assessment-mode-toggle"]')).toBeVisible();
+		await expect(
+			page.locator('[data-test^="assessment-mode-"][data-active="true"]'),
+		).toHaveCount(1);
+
+		// A fresh encounter holds no content, so the tab has no tick yet.
+		await expect(page.locator('[data-test="assessment-tick"]')).toHaveCount(0);
 	});
 
-	test("a SOAP note reopens as SOAP after a reload", async ({ page }) => {
+	test("a SOAP note reopens as SOAP after a reload and ticks the tab", async ({ page }) => {
 		await openAssessment(page);
-
-		// A fresh encounter opens unstamped in the practitioner default.
-		if ((await page.locator('[data-test="assessment-mode"]').textContent()) !== "SOAP Note") {
-			await page.locator('[data-test="assessment-change-mode"]').click();
-			await page.locator(".modal.show .btn-primary:visible").first().click();
-		}
-		await expect(page.locator('[data-test="assessment-mode"]')).toHaveText("SOAP Note");
+		await ensureSoap(page);
 
 		const subjective = page.locator('[data-test="soap-custom_derma_soap_subjective"]');
 		await subjective.fill("Itching on both cheeks for three weeks.");
@@ -67,38 +76,47 @@ test.describe("Assessment modes", () => {
 		const save = page.locator('[data-test="assessment-save"]');
 		await expect(save).toBeEnabled();
 		await save.click();
-		await expect(page.locator('[data-test="assessment-mode-banner"]')).toContainText("Written as");
+		await expect(page.locator('[data-test="assessment-tick"]')).toBeVisible();
 
 		await openAssessment(page);
 
-		await expect(page.locator('[data-test="assessment-mode"]')).toHaveText("SOAP Note");
+		await expect(page.locator('[data-test="assessment-mode-soap"]')).toHaveAttribute(
+			"data-active",
+			"true",
+		);
+		await expect(page.locator('[data-test="assessment-tick"]')).toBeVisible();
 		await expect(page.locator('[data-test="soap-note-fields"]')).toContainText(
 			"Itching on both cheeks for three weeks.",
 		);
 	});
 
-	test("switching format keeps what the other format holds", async ({ page }) => {
+	test("leaving a written format confirms once and keeps its content", async ({ page }) => {
 		await openAssessment(page);
+		await ensureSoap(page);
 
-		if ((await page.locator('[data-test="assessment-mode"]').textContent()) !== "SOAP Note") {
-			await page.locator('[data-test="assessment-change-mode"]').click();
-			await page.locator(".modal.show .btn-primary:visible").first().click();
-		}
 		await page
 			.locator('[data-test="soap-custom_derma_soap_plan"]')
 			.fill("Topical steroid, review in two weeks.");
 		await page.locator('[data-test="assessment-save"]').click();
-		await expect(page.locator('[data-test="assessment-mode-banner"]')).toContainText("Written as");
+		await expect(page.locator('[data-test="assessment-tick"]')).toBeVisible();
 
-		await page.locator('[data-test="assessment-change-mode"]').click();
+		// SOAP now holds content, so leaving it asks once.
+		await page.locator('[data-test="assessment-mode-structured"]').click();
 		await page.locator(".modal.show .btn-primary:visible").first().click();
-		await expect(page.locator('[data-test="assessment-mode"]')).toHaveText("Structured Assessment");
+		await expect(page.locator('[data-test="assessment-mode-structured"]')).toHaveAttribute(
+			"data-active",
+			"true",
+		);
 
-		// Switching writes nothing and deletes nothing, so the SOAP content is
-		// still there. A switch leaves the panel in edit mode, so the content is
-		// a textarea value rather than rendered text.
-		await page.locator('[data-test="assessment-change-mode"]').click();
-		await page.locator(".modal.show .btn-primary:visible").first().click();
+		// Structured is empty, so returning to SOAP is instant - no dialog. The
+		// switch writes nothing and deletes nothing, and a switch leaves the panel
+		// in edit mode, so the content is a textarea value rather than rendered text.
+		await page.locator('[data-test="assessment-mode-soap"]').click();
+		await expect(page.locator('[data-test="assessment-mode-soap"]')).toHaveAttribute(
+			"data-active",
+			"true",
+		);
+		await expect(page.locator(".modal.show")).toHaveCount(0);
 		await expect(page.locator('[data-test="soap-custom_derma_soap_plan"]')).toHaveValue(
 			"Topical steroid, review in two weeks.",
 		);

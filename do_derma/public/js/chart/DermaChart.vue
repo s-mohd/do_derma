@@ -52,7 +52,33 @@
             @click="setActiveSection(section.key)"
           >
             <span>{{ section.label }}</span>
-            <small>{{ section.hint }}</small>
+            <i
+              v-if="section.key === 'assessment' && assessmentPanel.isFilled"
+              class="tab-tick"
+              data-test="assessment-tick"
+              :title="__('Assessment documented')"
+            >✓</i>
+            <small v-if="section.key !== 'assessment' || !assessmentModeToggleVisible">{{ section.hint }}</small>
+            <small
+              v-else
+              class="tab-mode-toggle"
+              data-test="assessment-mode-toggle"
+              role="group"
+              :aria-label="__('Assessment format')"
+              :data-locked="assessmentModeLocked ? 'true' : 'false'"
+              :title="assessmentModeLocked ? __('The format is locked after submission.') : ''"
+            >
+              <span
+                v-for="toggleMode in assessmentPanel.availableModes"
+                :key="toggleMode"
+                role="button"
+                :tabindex="assessmentModeLocked ? -1 : 0"
+                :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
+                :data-active="assessmentPanel.mode === toggleMode ? 'true' : 'false'"
+                @click.stop="requestAssessmentModeChange(toggleMode)"
+                @keydown.enter.stop.prevent="requestAssessmentModeChange(toggleMode)"
+              >{{ assessmentModeShortLabel(toggleMode) }}</span>
+            </small>
           </button>
         </nav>
       </section>
@@ -64,7 +90,6 @@
               <section class="clinical-soap-stack">
                 <AssessmentPanel
                   :mode="assessmentPanel.mode"
-                  :is-stamped="assessmentPanel.isStamped"
                   :available-modes="assessmentPanel.availableModes"
                   :layout="assessmentPanel.layout"
                   :values="assessmentPanel.values"
@@ -80,7 +105,6 @@
                   :allow-on-submit-fields="assessmentEditableOnSubmitFields"
                   @request-edit="assessmentPanel.editing = true"
                   @save="saveAssessment"
-                  @change-mode="setAssessmentMode"
                 />
                 <section class="chart-annotation-history encounter-annotation-history">
                   <header>
@@ -674,7 +698,7 @@ const assessmentPanel = reactive({
   encounter: "",
   docstatus: null,
   mode: "Structured",
-  isStamped: false,
+  isFilled: false,
   availableModes: ["Structured"],
   layout: [],
   values: {},
@@ -1136,6 +1160,10 @@ async function load(context = props.context) {
     Object.keys(loadedTabs).forEach((key) => (loadedTabs[key] = false))
     await hydrateDermaSectionPreference()
     await ensureSectionData(activeSection.value, activeWorkspaceTab.value)
+    // The Assessment tab decoration (tick + format toggle) must render on every
+    // tab, so the assessment payload cannot stay lazy. loadAssessment guards on
+    // loadedTabs and catches internally.
+    if (contextReady.value) loadAssessment()
     if (encounter.value.name) await loadConsentPanel(true)
   } catch (error) {
     loadError.value = error?.message || __("Unable to load derma chart.")
@@ -1667,7 +1695,7 @@ function applyAssessmentResponse(message) {
   assessmentPanel.encounter = message.encounter || ""
   assessmentPanel.docstatus = message.docstatus
   assessmentPanel.mode = message.mode || "Structured"
-  assessmentPanel.isStamped = Boolean(message.is_stamped)
+  assessmentPanel.isFilled = Boolean(message.is_filled)
   assessmentPanel.availableModes = message.available_modes || ["Structured"]
   assessmentPanel.layout = message.layout || []
   assessmentPanel.values = message.values || {}
@@ -1689,6 +1717,51 @@ async function saveAssessment({ payload, mode }) {
   } finally {
     assessmentPanel.saving = false
   }
+}
+
+// Only the active tab offers the switch: an inactive Assessment tab keeps its
+// plain hint, so a navigation click can never land on a format segment.
+const assessmentModeToggleVisible = computed(
+  () =>
+    activeSection.value === "assessment" &&
+    Boolean(assessmentPanel.encounter) &&
+    (assessmentPanel.availableModes || []).length > 1
+)
+
+const assessmentModeLocked = computed(() => Number(assessmentPanel.docstatus ?? 0) !== 0)
+
+const ASSESSMENT_MODE_SHORT_LABELS = { SOAP: "SOAP", Structured: "Structured" }
+
+function assessmentModeShortLabel(mode) {
+  return __(ASSESSMENT_MODE_SHORT_LABELS[mode] || mode)
+}
+
+function assessmentValueHasContent(value) {
+  if (value === null || value === undefined) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === "string") return Boolean(value.trim())
+  return true
+}
+
+function assessmentModeHasContent(mode) {
+  const source = mode === "SOAP" ? assessmentPanel.soapValues : assessmentPanel.values
+  return Object.values(source || {}).some(assessmentValueHasContent)
+}
+
+function requestAssessmentModeChange(target) {
+  if (assessmentModeLocked.value || assessmentPanel.saving || assessmentPanel.loading) return
+  if (!target || target === assessmentPanel.mode) return
+  // Leaving an empty format is consequence-free; leaving a written one gets
+  // one deliberate confirmation. Nothing is deleted either way (stamp_mode).
+  if (!assessmentModeHasContent(assessmentPanel.mode) || !window.frappe?.confirm) {
+    setAssessmentMode(target)
+    return
+  }
+  const label = target === "SOAP" ? __("SOAP Note") : __("Structured Assessment")
+  window.frappe.confirm(
+    __("Switch this visit to {0}? Nothing you have written is deleted.").replace("{0}", label),
+    () => setAssessmentMode(target)
+  )
 }
 
 async function setAssessmentMode(mode) {

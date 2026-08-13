@@ -154,6 +154,39 @@ class TestAssessmentModeStamping(AssessmentTestBase):
 		self.assertFalse(result["is_stamped"])
 
 
+class TestAssessmentIsFilled(AssessmentTestBase):
+	def test_fresh_encounter_is_not_filled(self):
+		encounter = self._draft_encounter()
+		self.assertFalse(api.get_derma_assessment(encounter=encounter.name)["is_filled"])
+
+	def test_soap_content_fills(self):
+		encounter = self._draft_encounter()
+		api.set_derma_assessment(
+			payload=json.dumps({"custom_derma_soap_subjective": "Itching for three weeks"}),
+			mode=assessment.SOAP,
+			encounter=encounter.name,
+		)
+		self.assertTrue(api.get_derma_assessment(encounter=encounter.name)["is_filled"])
+
+	def test_structured_content_fills(self):
+		encounter = self._draft_encounter()
+		api.set_derma_assessment(
+			payload=json.dumps({"custom_symptoms_notes": "Dry patches on both forearms"}),
+			mode=assessment.STRUCTURED,
+			encounter=encounter.name,
+		)
+		self.assertTrue(api.get_derma_assessment(encounter=encounter.name)["is_filled"])
+
+	def test_whitespace_only_save_does_not_fill(self):
+		encounter = self._draft_encounter()
+		api.set_derma_assessment(
+			payload=json.dumps({"custom_derma_soap_plan": "   "}),
+			mode=assessment.SOAP,
+			encounter=encounter.name,
+		)
+		self.assertFalse(api.get_derma_assessment(encounter=encounter.name)["is_filled"])
+
+
 class TestAssessmentModeSwitching(AssessmentTestBase):
 	def test_switch_preserves_the_other_format(self):
 		encounter = self._draft_encounter()
