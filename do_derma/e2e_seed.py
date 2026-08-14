@@ -309,10 +309,11 @@ def _ensure_body_template_parts(body_template: str | None, summary: dict[str, An
 		return []
 
 	created: list[str] = []
-	# Two non-overlapping boxes on the left and right halves of the map.
+	# Two non-overlapping boxes on the left and right halves of the map, as closed polygons in
+	# template-relative 0..1 coordinates - the only shape `parsePartPoints` reads.
 	shapes = (
-		{"type": "rectangle", "x": 12, "y": 30, "width": 26, "height": 22},
-		{"type": "rectangle", "x": 62, "y": 30, "width": 26, "height": 22},
+		[[0.12, 0.30], [0.38, 0.30], [0.38, 0.52], [0.12, 0.52], [0.12, 0.30]],
+		[[0.62, 0.30], [0.88, 0.30], [0.88, 0.52], [0.62, 0.52], [0.62, 0.30]],
 	)
 
 	for part_name, shape in zip(BODY_PART_NAMES, shapes, strict=True):
@@ -320,6 +321,9 @@ def _ensure_body_template_parts(body_template: str | None, summary: dict[str, An
 			"Derma Body Template Part", {"body_template": body_template, "part_name": part_name}, "name"
 		)
 		if existing:
+			# Converge the outline: rows planted before the polygon format was fixed hold a
+			# shape the chart cannot read, and the areas silently never draw.
+			frappe.db.set_value("Derma Body Template Part", existing, "shape_json", json.dumps(shape))
 			created.append(existing)
 			continue
 

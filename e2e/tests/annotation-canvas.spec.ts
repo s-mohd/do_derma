@@ -68,7 +68,7 @@ test.describe("Annotation canvas", () => {
 		return (await page.locator(".reset-zoom-button").first().textContent())?.trim() ?? "";
 	}
 
-	test("restores the zoom controls, hand tool, image tool and library", async ({ page }) => {
+	test("keeps the drawing tools but not the ways out of the app", async ({ page }) => {
 		await openStudio(page);
 
 		await expect(page.locator('[data-testid="toolbar-hand"]')).toBeVisible();
@@ -76,8 +76,14 @@ test.describe("Annotation canvas", () => {
 		await expect(page.locator('[data-testid="toolbar-lock"]')).toBeVisible();
 		await expect(page.locator(".zoom-in-button")).toBeVisible();
 		await expect(page.locator(".zoom-out-button")).toBeVisible();
-		// The library trigger is a <label>-based sidebar trigger, not a button.
-		await expect(page.locator(".sidebar-trigger").filter({ hasText: "Library" })).toBeVisible();
+
+		// The shape library is excalidraw.com's asset browser and has no clinical use. It was
+		// restored by 2026-08-10-annotation_studio_parity; 2026-08-14-annotation_studio_safety
+		// removes it again along with every other route a drawing could leave the app by.
+		await expect(page.locator(".sidebar-trigger").filter({ hasText: "Library" })).toBeHidden();
+		// The menu's Open / Save to disk / Export image / Reset canvas entries are gone too,
+		// via UIOptions.canvasActions. That popup does not open reliably under Playwright, so
+		// it is checked in the manual pass recorded in the spec rather than asserted here.
 	});
 
 	test("lets the practitioner zoom and stays zoomed", async ({ page }) => {

@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import EmbeddedExcalidraw, { BADGE_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+
+/** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
+const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
 
 const __ = window.__ || ((text) => text)
 
@@ -210,6 +213,12 @@ function escapeHtml(value) {
   })[char])
 }
 
+function isTextEntry(element) {
+  if (!element) return false
+  const tag = element.tagName
+  return tag === "INPUT" || tag === "TEXTAREA" || element.isContentEditable
+}
+
 function badgeElements(items) {
   const now = Date.now()
   return items.flatMap((item) => {
@@ -282,6 +291,10 @@ function badgeElements(items) {
         verticalAlign: "middle",
         containerId: null,
         originalText: label,
+        // Excalidraw 0.17 still measures text against this legacy field. Without it the number
+        // renders blank on the live canvas while appearing in the export, which is why the
+        // badge layer looked unnumbered on screen.
+        baseline: 11,
         lineHeight: 1.25,
         customData: { kind: BADGE_KIND },
       },
@@ -308,6 +321,12 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [sceneRevision, setSceneRevision] = useState(0)
   // Set while the variable editor is bound to an existing mark rather than to the next one.
   const [editingMark, setEditingMark] = useState(null)
+  // Signature of the drawing as last saved, so closing knows whether anything is at stake.
+  const savedSignature = useRef(null)
+  // Templates whose image failed to load this session, and the last one that did.
+  const [unavailableTemplates, setUnavailableTemplates] = useState(() => new Set())
+  const lastLoadedTemplateName = useRef("")
+  const [renderedPartCount, setRenderedPartCount] = useState(0)
 
   // The consultation popup is a plain sketchpad: no procedure tagging, no badges
   // control, no right sidebar. Only a procedure anchor gets the full studio.
@@ -405,6 +424,71 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   useEffect(() => {
     embeddedRef.current?.setPartsHidden?.(areasHidden)
   }, [areasHidden])
+
+  // Marks, badges, area outlines and the template image are all re-derived on every load, so a
+  // signature over them would prompt on a drawing nobody touched. Only what was drawn counts.
+  function userSignature() {
+    return (embeddedRef.current?.getElements?.() || [])
+      .filter((element) => !element.isDeleted)
+      .filter((element) => !element.customData?.generated_by && !DERIVED_KINDS.has(element.customData?.kind))
+      .map((element) => `${element.id}:${element.version}`)
+      .join("|")
+  }
+
+  // The canvas reports when its first scene has settled; anything after that is the
+  // practitioner's. Taking the baseline off sceneRevision instead would swallow the
+  // very first stroke, because that stroke is what bumps it.
+  function handleSceneReady() {
+    lastLoadedTemplateName.current = selectedTemplateName
+    // Offer the areas toggle only when outlines are actually drawn, not merely configured on
+    // the template. Read here rather than off sceneRevision: the canvas only signals a change
+    // when the *mark* layer moves, so a part-only render would never reach a memo.
+    setRenderedPartCount(embeddedRef.current?.getRenderedPartCount?.() || 0)
+    if (savedSignature.current === null) savedSignature.current = userSignature()
+  }
+
+  /**
+   * A body template whose image cannot be fetched (deleted file, or a /private/files URL the
+   * session may not read) used to leave the old canvas in place and say nothing. Refuse the
+   * selection out loud instead, and stop offering that card.
+   */
+  function handleTemplateLoadFailed(template) {
+    const failedName = template?.name || ""
+    if (failedName) setUnavailableTemplates((current) => new Set(current).add(failedName))
+    window.frappe?.show_alert?.({
+      message: __("Could not load {0}. Its image is unavailable.").replace("{0}", template?.title || failedName),
+      indicator: "red",
+    })
+    setSelectedTemplateName(lastLoadedTemplateName.current || "")
+  }
+
+  /** The one way out. Closing is only unguarded when there is nothing to lose. */
+  function requestClose() {
+    if (savedSignature.current === null || userSignature() === savedSignature.current) {
+      onClose?.()
+      return
+    }
+    window.frappe.confirm(__("Discard this drawing? Unsaved changes will be lost."), () => onClose?.())
+  }
+
+  // The studio sits at z-index 2000 and Frappe's dialogs at 1050, so anything it raises -
+  // the discard confirm, a save error - would open underneath it, invisible. The class lifts
+  // them for as long as the studio is mounted and no longer.
+  useEffect(() => {
+    document.body.classList.add("derma-annotation-open")
+    return () => document.body.classList.remove("derma-annotation-open")
+  }, [])
+
+  // Escape closes the studio, except while Excalidraw owns it - it ends text editing there.
+  useEffect(() => {
+    function onKeyDown(event) {
+      if (event.key !== "Escape" || isTextEntry(document.activeElement)) return
+      requestClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function toggleProcedure(procedure) {
     const name = procedureLabel(procedure)
@@ -556,6 +640,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       })
       window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
       if (response.message?.name) setAnnotationName(response.message.name)
+      savedSignature.current = userSignature()
       onSaved?.(response.message)
       onClose?.()
     } catch (error) {
@@ -567,7 +652,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   return (
     <div className="derma-annotation-modal" role="dialog" aria-modal="true">
-      <div className="derma-annotation-backdrop" onClick={onClose} />
+      <div className="derma-annotation-backdrop" />
       <section
         className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure || editingMark ? "tagging" : ""} ${isProcedureAnchor ? "" : "no-right"}`}
       >
@@ -594,7 +679,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             >
               {__("Fit")}
             </button>
-            {selectedParts.length ? (
+            {renderedPartCount ? (
               <button
                 type="button"
                 className={areasHidden ? "active" : "ghost"}
@@ -611,7 +696,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 {badgeItems.length ? `${__("Badges")} (${badgeItems.length})` : __("Badges")}
               </label>
             ) : null}
-            <button type="button" className="ghost" onClick={onClose}>{__("Cancel")}</button>
+            <button type="button" className="ghost" data-test="annotation-cancel" onClick={requestClose}>{__("Cancel")}</button>
             <button type="button" className="primary" disabled={saving || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
           </div>
         </header>
@@ -655,18 +740,27 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
               <div className="derma-template-group" key={group.label}>
                 <h4>{group.label}</h4>
                 <div className="derma-template-list">
-                  {group.rows.map((template) => (
-                    <button
-                      type="button"
-                      key={template.name}
-                      className={selectedTemplate?.name === template.name ? "active" : ""}
-                      onClick={() => setSelectedTemplateName(template.name)}
-                    >
-                      <TemplateThumbnail template={template} />
-                      <b>{template.title || template.name}</b>
-                      <small>{[template.gender, template.template_type].filter(Boolean).join(" / ")}</small>
-                    </button>
-                  ))}
+                  {group.rows.map((template) => {
+                    const isUnavailable = unavailableTemplates.has(template.name)
+                    return (
+                      <button
+                        type="button"
+                        key={template.name}
+                        className={`${selectedTemplate?.name === template.name ? "active" : ""} ${isUnavailable ? "unavailable" : ""}`.trim()}
+                        disabled={isUnavailable}
+                        data-test-unavailable={isUnavailable ? "true" : undefined}
+                        onClick={() => setSelectedTemplateName(template.name)}
+                      >
+                        <TemplateThumbnail
+                          template={template}
+                          broken={isUnavailable}
+                          onBroken={() => setUnavailableTemplates((current) => new Set(current).add(template.name))}
+                        />
+                        <b>{template.title || template.name}</b>
+                        <small>{[template.gender, template.template_type].filter(Boolean).join(" / ")}</small>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ))}
@@ -708,6 +802,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             onMarkSelected={handleMarkSelected}
             onRegionSelected={handleRegionSelected}
             onSceneChanged={() => setSceneRevision((revision) => revision + 1)}
+            onSceneReady={handleSceneReady}
+            onTemplateLoadFailed={handleTemplateLoadFailed}
           />
         </main>
 
@@ -750,14 +846,14 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   )
 }
 
-function TemplateThumbnail({ template }) {
-  const [broken, setBroken] = useState(false)
+/** `broken` is owned by the studio once a load has failed, so the card and the canvas agree. */
+function TemplateThumbnail({ template, broken, onBroken }) {
   if (!template.image || broken) {
     return <span className="derma-template-thumb-missing">{__("Image unavailable")}</span>
   }
   return (
     <span>
-      <img src={template.image} alt="" onError={() => setBroken(true)} />
+      <img src={template.image} alt="" onError={onBroken} />
     </span>
   )
 }

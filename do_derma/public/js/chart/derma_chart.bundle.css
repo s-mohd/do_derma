@@ -422,12 +422,19 @@
 
 .chart-annotation-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* Wide enough for a full timestamp - 150px truncated every date to "14-08-202...". */
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px;
   padding: 10px;
 }
 
-.chart-annotation-list button {
+.chart-annotation-card {
+  position: relative;
+  min-width: 0;
+}
+
+.chart-annotation-card > button:first-child {
+  width: 100%;
   min-width: 0;
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
@@ -441,9 +448,27 @@
   text-align: left;
 }
 
-.chart-annotation-list button:hover {
+.chart-annotation-card > button:first-child:hover {
   border-color: var(--derma-brand);
   background: var(--derma-success-bg);
+}
+
+.chart-annotation-edit {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  border: 1px solid var(--derma-border);
+  border-radius: 5px;
+  background: var(--derma-bg);
+  color: var(--derma-text-strong);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.chart-annotation-edit:hover {
+  border-color: var(--derma-brand);
+  color: var(--derma-brand);
 }
 
 .chart-annotation-list b {
@@ -4127,6 +4152,16 @@
   background: rgba(15, 23, 42, 0.56);
 }
 
+/* Frappe dialogs default to 1050, below the studio's 2000. Lift them only while it is open,
+   or the discard confirm and any save error open invisibly behind the canvas. */
+body.derma-annotation-open .modal {
+  z-index: 2100;
+}
+
+body.derma-annotation-open .modal-backdrop {
+  z-index: 2050;
+}
+
 .derma-annotation-shell {
   position: absolute;
   inset: 18px;
@@ -4401,6 +4436,15 @@
   background: var(--derma-success-bg);
 }
 
+.derma-template-list button.unavailable {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.derma-template-list button.unavailable b {
+  text-decoration: line-through;
+}
+
 .derma-template-list button span:first-child {
   grid-row: 1 / span 2;
   width: 58px;
@@ -4466,6 +4510,15 @@
   --color-primary: var(--derma-brand);
   --color-primary-darker: var(--derma-brand);
   --color-primary-light: #ccfbf1;
+}
+
+/* Excalidraw 0.17's UIOptions covers the canvas actions but not these two: the shape Library
+   (excalidraw.com's own asset browser) and the menu's social links. Neither belongs in a
+   clinical popup, and neither has a prop. */
+.derma-annotation-canvas .excalidraw .sidebar-trigger,
+.derma-annotation-canvas .excalidraw .dropdown-menu-item-social,
+.derma-annotation-canvas .excalidraw .dropdown-menu-item[href] {
+  display: none !important;
 }
 
 .derma-variable-editor {

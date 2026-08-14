@@ -115,28 +115,34 @@
                 <section class="chart-annotation-history encounter-annotation-history">
                   <header>
                     <div>
-                      <strong>{{ __("Previous Annotations") }}</strong>
+                      <strong>{{ __("Drawings") }}</strong>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
-                    <button type="button" class="primary small" data-test="annotate-consultation" @click="openAnnotationStudio()">
+                    <button type="button" class="primary small" data-test="annotate-consultation" @click="openAnnotationStudio({ annotation: null })">
                       <span aria-hidden="true">✎</span>
                       {{ __("Annotate Consultation") }}
                     </button>
                   </header>
                   <div v-if="annotations.length" class="chart-annotation-list">
-                    <button
-                      v-for="annotation in annotations.slice(0, 8)"
-                      :key="annotation.name"
-                      type="button"
-                      @click="openAnnotationHistory(annotation)"
-                    >
-                      <span class="chart-annotation-preview">
-                        <img v-if="annotationPreview(annotation)" :src="annotationPreview(annotation)" :alt="annotation.name" loading="lazy" />
-                        <span v-else>{{ __("No preview") }}</span>
-                      </span>
-                      <b>{{ annotationTemplateLabel(annotation) }}</b>
-                      <small>{{ formatDate(annotation.creation || annotation.modified) }}</small>
-                    </button>
+                    <div v-for="annotation in annotations.slice(0, 8)" :key="annotation.name" class="chart-annotation-card">
+                      <button type="button" @click="openAnnotationHistory(annotation)">
+                        <span class="chart-annotation-preview">
+                          <img v-if="annotationPreview(annotation)" :src="annotationPreview(annotation)" :alt="annotationTemplateLabel(annotation)" loading="lazy" />
+                          <span v-else>{{ __("No preview") }}</span>
+                        </span>
+                        <b>{{ annotationTemplateLabel(annotation) }}</b>
+                        <small>{{ formatDate(annotation.creation || annotation.modified) }}</small>
+                      </button>
+                      <button
+                        v-if="isResumableAnnotation(annotation)"
+                        type="button"
+                        class="chart-annotation-edit"
+                        data-test="annotation-resume"
+                        @click="openAnnotationStudio({ annotation })"
+                      >
+                        {{ __("Edit") }}
+                      </button>
+                    </div>
                   </div>
                   <p v-else class="panel-muted">{{ __("Saved encounter drawings will appear here.") }}</p>
                 </section>
@@ -1595,7 +1601,7 @@ function openAnnotationReviewDialog(annotation) {
   const preview = annotationPreview(annotation)
   const legend = annotation.annotation_data || ""
   const dialog = new frappe.ui.Dialog({
-    title: `${__("Annotation")} · ${annotationTemplateLabel(annotation)}`,
+    title: `${annotationTemplateLabel(annotation)} · ${formatDate(annotation.creation || annotation.modified)}`,
     size: "extra-large",
     fields: [{ fieldname: "review", fieldtype: "HTML" }],
     primary_action_label: __("Print"),
@@ -1621,7 +1627,11 @@ function openAnnotationReviewDialog(annotation) {
 function printAnnotationReview(annotation) {
   const preview = annotationPreview(annotation)
   const legend = annotation.annotation_data || ""
-  const title = escapeHtml(annotationTemplateLabel(annotation))
+  const label = annotationTemplateLabel(annotation)
+  const patientName = patient.value.patient_name || patient.value.name || ""
+  // This document is hand-written HTML in a window with no autoescaping, so every
+  // interpolated value is escaped here. `legend` is server-generated, escaped at generation.
+  const title = escapeHtml([patientName, label].filter(Boolean).join(" - "))
   const printWindow = window.open("", "_blank")
   if (!printWindow) {
     frappe.show_alert({ message: __("Allow pop-ups to print the annotation."), indicator: "orange" })
@@ -1630,7 +1640,8 @@ function printAnnotationReview(annotation) {
   printWindow.document.write(`<!doctype html>
     <html><head><title>${title}</title></head>
     <body style="font-family:sans-serif;margin:24px;">
-      <h2 style="margin:0 0 12px;">${title}</h2>
+      <h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
+      <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
       ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:70vh;" alt="">` : ""}
       <div style="margin-top:16px;">${legend}</div>
     </body></html>`)
@@ -1643,8 +1654,27 @@ function annotationPreview(annotation) {
   return annotation?.image || annotation?.preview_image || annotation?.annotation_image || annotation?.file_url || ""
 }
 
+/** Never the docname: a hash tells a clinician nothing, and "Drawing" is honest. */
 function annotationTemplateLabel(annotation) {
-  return annotation?.annotation_template || annotation?.title || annotation?.name || __("Annotation")
+  return (
+    annotation?.custom_derma_body_template_title ||
+    annotation?.annotation_template ||
+    annotation?.title ||
+    __("Drawing")
+  )
+}
+
+/** Who and when, for a sheet that ends up in a paper file. Escaped by the caller. */
+function annotationIdentityLine(annotation) {
+  return [
+    patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "",
+    annotationTemplateLabel(annotation),
+    formatDate(annotation?.creation || annotation?.modified),
+    currentPractitionerName.value,
+    encounter.value.name,
+  ]
+    .filter(Boolean)
+    .join(" · ")
 }
 
 function loadBodyTemplate(template = selectedBodyTemplate.value) {
@@ -1691,6 +1721,14 @@ function openAnnotationStudio(anchor = {}) {
 function latestAnnotationForAnchor(clinicalProcedure) {
   if (clinicalProcedure) return (procedureAnnotations.value[clinicalProcedure] || [])[0] || null
   return encounterAnnotations.value.find((row) => row.source_name === encounter.value.name) || null
+}
+
+/**
+ * Same guard, applied per row: the strip also lists earlier visits' drawings, and resuming one
+ * would overwrite it on save. Those stay review-only.
+ */
+function isResumableAnnotation(annotation) {
+  return Boolean(annotation?.source_name) && annotation.source_name === encounter.value.name
 }
 
 /**

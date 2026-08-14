@@ -49,11 +49,22 @@ CONSENT_TEMPLATE = "DEMO Consent"
 BODY_TEMPLATE_IMAGE = ("demo-face-map.png", 600, 800, (238, 228, 220))
 PHOTO_IMAGES = (("demo-photo-before.png", (214, 178, 168)), ("demo-photo-after.png", (226, 208, 200)))
 
+def _rectangle_outline(left: float, top: float, width: float, height: float) -> list[list[float]]:
+	"""A closed polygon in template-relative 0..1 coordinates.
+
+	The Body Map Designer writes exactly this shape (`body-template-editor.bundle.jsx`) and the
+	chart's `parsePartPoints` reads only this shape - an `{x, y, width, height}` object is
+	silently dropped, leaving the template with areas that never draw.
+	"""
+	right, bottom = left + width, top + height
+	return [[left, top], [right, top], [right, bottom], [left, bottom], [left, top]]
+
+
 BODY_PARTS = (
-	("DEMO Forehead", {"type": "rectangle", "x": 30, "y": 10, "width": 40, "height": 14}),
-	("DEMO Left Cheek", {"type": "rectangle", "x": 12, "y": 38, "width": 26, "height": 20}),
-	("DEMO Right Cheek", {"type": "rectangle", "x": 62, "y": 38, "width": 26, "height": 20}),
-	("DEMO Chin", {"type": "rectangle", "x": 38, "y": 74, "width": 24, "height": 14}),
+	("DEMO Forehead", _rectangle_outline(0.30, 0.10, 0.40, 0.14)),
+	("DEMO Left Cheek", _rectangle_outline(0.12, 0.38, 0.26, 0.20)),
+	("DEMO Right Cheek", _rectangle_outline(0.62, 0.38, 0.26, 0.20)),
+	("DEMO Chin", _rectangle_outline(0.38, 0.74, 0.24, 0.14)),
 )
 
 TEMPLATE_VARIABLES = [
@@ -324,6 +335,9 @@ def _ensure_body_template_parts(body_template: str | None, summary: dict[str, An
 			"Derma Body Template Part", {"body_template": body_template, "part_name": part_name}, "name"
 		)
 		if existing:
+			# Converge the outline: rows planted before the polygon format was fixed hold a
+			# shape the chart cannot read, and the areas silently never draw.
+			frappe.db.set_value("Derma Body Template Part", existing, "shape_json", json.dumps(shape))
 			names.append(existing)
 			continue
 

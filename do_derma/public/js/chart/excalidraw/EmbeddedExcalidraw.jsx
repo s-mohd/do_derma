@@ -4,6 +4,26 @@ import { createRoot } from "react-dom/client"
 const GENERATED_BY_MARKS = "render_chart_marks"
 const MIN_DRAWN_MARK_SIZE = 6
 export const BADGE_KIND = "derma_badge"
+export const TEMPLATE_PART_KIND = "derma_template_part"
+const FIT_RETRY_LIMIT = 3
+
+/**
+ * Everything by which a drawing could enter or leave the app outside do_derma's own Save and
+ * Print is off: loadScene would drop an arbitrary .excalidraw file onto a patient's chart, and
+ * the export actions write patient imagery outside any audit path. Drawing tools, zoom and
+ * undo/redo are untouched. The Library button is separate - renderTopRightUI displaces it.
+ */
+const CLINICAL_UI_OPTIONS = {
+  canvasActions: {
+    changeViewBackgroundColor: false,
+    clearCanvas: false,
+    export: false,
+    loadScene: false,
+    saveAsImage: false,
+    saveToActiveFile: false,
+    toggleTheme: false,
+  },
+}
 
 const convertBlobToDataUrl = (blob) =>
   new Promise((resolve, reject) => {
@@ -22,7 +42,7 @@ function parseAnnotation(annotation) {
   }
 }
 
-	const EmbeddedExcalidraw = forwardRef(({ initialAnnotation, selectedTemplate, bodyTemplate, procedureVariables, marks, onMarkPlaced, onMarkSelected, onRegionSelected, onSceneChanged }, ref) => {
+	const EmbeddedExcalidraw = forwardRef(({ initialAnnotation, selectedTemplate, bodyTemplate, procedureVariables, marks, onMarkPlaced, onMarkSelected, onRegionSelected, onSceneChanged, onSceneReady, onTemplateLoadFailed }, ref) => {
 	const [api, setApi] = useState(null)
 	const [excalidrawModule, setExcalidrawModule] = useState(null)
 	const [template, setTemplate] = useState(selectedTemplate || null)
@@ -149,6 +169,10 @@ function parseAnnotation(annotation) {
     setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
     updateMarkVariables: (payload) => updateMarkVariables(api, payload),
     resetView: () => fitToTemplate(api),
+    getRenderedPartCount: () =>
+      (api?.getSceneElements?.() || []).filter(
+        (element) => !element.isDeleted && element.customData?.kind === TEMPLATE_PART_KIND
+      ).length,
   }))
 
   useEffect(() => {
@@ -163,8 +187,12 @@ function parseAnnotation(annotation) {
       latestImported.current = initialAnnotation.name
       pendingSceneImport.current = ""
       adoptSceneTemplate(api, latestTemplateImage)
+      // Areas are derived from the template and stripped before persisting, so a resumed
+      // scene never carries them - render them here or the drawing comes back without any.
+      renderTemplateParts(api, chartTemplateRef.current?.parts || [])
       renderChartMarks(api, marksRef.current)
       styleTemplateParts(api, partStateRef.current)
+      onSceneReady?.()
     })
   }, [api, initialAnnotation?.name])
 
@@ -191,10 +219,14 @@ function parseAnnotation(annotation) {
 			const signature = templateImageSignature(chartTemplate)
 			if (latestTemplateImage.current === signature && getTemplateElement(api)) return
 			loadTemplateIntoCanvas(api, chartTemplate, latestTemplateImage, loadingTemplateImage, templateLoadGeneration).then((loaded) => {
-				if (!loaded) return
+				if (!loaded) {
+					onTemplateLoadFailed?.(chartTemplate)
+					return
+				}
 				renderTemplateParts(api, chartTemplate.parts || [])
 				styleTemplateParts(api, partStateRef.current)
 				renderChartMarks(api, marksRef.current)
+				onSceneReady?.()
 			})
 		}, [api, chartTemplate?.name, chartTemplate?.image])
 
@@ -256,7 +288,8 @@ function parseAnnotation(annotation) {
         objectsSnapModeEnabled={false}
         zenModeEnabled={false}
         viewModeEnabled={false}
-        UIOptions={{ canvasActions: { saveToActiveFile: false } }}
+        UIOptions={CLINICAL_UI_OPTIONS}
+        renderTopRightUI={() => null}
         onPointerDown={(_activeTool, pointerDownState) => {
           const hitElement = pointerDownState?.hit?.element
           if (hitElement?.customData?.derma_history) return
@@ -372,6 +405,7 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
     setDermaTool: (tool) => bridgeRef.current?.setDermaTool?.(tool),
     renderTemplateParts: (parts) => bridgeRef.current?.renderTemplateParts?.(parts),
     resetView: () => bridgeRef.current?.resetView?.(),
+    getRenderedPartCount: () => bridgeRef.current?.getRenderedPartCount?.() || 0,
     unmount: () => root.unmount(),
   }
 }
@@ -633,7 +667,7 @@ function renderTemplateParts(api, parts = []) {
   const bounds = getTemplateBounds(api)
   const existing = api
     .getSceneElements()
-    .filter((element) => element.customData?.kind !== "derma_template_part")
+    .filter((element) => element.customData?.kind !== TEMPLATE_PART_KIND)
   if (!bounds || !Array.isArray(parts) || !parts.length) {
     api.updateScene({ elements: existing, commitToHistory: false })
     return
@@ -688,7 +722,7 @@ function createTemplatePartElements(parts = [], bounds) {
         startArrowhead: null,
         endArrowhead: null,
         customData: {
-          kind: "derma_template_part",
+          kind: TEMPLATE_PART_KIND,
           name: part.name,
           partId: part.name,
           part_name: part.part_name,
@@ -713,7 +747,7 @@ function styleTemplateParts(api, state = {}) {
   const filled = new Set(state.filled || [])
   let changed = false
   const elements = api.getSceneElements().map((element) => {
-    if (element.isDeleted || element.customData?.kind !== "derma_template_part") return element
+    if (element.isDeleted || element.customData?.kind !== TEMPLATE_PART_KIND) return element
     const partName = element.customData?.part_name || element.customData?.partName || ""
     const baseColor = element.customData?.base_color || "#4dabf7"
     const baseOpacity = Number(element.customData?.base_opacity || 0.14)
@@ -740,7 +774,7 @@ function findTemplatePartAtPoint(api, sceneX, sceneY) {
   const elements = api?.getSceneElements?.() || []
   for (let i = elements.length - 1; i >= 0; i--) {
     const element = elements[i]
-    if (element.isDeleted || element.customData?.kind !== "derma_template_part") continue
+    if (element.isDeleted || element.customData?.kind !== TEMPLATE_PART_KIND) continue
     if (pointInLinePolygon(element, sceneX, sceneY)) return element.customData
   }
   return null
@@ -832,10 +866,14 @@ function createPresetElements(template, origin, color, groupId, procedureVariabl
   }
 }
 
+/**
+ * The dot carries no number of its own. The badge layer numbers every mark 1..n and that is the
+ * numbering the legend table and the printout quote, so a second number here - drawn from the
+ * mark's own `sequence` - printed twice and could disagree with the legend. `sequence` still
+ * reaches customData through renderChartMarks, which the fan-out and badge collector read.
+ */
 function createNumberedDot(origin, color, groupId, template, sequence, procedureVariables) {
-  const dot = ellipseElement(origin.x - 8, origin.y - 8, 16, 16, color, groupId, template, procedureVariables, { backgroundColor: color })
-  const label = textElement(origin.x - 4, origin.y - 7, String(sequence), "#ffffff", groupId, template, procedureVariables)
-  return [dot, label]
+  return [ellipseElement(origin.x - 8, origin.y - 8, 16, 16, color, groupId, template, procedureVariables, { backgroundColor: color })]
 }
 
 function createDotCluster(origin, color, groupId, template, procedureVariables) {
@@ -1275,13 +1313,27 @@ function stripTemplateImagePayload(elements, files) {
   return {
     elements: elements
       .filter((element) => element.customData?.kind !== BADGE_KIND)
+      // Area outlines are derived from the body template and re-rendered on every load. Storing
+      // them would freeze a drawing against the geometry it was made with, so a later template
+      // edit would leave old and new outlines mixed on the next resave.
+      .filter((element) => element.customData?.kind !== TEMPLATE_PART_KIND)
       .map((element) => (templateFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element)),
     files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !templateFileIds.has(fileId))),
   }
 }
 
-function fitToTemplate(api) {
+/**
+ * On the first open after a cold page load the canvas can still be unmeasured when this runs,
+ * which lands the zoom on NaN and parks the view off content. Retry on the next frame until it
+ * has dimensions - bounded, never a loop.
+ */
+function fitToTemplate(api, attempt = 0) {
   if (!api) return
+  const appState = api.getAppState?.() || {}
+  if (attempt < FIT_RETRY_LIMIT && (!appState.width || !Number.isFinite(appState.zoom?.value))) {
+    requestAnimationFrame(() => fitToTemplate(api, attempt + 1))
+    return
+  }
   const templateElement = getTemplateElement(api)
   const visibleElements = templateElement && !templateElement.isDeleted
     ? [templateElement]

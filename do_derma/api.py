@@ -1061,7 +1061,15 @@ def _load_annotations_for_parents(parents: list[tuple[str, str]], include_scene:
 	annotation_names = [row.get("annotation") for row in child_rows if row.get("annotation")]
 	if not annotation_names:
 		return []
-	wanted = ["name", "annotation_template", "image", "json", "creation", "modified"]
+	wanted = [
+		"name",
+		"annotation_template",
+		"custom_derma_body_template_title",
+		"image",
+		"json",
+		"creation",
+		"modified",
+	]
 	if not include_scene:
 		wanted.remove("json")
 	annotation_fields = _select_existing_fields("Health Annotation", wanted)

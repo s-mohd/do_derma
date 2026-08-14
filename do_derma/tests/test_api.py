@@ -207,6 +207,49 @@ class TestAnnotationSummary(DermaTestHelpers, IntegrationTestCase):
         self.assertNotIn("json", rows[0])
         self.assertTrue(rows[0]["label"])
 
+    def test_labels_an_annotation_by_its_body_template(self):
+        """The label is stored on save; without it in the read every clinician-facing
+        surface falls back to the docname hash."""
+        if not api._has_field("Health Annotation", "custom_derma_body_template_title"):
+            self.skipTest("custom_derma_body_template_title is not installed on this site")
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        api.save_derma_annotation(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "body_template_title": "Face & Scalp",
+                "file_data": PIXEL_PNG,
+                "json_text": json.dumps({"elements": [TEMPLATE_ELEMENT]}),
+            }
+        )
+
+        rows = api.get_derma_annotation_summary("Patient Encounter", encounter.name)
+
+        self.assertEqual(rows[0]["label"], "Face & Scalp")
+
+    def test_chart_context_carries_the_annotation_label(self):
+        if not api._has_field("Health Annotation", "custom_derma_body_template_title"):
+            self.skipTest("custom_derma_body_template_title is not installed on this site")
+        patient = self._make_patient()
+        encounter = self._make_encounter(patient)
+        api.save_derma_annotation(
+            {
+                "patient": patient,
+                "encounter": encounter.name,
+                "body_template_title": "Legs (Female)",
+                "file_data": PIXEL_PNG,
+                "json_text": json.dumps({"elements": [TEMPLATE_ELEMENT]}),
+            }
+        )
+
+        context = api._load_derma_annotation_context(encounter=encounter.name, patient=patient)
+
+        self.assertEqual(
+            context["encounter_annotations"][0].get("custom_derma_body_template_title"),
+            "Legs (Female)",
+        )
+
     def test_returns_empty_for_an_unknown_document(self):
         self.assertEqual(api.get_derma_annotation_summary("Patient Encounter", "HLC-ENC-does-not-exist"), [])
 
