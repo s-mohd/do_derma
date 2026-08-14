@@ -75,19 +75,35 @@ test.describe("Annotation badges", () => {
 		await page.waitForTimeout(500);
 	}
 
-	test("numbers a placed mark that carries a filled variable", async ({ page }) => {
+	/**
+	 * A tagged mark is legend-worthy on its template alone. Skipping the unparameterised ones
+	 * printed a stamp with no number and no row - a mark nobody can identify.
+	 */
+	test("numbers a placed mark whose variables are all blank", async ({ page }) => {
 		await openStudioWithProcedure(page);
 		expect(await badgeCount(page)).toBe("0");
 
-		// A mark with no variable values is not badge-worthy.
 		await placeStamp(page, 0.5, 0.4);
-		expect(await badgeCount(page)).toBe("0");
+		await page.waitForTimeout(1000);
+		expect(await badgeCount(page), "a mark with blank variables produced no badge").toBe("1");
 
 		await setProductVariable(page, "Restylane");
 		await placeStamp(page, 0.5, 0.55);
 		await page.waitForTimeout(1000);
 
-		expect(await badgeCount(page), "a mark with a filled variable produced no badge").toBe("1");
+		expect(await badgeCount(page), "a mark with a filled variable produced no badge").toBe("2");
+	});
+
+	/** The two counts disagreeing is what the QA pass photographed: Badges (1) beside 2 marks. */
+	test("counts the same marks in the header badge and the sidebar", async ({ page }) => {
+		await openStudioWithProcedure(page);
+		await placeStamp(page, 0.5, 0.4);
+		await setProductVariable(page, "Restylane");
+		await placeStamp(page, 0.5, 0.55);
+		await page.waitForTimeout(1000);
+
+		const marks = await page.locator('[data-test="annotation-mark-count"]').getAttribute("data-mark-count");
+		expect(await badgeCount(page)).toBe(marks);
 	});
 
 	test("numbers every marked variable, top-to-bottom", async ({ page }) => {
@@ -109,6 +125,12 @@ test.describe("Annotation badges", () => {
 		await placeStamp(page, 0.5, 0.4);
 		await page.waitForTimeout(1000);
 		expect(await badgeCount(page)).toBe("1");
+
+		// A second mark with nothing filled in still belongs in the table, with an empty cell.
+		await setProductVariable(page, "");
+		await placeStamp(page, 0.5, 0.6);
+		await page.waitForTimeout(1000);
+		expect(await badgeCount(page)).toBe("2");
 
 		await page.getByRole("button", { name: "Save Annotation" }).click();
 		await expect(page.locator(".derma-annotation-modal")).toHaveCount(0, { timeout: 60000 });
@@ -133,6 +155,8 @@ test.describe("Annotation badges", () => {
 		expect(elements.some((element) => element.customData?.kind === "derma_badge"), "badges were persisted").toBe(false);
 		// The table is generated from the same items the canvas drew.
 		expect(scene.annotation_data ?? "").toContain("Restylane");
+		expect((scene.annotation_data ?? "").match(/<tr[^>]*>\s*<td/g) ?? [], "the blank mark lost its row").toHaveLength(2);
+		expect(scene.annotation_data ?? "", "an empty parameter cell prints blank").toContain("\u2014");
 	});
 
 	test("removes the badge layer when the toggle is unticked", async ({ page }) => {

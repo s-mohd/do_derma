@@ -113,9 +113,10 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
     if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
     const procedureTemplateName = element.customData?.procedure_template
     if (!procedureTemplateName) continue
+    // A tagged mark is legend-worthy on its template alone - unfilled variables must not drop it
+    // from the numbering, or the sheet prints a mark with no row. Areas below differ: an untouched
+    // outline came from the template, the practitioner never placed it.
     const params = element.customData?.procedure_variables || element.customData?.variables || {}
-    const hasParams = Object.values(params).some((value) => value !== "" && value !== null && value !== undefined)
-    if (!hasParams) continue
     // A stamp is several elements sharing one group - a dot, its ring, its number - and they
     // are one clinical mark, so they get one badge between them.
     const markKey = markIdentity(element)
@@ -188,7 +189,7 @@ function generateAnnotationDataHTML(items) {
       <td style="padding:6px 10px;"><span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:${item.color};color:${contrast};text-align:center;line-height:22px;font-weight:bold;font-size:11px;">${item.badgeNum}</span></td>
       <td style="padding:6px 10px;">${escapeHtml(item.type)}</td>
       <td style="padding:6px 10px;font-weight:600;">${escapeHtml(item.name)}</td>
-      <td style="padding:6px 10px;">${params}</td>
+      <td style="padding:6px 10px;">${params || "\u2014"}</td>
     </tr>`
   }).join("")
   return `<table style="width:100%;border-collapse:collapse;font-family:sans-serif;font-size:13px;">

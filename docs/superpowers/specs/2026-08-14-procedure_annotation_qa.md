@@ -1,7 +1,9 @@
 # Procedure Annotation Popup — QA Findings
 
 Date: 2026-08-14
-Status: **Findings only — not implemented.** A browser pass over the procedure-anchored
+Status: **Findings recorded; finding 2 fixed.** The repairs are specced and tracked in
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md);
+findings 1, 3, 4 and 5 are still open. A browser pass over the procedure-anchored
 annotation studio, the counterpart to the consultation pass recorded in
 [`2026-08-14-annotation_studio_safety.md`](2026-08-14-annotation_studio_safety.md) and
 [`2026-08-14-annotation_output_fidelity.md`](2026-08-14-annotation_output_fidelity.md).
@@ -54,6 +56,9 @@ this session created and left unlinked. **This defect predates today's work** �
 discarded instantly — but the new confirm makes a promise that was previously only implied.
 
 ### 2. A mark with no variables filled in vanishes from the legend and the printout
+
+**Fixed** (2026-08-14) — phase 1 of
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md).
 
 `collectBadgeItems` skips any mark whose procedure variables are all empty
 (`DermaAnnotationStudio.jsx:116-118`, `if (!hasParams) continue`).
