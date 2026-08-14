@@ -2739,6 +2739,40 @@ def delete_chart_mark(name: str):
 	return {"deleted": name}
 
 
+@frappe.whitelist()
+def discard_chart_marks(names: str | list[str]):
+	"""Undo the marks an abandoned annotation session placed, and report the ones it may not.
+
+	Marks are written at placement time, so a discarded drawing leaves them behind. Being
+	linked to the procedure it was drawn on is not documentation - `delete_chart_mark`
+	refuses on exactly that, which is why this rule is its own.
+	"""
+	_ensure_clinical_access()
+	requested = json.loads(names) if isinstance(names, str) else list(names or [])
+	deleted: list[str] = []
+	kept: list[str] = []
+	for name in requested:
+		if not name or not frappe.db.exists("Derma Chart Mark", name):
+			continue
+		mark_doc = frappe.get_doc("Derma Chart Mark", name)
+		if _is_mark_documented(mark_doc):
+			kept.append(name)
+			continue
+		mark_doc.delete(ignore_permissions=True)
+		deleted.append(name)
+	return {"deleted": deleted, "kept": kept}
+
+
+def _is_mark_documented(mark_doc) -> bool:
+	"""True once something other than the drawing that placed it depends on the mark."""
+	if any(mark_doc.get(field) for field in ("annotation", "finding", "treatment_entry", "photo_set")):
+		return True
+	procedure = mark_doc.get("clinical_procedure")
+	if not procedure or not frappe.db.exists("Clinical Procedure", procedure):
+		return False
+	return cint(frappe.db.get_value("Clinical Procedure", procedure, "docstatus")) == 1
+
+
 def _validate_marks_ready_for_procedure(mark_docs: list[Any], template_doc) -> None:
 	required_variables = [row for row in _get_template_variables(template_doc) if row.get("required")]
 	missing = []

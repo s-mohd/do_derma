@@ -324,6 +324,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [editingMark, setEditingMark] = useState(null)
   // Signature of the drawing as last saved, so closing knows whether anything is at stake.
   const savedSignature = useRef(null)
+  // Marks this session wrote to the server before any annotation was saved. Discarding the
+  // drawing has to take them with it, or the chart keeps a record nobody meant to make.
+  const sessionMarks = useRef(new Set())
   // Templates whose image failed to load this session, and the last one that did.
   const [unavailableTemplates, setUnavailableTemplates] = useState(() => new Set())
   const lastLoadedTemplateName = useRef("")
@@ -465,11 +468,55 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   /** The one way out. Closing is only unguarded when there is nothing to lose. */
   function requestClose() {
-    if (savedSignature.current === null || userSignature() === savedSignature.current) {
+    const placedMarks = [...sessionMarks.current]
+    const isDrawingDirty = savedSignature.current !== null && userSignature() !== savedSignature.current
+    if (!isDrawingDirty && !placedMarks.length) {
       onClose?.()
       return
     }
-    window.frappe.confirm(__("Discard this drawing? Unsaved changes will be lost."), () => onClose?.())
+    window.frappe.confirm(discardPrompt(placedMarks.length), () => discardDrawing(placedMarks))
+  }
+
+  function discardPrompt(markCount) {
+    if (!markCount) return __("Discard this drawing? Unsaved changes will be lost.")
+    return __("Discard this drawing? The {0} mark(s) placed here are removed from the chart too.").replace(
+      "{0}",
+      markCount
+    )
+  }
+
+  /**
+   * Marks are written at placement time, so discarding has to undo them itself. The server keeps
+   * any the rest of the record depends on - say so rather than closing on a half-kept promise.
+   */
+  async function discardDrawing(markNames) {
+    let kept = []
+    if (markNames.length) {
+      try {
+        const response = await window.frappe.call({
+          method: "do_derma.api.discard_chart_marks",
+          args: { names: markNames },
+        })
+        kept = response.message?.kept || []
+      } catch (error) {
+        // Closing now would lose the drawing and keep the marks - the very thing being fixed.
+        window.frappe?.msgprint?.({
+          title: __("Unable to discard the marks"),
+          message: `${error.message || String(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
+          indicator: "red",
+        })
+        return
+      }
+    }
+    sessionMarks.current = new Set(kept)
+    onClose?.({ marksChanged: Boolean(markNames.length) })
+    if (kept.length) {
+      window.frappe?.msgprint?.({
+        title: __("Some marks were kept"),
+        message: __("{0} mark(s) are part of the record already and stay on the chart.").replace("{0}", kept.length),
+        indicator: "orange",
+      })
+    }
   }
 
   // The studio sits at z-index 2000 and Frappe's dialogs at 1050, so anything it raises -
@@ -568,6 +615,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         },
       })
       const mark = response.message
+      if (mark?.name) sessionMarks.current = new Set(sessionMarks.current).add(mark.name)
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
       window.frappe.show_alert?.({ message: __("Mark saved"), indicator: "green" })
     } catch (error) {
@@ -642,6 +690,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
       if (response.message?.name) setAnnotationName(response.message.name)
       savedSignature.current = userSignature()
+      // Saved marks belong to the annotation now; a later discard must not reach for them.
+      sessionMarks.current = new Set()
       onSaved?.(response.message)
       onClose?.()
     } catch (error) {
@@ -892,9 +942,12 @@ export function openDermaAnnotationStudio(options = {}) {
   const mount = document.createElement("div")
   document.body.appendChild(mount)
   const root = createRoot(mount)
-  const close = () => {
+  // `result` carries what closing changed on the server (a discard deletes the marks it placed),
+  // so the host chart knows whether it has to reload.
+  const close = (result) => {
     root.unmount()
     mount.remove()
+    options.onClose?.(result || {})
   }
   root.render(
     <DermaAnnotationStudio

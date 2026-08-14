@@ -1,9 +1,9 @@
 # Procedure Annotation Popup — QA Findings
 
 Date: 2026-08-14
-Status: **Findings recorded; finding 2 fixed.** The repairs are specced and tracked in
+Status: **Findings recorded; findings 1 and 2 fixed.** The repairs are specced and tracked in
 [`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md);
-findings 1, 3, 4 and 5 are still open. A browser pass over the procedure-anchored
+findings 3, 4 and 5 are still open. A browser pass over the procedure-anchored
 annotation studio, the counterpart to the consultation pass recorded in
 [`2026-08-14-annotation_studio_safety.md`](2026-08-14-annotation_studio_safety.md) and
 [`2026-08-14-annotation_output_fidelity.md`](2026-08-14-annotation_output_fidelity.md).
@@ -39,6 +39,11 @@ Verified good, and worth not breaking:
 ## Findings
 
 ### 1. Discarding a drawing keeps the marks — the promise is only half kept (worst)
+
+**Fixed** (2026-08-14) — phase 2 of
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md).
+Discarding now deletes the marks the session placed (new `discard_chart_marks` endpoint, because
+`delete_chart_mark` refuses anything linked to a live procedure) and the confirm names the count.
 
 Marks are written to the server the instant they are drawn (`onMarkPlaced` → `save_chart_mark`,
 toast "Mark saved"), before *Save Annotation*. `Cancel` → "Discard this drawing? Unsaved changes
