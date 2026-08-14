@@ -241,6 +241,12 @@
   color: var(--derma-brand);
 }
 
+/* The decorations are absolutely positioned, so the label needs room beside them. */
+.derma-section-tabs button:has(.tab-tick),
+.derma-section-tabs button:has(.tab-count) {
+  padding-right: 30px;
+}
+
 .derma-section-tabs button .tab-tick {
   position: absolute;
   top: 9px;

@@ -157,8 +157,17 @@ which enforces its DocPerms (practitioner read). Writes still ride
   clean except pre-existing space-indentation of `tests/test_api.py`
   (whole-file churn deliberately avoided).
 - **Build**: `bench build --app do_derma` clean.
-- **Not yet run**: manual demo-data pass (deferred to the combined pass after
-  spec C).
+- **Manual (browser, 2026-08-14)**, demo patient `DEMO Amina Haddad` on
+  encounter `HLC-ENC-2026-03138`: count badge shows `3` and hides at zero; row
+  actions are pencil+trash icons with an annotation-count badge and no Use
+  Chart; the note dialog's picker offers "Create a new **Derma Note
+  Template**"; the editor opens with the real note, not the computed summary;
+  **Save Note persisted to `custom_derma_notes`** (previously `null`, and
+  previously impossible on the `set_only_once` core field); the annotation
+  picker lists the existing drawing with thumbnail, date and legend plus New
+  Annotation, and creating one left the procedure holding **two** annotations.
+  One cosmetic defect found and fixed: the tab count badge overlapped the
+  "Procedures" label (padding added for decorated tabs).
 
 ## Files to touch (summary)
 

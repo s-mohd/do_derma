@@ -173,8 +173,12 @@ through `get_derma_assessment`, which gates via `_ensure_clinical_access`
   files (`pipx run ruff`, 0.16.1 — the bench env has no ruff binary; 5
   pre-existing findings in untouched files were left alone).
 - **Build**: `bench build --app do_derma` clean.
-- **Not yet run**: manual pass with demo data; full e2e suite (other suites
-  untouched by these hooks).
+- **Manual (browser, 2026-08-14)**, demo patient `DEMO Amina Haddad`: the tab
+  carries the `Structured | SOAP` segments with no banner in the panel;
+  switching to an empty SOAP was instant; saving content raised the ✓ on the
+  tab; switching away from the now-written SOAP raised the confirm
+  ("Switch this visit to Structured Assessment? Nothing you have written is
+  deleted."). The toggle is absent on inactive tabs, as designed.
 
 Runner note: `--test <ClassName>` silently runs zero tests on this bench — use
 the full module or `Class.test_method`.

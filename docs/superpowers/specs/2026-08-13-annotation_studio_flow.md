@@ -182,8 +182,14 @@ escaped titles/URLs.
   clean under `pipx run ruff check`; whole-file format drift in both files is
   pre-existing and untouched.
 - **Full e2e suite**: `npx playwright test` — **46 passed (6.3m)**.
-- **Not yet run**: manual demo-data pass (`demo_seed.setup_demo_data`) across
-  both anchors — recommended before merging the stack.
+- **Manual (browser, 2026-08-14)**, demo patient across both anchors:
+  the consultation popup shows only Templates / Fit / Hide Areas / Cancel /
+  Save with no right sidebar; the procedure popup keeps the Procedures drawer,
+  badges checkbox and sidebar, and its "Marks Placed" panel reported the 8
+  marks already on the canvas rather than a session count; the Procedures
+  drawer **stayed open across a canvas click** (scrim removed); saving opened
+  the review dialog with the badge-stamped output image beside the details
+  table and Print/Close.
 
 ## Files to touch (summary)
 
