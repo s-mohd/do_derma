@@ -1946,18 +1946,21 @@ function handleRowDoubleClick(row, event) {
   cursor: pointer;
 }
 
+/* Below this the eight columns cannot all hold their content, so the wrapper
+   scrolls the whole table rather than clipping the Actions column off the end. */
 .dental-chart-page .procedure-table {
   width: 100%;
+  min-width: 860px;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
 .dental-chart-page .procedure-table .col-status {
-  width: 9%;
+  width: 8%;
 }
 
 .dental-chart-page .procedure-table .col-procedure {
-  width: 22%;
+  width: 21%;
 }
 
 .dental-chart-page .procedure-table .col-tooth {
@@ -1965,11 +1968,11 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-details {
-  width: 24%;
+  width: 22%;
 }
 
 .dental-chart-page .procedure-table .col-price {
-  width: 9%;
+  width: 8%;
 }
 
 .dental-chart-page .procedure-table .col-notes {
@@ -1980,8 +1983,9 @@ function handleRowDoubleClick(row, event) {
   width: 12%;
 }
 
+/* Two icon buttons plus their count badge: never less than ~86px. */
 .dental-chart-page .procedure-table .col-actions {
-  width: 5%;
+  width: 10%;
 }
 
 .dental-chart-page .procedure-table th {
@@ -2199,6 +2203,8 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table td.row-actions {
   white-space: nowrap;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .dental-chart-page .procedure-table .icon-btn {
@@ -2206,14 +2212,14 @@ function handleRowDoubleClick(row, event) {
   border: 1px solid #d1d5db;
   background: #f8fafc;
   border-radius: 8px;
-  padding: 5px 8px;
+  padding: 5px 7px;
   font-size: 13px;
   color: #334155;
   cursor: pointer;
 }
 
 .dental-chart-page .procedure-table .icon-btn + .icon-btn {
-  margin-left: 6px;
+  margin-left: 4px;
 }
 
 .dental-chart-page .procedure-table .icon-btn:hover {
