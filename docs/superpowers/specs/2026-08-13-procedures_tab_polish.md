@@ -166,8 +166,21 @@ which enforces its DocPerms (practitioner read). Writes still ride
   previously impossible on the `set_only_once` core field); the annotation
   picker lists the existing drawing with thumbnail, date and legend plus New
   Annotation, and creating one left the procedure holding **two** annotations.
-  One cosmetic defect found and fixed: the tab count badge overlapped the
-  "Procedures" label (padding added for decorated tabs).
+  Two layout defects found and fixed: the tab count badge overlapped the
+  "Procedures" label (padding added for decorated tabs), and the Actions
+  column — still budgeted at the old text buttons' 5% (43px) — left the delete
+  icon 41px past the table edge, so the wrapper scrolled with Actions clipped.
+  Actions now takes 10% (>=86px) with the other columns rebalanced to 100%,
+  and the table carries an 860px `min-width` so a genuinely narrow container
+  scrolls the whole table instead of hiding the last column. Re-measured:
+  overflow 0 at 868px, and at a 698px container the table holds 860px with the
+  icons inside their cell.
+- **Console (browser, 2026-08-14)**: swept all six tabs plus both studio
+  popups. No page errors and nothing from do_derma. The four messages present
+  are pre-existing or upstream: socket.io poll errors (no socketio process on
+  this bench), Frappe's Vue esm-bundler feature-flag warning, a desk
+  non-passive-listener warning, and React's controlled-input warning whose
+  component stack is Excalidraw's own `LockButton`.
 
 ## Files to touch (summary)
 
