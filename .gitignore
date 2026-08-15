@@ -10,7 +10,6 @@ __pycache__/
 *.log
 *.swp
 tags
-CLAUDE.md
 .claude/
 .superpowers/
 .playwright-mcp/
