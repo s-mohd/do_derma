@@ -1642,16 +1642,6 @@ def get_chart_context(
 
 
 @frappe.whitelist()
-def get_v2_chart_context(
-	patient: str | None = None, appointment: str | None = None, encounter: str | None = None
-):
-	_ensure_clinical_access()
-	context = get_chart_context(patient=patient, appointment=appointment, encounter=encounter)
-	context["narrative"] = generate_visit_summary(context.get("encounter_id"), context.get("patient_id"))
-	return context
-
-
-@frappe.whitelist()
 def get_patient_derma_chart(
 	patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None
 ):
@@ -1750,12 +1740,6 @@ def get_patient_derma_chart(
 		"settings": get_feature_toggles(),
 		"context_errors": context_errors,
 	}
-
-
-@frappe.whitelist()
-def get_derma_procedure_templates():
-	_ensure_clinical_access()
-	return _get_derma_procedure_templates()
 
 
 @frappe.whitelist()
@@ -2411,15 +2395,6 @@ def get_derma_anesthesia(encounter=None, appointment=None, patient=None):
 
 
 @frappe.whitelist()
-def set_derma_anesthesia(payload=None, encounter=None, appointment=None, patient=None):
-	_ensure_clinical_access()
-	encounter_doc = _resolve_patient_encounter_doc(
-		encounter=encounter, appointment=appointment, patient=patient
-	)
-	return {"encounter": encounter_doc.name if encounter_doc else encounter or "", "anesthesia": []}
-
-
-@frappe.whitelist()
 def get_derma_consents(encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
 	doctype = "Encounter Consent" if _has_doctype("Encounter Consent") else "Consent Form"
@@ -2586,30 +2561,6 @@ def get_derma_consent_html(name: str):
 		"signed_by": doc.get("signed_by"),
 		"signed_on": doc.get("signed_on"),
 	}
-
-
-@frappe.whitelist()
-def get_nursing_assistant_employees(
-	doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None
-):
-	_ensure_clinical_access()
-	employee_filters: dict[str, Any] = {}
-	if txt:
-		employee_filters["employee_name"] = ["like", f"%{txt}%"]
-	if filters and isinstance(filters, dict):
-		employee_filters.update(filters)
-	fields = ["name", "employee_name"] if _has_field("Employee", "employee_name") else ["name"]
-	return [
-		(row.get("name"), row.get("employee_name") or row.get("name"))
-		for row in frappe.get_all(
-			"Employee",
-			filters=employee_filters,
-			fields=fields,
-			start=cint(start),
-			limit_page_length=cint(page_len) or 20,
-			order_by="employee_name asc" if _has_field("Employee", "employee_name") else "name asc",
-		)
-	]
 
 
 @frappe.whitelist()
@@ -2784,25 +2735,6 @@ def complete_derma_session(
 
 
 @frappe.whitelist()
-def set_derma_category_default_template(category: str, body_template: str):
-	_ensure_clinical_access()
-	if not category:
-		frappe.throw(_("Derma category is required."))
-	if not body_template:
-		frappe.throw(_("Body template is required."))
-	if not frappe.db.exists("Derma Procedure Category", category):
-		frappe.throw(_("Derma category {0} was not found.").format(category))
-	if not frappe.db.exists("Derma Body Template", body_template):
-		frappe.throw(_("Body template {0} was not found.").format(body_template))
-	frappe.db.set_value("Derma Procedure Category", category, "default_body_template", body_template)
-	frappe.clear_document_cache("Derma Procedure Category", category)
-	return {
-		"category": frappe.get_doc("Derma Procedure Category", category).as_dict(),
-		"body_template": frappe.get_doc("Derma Body Template", body_template).as_dict(),
-	}
-
-
-@frappe.whitelist()
 def save_chart_mark(values: str | dict[str, Any]):
 	_ensure_clinical_access()
 	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
@@ -2924,118 +2856,6 @@ def create_procedure_from_mark(
 		"mark": mark_doc.as_dict(),
 		"clinical_procedure": procedure.as_dict(),
 		"treatment_entry": treatment,
-	}
-
-
-@frappe.whitelist()
-def create_procedure_from_marks(
-	marks: str | list[str], procedure_template: str | None = None, values: str | dict[str, Any] | None = None
-):
-	_ensure_clinical_access()
-	mark_names = json.loads(marks) if isinstance(marks, str) else list(marks or [])
-	mark_names = [name for name in mark_names if name]
-	if not mark_names:
-		frappe.throw(_("Select at least one chart mark."))
-
-	payload = json.loads(values) if isinstance(values, str) else dict(values or {})
-	mark_docs = [frappe.get_doc("Derma Chart Mark", name) for name in mark_names]
-	patient = mark_docs[0].patient
-	encounter = mark_docs[0].encounter
-	appointment = mark_docs[0].appointment
-	resolved_template = procedure_template or mark_docs[0].procedure_template
-	if not resolved_template:
-		frappe.throw(_("Select a Clinical Procedure Template before creating the procedure."))
-	if not encounter:
-		frappe.throw(_("Procedure creation requires an appointment-linked encounter."))
-
-	encounter_doc = frappe.get_doc("Patient Encounter", encounter)
-	if not appointment and encounter_doc.get("appointment"):
-		appointment = encounter_doc.get("appointment")
-
-	for mark_doc in mark_docs:
-		if mark_doc.patient != patient:
-			frappe.throw(_("Selected marks must belong to the same patient."))
-		if mark_doc.encounter != encounter:
-			frappe.throw(_("Selected marks must belong to the same encounter."))
-		if (mark_doc.appointment or appointment) != appointment:
-			frappe.throw(_("Selected marks must belong to the same appointment."))
-		if mark_doc.clinical_procedure:
-			frappe.throw(_("Mark {0} is already linked to a Clinical Procedure.").format(mark_doc.name))
-		if mark_doc.procedure_template and mark_doc.procedure_template != resolved_template:
-			frappe.throw(_("Selected marks must use the same procedure template."))
-		if not mark_doc.appointment and appointment:
-			mark_doc.appointment = appointment
-		for field in DERMA_MARK_FIELDS:
-			if field in {
-				"name",
-				"modified",
-				"patient",
-				"patient_name",
-				"appointment",
-				"encounter",
-				"clinical_procedure",
-				"finding",
-				"treatment_entry",
-				"body_template",
-				"body_view",
-				"body_region",
-				"region_label",
-				"side",
-				"x_percent",
-				"y_percent",
-				"sequence",
-			}:
-				continue
-			if field in payload and payload[field] not in (None, ""):
-				mark_doc.set(field, payload[field])
-
-	if not appointment:
-		frappe.throw(_("Procedure creation requires an appointment-linked encounter."))
-
-	template_doc = frappe.get_doc("Clinical Procedure Template", resolved_template)
-	_validate_marks_ready_for_procedure(mark_docs, template_doc)
-	category = template_doc.get("custom_derma_category") or mark_docs[0].category
-	note = _batch_procedure_note(mark_docs, payload, category)
-	procedure = frappe.new_doc("Clinical Procedure")
-	procedure.patient = patient
-	procedure.patient_name = mark_docs[0].patient_name or frappe.db.get_value(
-		"Patient", patient, "patient_name"
-	)
-	procedure.appointment = appointment
-	procedure.procedure_template = resolved_template
-	procedure.title = template_doc.template
-	procedure.status = "Draft"
-	procedure.start_date = nowdate()
-	if _has_field("Clinical Procedure", "notes") and note:
-		procedure.notes = note
-	if _has_field("Clinical Procedure", "custom_derma_notes") and note:
-		procedure.custom_derma_notes = note
-	for encounter_field in ["patient_encounter", "custom_patient_encounter"]:
-		if _has_field("Clinical Procedure", encounter_field):
-			procedure.set(encounter_field, encounter)
-	if _has_field("Clinical Procedure", "practitioner"):
-		procedure.practitioner = encounter_doc.get("practitioner")
-	if _has_field("Clinical Procedure", "practitioner_name"):
-		procedure.practitioner_name = encounter_doc.get("practitioner_name")
-	if _has_field("Clinical Procedure", "medical_department"):
-		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get(
-			"medical_department"
-		)
-	procedure.insert(ignore_permissions=True)
-
-	treatment = _create_batch_treatment_entry(mark_docs, procedure, template_doc, payload)
-	for mark_doc in mark_docs:
-		mark_doc.procedure_template = resolved_template
-		mark_doc.clinical_procedure = procedure.name
-		if treatment:
-			mark_doc.treatment_entry = treatment.name
-		_set_patient_name(mark_doc)
-		mark_doc.save(ignore_permissions=True)
-
-	return {
-		"marks": [mark_doc.as_dict() for mark_doc in mark_docs],
-		"clinical_procedure": procedure.as_dict(),
-		"treatment_entry": treatment.as_dict() if treatment else None,
 	}
 
 
@@ -3235,88 +3055,6 @@ def _upsert_treatment_from_mark(mark_doc, template_doc=None) -> dict[str, Any]:
 	if mark_doc.treatment_entry != treatment.name:
 		mark_doc.db_set("treatment_entry", treatment.name)
 	return treatment.as_dict()
-
-
-def _create_batch_treatment_entry(mark_docs, procedure, template_doc, payload: dict[str, Any]):
-	if not _has_doctype("Derma Treatment Entry"):
-		return None
-	category = template_doc.get("custom_derma_category") or mark_docs[0].category
-	dose_total = sum(flt(mark.dose or 0) for mark in mark_docs)
-	dose_unit = payload.get("dose_unit") or next(
-		(mark.dose_unit for mark in mark_docs if mark.dose_unit), None
-	)
-	treatment = frappe.new_doc("Derma Treatment Entry")
-	treatment.patient = procedure.patient
-	treatment.patient_name = procedure.patient_name
-	treatment.appointment = procedure.appointment
-	treatment.encounter = mark_docs[0].encounter
-	if _has_field("Derma Treatment Entry", "clinical_procedure"):
-		treatment.clinical_procedure = procedure.name
-	treatment.workflow = "Aesthetic" if category in {"Botox", "Filler", "Laser", "Peel"} else "Medical"
-	treatment.procedure_type = _treatment_procedure_type(category)
-	treatment.body_view = _join_unique(mark.body_view for mark in mark_docs)
-	treatment.body_region = _normalize_derma_body_region(
-		payload.get("body_region")
-		or mark_docs[0].body_region
-		or mark_docs[0].body_template
-		or mark_docs[0].body_view
-	)
-	treatment.region_label = _join_unique(mark.region_label for mark in mark_docs)
-	treatment.x_percent = flt(payload.get("x_percent") or mark_docs[0].x_percent or 0)
-	treatment.y_percent = flt(payload.get("y_percent") or mark_docs[0].y_percent or 0)
-	treatment.product_item = payload.get("product_item") or next(
-		(mark.product_item for mark in mark_docs if mark.product_item), None
-	)
-	treatment.product_name = payload.get("product_name") or next(
-		(mark.product_name for mark in mark_docs if mark.product_name), None
-	)
-	treatment.dose = dose_total or flt(payload.get("dose") or 0)
-	treatment.dose_unit = dose_unit
-	treatment.device = payload.get("device") or next((mark.device for mark in mark_docs if mark.device), None)
-	treatment.settings = payload.get("settings") or _join_unique(mark.settings for mark in mark_docs)
-	treatment.lot_no = payload.get("lot_no") or next((mark.lot_no for mark in mark_docs if mark.lot_no), None)
-	treatment.expiry_date = payload.get("expiry_date") or next(
-		(mark.expiry_date for mark in mark_docs if mark.expiry_date), None
-	)
-	if _has_field("Derma Treatment Entry", "variables_json"):
-		treatment.variables_json = json.dumps(
-			{"mark_names": [mark.name for mark in mark_docs], "count": len(mark_docs)}, ensure_ascii=False
-		)
-	treatment.notes = _batch_procedure_note(mark_docs, payload, category)
-	treatment.save(ignore_permissions=True)
-	return treatment
-
-
-def _batch_procedure_note(mark_docs, payload: dict[str, Any], category: str | None = None) -> str:
-	note = payload.get("note") or payload.get("notes") or ""
-	dose_total = sum(flt(mark.dose or 0) for mark in mark_docs)
-	dose_unit = payload.get("dose_unit") or next((mark.dose_unit for mark in mark_docs if mark.dose_unit), "")
-	locations = _join_unique(mark.region_label or mark.body_region or mark.body_view for mark in mark_docs)
-	product = (
-		payload.get("product_name")
-		or payload.get("product_item")
-		or next(
-			(
-				mark.product_name or mark.product_item
-				for mark in mark_docs
-				if mark.product_name or mark.product_item
-			),
-			"",
-		)
-	)
-	parts = [
-		_("{0} chart mark(s)").format(len(mark_docs)),
-		category or mark_docs[0].category,
-		locations,
-		product,
-		f"{flt(dose_total):g} {dose_unit}".strip() if dose_total else "",
-	]
-	summary = " · ".join(str(part) for part in parts if part)
-	if not note:
-		return summary
-	if summary in note:
-		return note
-	return f"{note}\n{summary}"
 
 
 def _join_unique(values) -> str:
