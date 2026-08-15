@@ -274,7 +274,9 @@ def _ensure_encounter(appointment: str | None = None, patient: str | None = None
 	return response.get("name") if isinstance(response, dict) else None
 
 
-def _get_visit_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None) -> dict[str, Any]:
+def _get_visit_context(
+	patient: str | None = None, appointment: str | None = None, encounter: str | None = None
+) -> dict[str, Any]:
 	if encounter:
 		encounter_doc = frappe.get_doc("Patient Encounter", encounter)
 		patient = patient or encounter_doc.patient
@@ -299,16 +301,30 @@ def _get_visit_context(patient: str | None = None, appointment: str | None = Non
 	patient_doc = frappe.db.get_value("Patient", patient, _patient_fields(), as_dict=True) or {}
 	appointment_doc = {}
 	if appointment:
-		appointment_doc = frappe.db.get_value("Patient Appointment", appointment, _appointment_fields(), as_dict=True) or {}
+		appointment_doc = (
+			frappe.db.get_value("Patient Appointment", appointment, _appointment_fields(), as_dict=True) or {}
+		)
 
 	encounter_summary = {}
 	if encounter:
-		encounter_summary = frappe.db.get_value(
-			"Patient Encounter",
-			encounter,
-			["name", "status", "docstatus", "encounter_date", "encounter_time", "practitioner", "practitioner_name", "appointment_type"],
-			as_dict=True,
-		) or {}
+		encounter_summary = (
+			frappe.db.get_value(
+				"Patient Encounter",
+				encounter,
+				[
+					"name",
+					"status",
+					"docstatus",
+					"encounter_date",
+					"encounter_time",
+					"practitioner",
+					"practitioner_name",
+					"appointment_type",
+				],
+				as_dict=True,
+			)
+			or {}
+		)
 
 	return {
 		"patient": patient_doc,
@@ -321,7 +337,9 @@ def _get_visit_context(patient: str | None = None, appointment: str | None = Non
 	}
 
 
-def _base_filters(patient: str, appointment: str | None = None, encounter: str | None = None) -> dict[str, Any]:
+def _base_filters(
+	patient: str, appointment: str | None = None, encounter: str | None = None
+) -> dict[str, Any]:
 	filters = {"patient": patient}
 	if encounter:
 		filters["encounter"] = encounter
@@ -416,7 +434,7 @@ def _get_body_templates() -> list[dict[str, Any]]:
 		for default in default_rows:
 			template = row_map.get(default.get("default_body_template"))
 			if template is not None:
-					template.setdefault("default_for_categories", []).append(default.get("title"))
+				template.setdefault("default_for_categories", []).append(default.get("title"))
 	return rows
 
 
@@ -432,7 +450,9 @@ def _attach_body_template_parts(rows: list[dict[str, Any]]) -> None:
 			order_by="creation asc",
 			limit=1000,
 		)
-		for part in _hydrate_template_parts(part_rows, "Derma Template Part Variable", "Derma Body Template Part"):
+		for part in _hydrate_template_parts(
+			part_rows, "Derma Template Part Variable", "Derma Body Template Part"
+		):
 			part["source"] = "Derma Body Template Part"
 			parts_by_template.setdefault(part.get("body_template"), []).append(part)
 
@@ -440,7 +460,9 @@ def _attach_body_template_parts(rows: list[dict[str, Any]]) -> None:
 		row["parts"] = parts_by_template.get(row.get("name"), [])
 
 
-def _hydrate_template_parts(part_rows: list[dict[str, Any]], child_doctype: str, parenttype: str) -> list[dict[str, Any]]:
+def _hydrate_template_parts(
+	part_rows: list[dict[str, Any]], child_doctype: str, parenttype: str
+) -> list[dict[str, Any]]:
 	if not part_rows:
 		return []
 	parent_names = [part.get("name") for part in part_rows if part.get("name")]
@@ -475,7 +497,14 @@ def get_derma_body_template_parts(body_template: str):
 		frappe.throw(_("Derma Body Template is required."))
 	if not frappe.db.exists("Derma Body Template", body_template):
 		frappe.throw(_("Derma Body Template {0} does not exist.").format(body_template))
-	rows = [{"name": body_template, "annotation_template": frappe.db.get_value("Derma Body Template", body_template, "annotation_template")}]
+	rows = [
+		{
+			"name": body_template,
+			"annotation_template": frappe.db.get_value(
+				"Derma Body Template", body_template, "annotation_template"
+			),
+		}
+	]
 	_attach_body_template_parts(rows)
 	return rows[0].get("parts", [])
 
@@ -492,7 +521,9 @@ def save_derma_body_template_parts(body_template: str, parts: str | list[dict[st
 		frappe.throw(_("Parts must be a list."))
 
 	incoming_names = {part.get("name") for part in payload if part.get("name")}
-	existing = frappe.get_all("Derma Body Template Part", filters={"body_template": body_template}, fields=["name"])
+	existing = frappe.get_all(
+		"Derma Body Template Part", filters={"body_template": body_template}, fields=["name"]
+	)
 	for row in existing:
 		if row.name not in incoming_names:
 			frappe.delete_doc("Derma Body Template Part", row.name, ignore_permissions=True)
@@ -500,7 +531,11 @@ def save_derma_body_template_parts(body_template: str, parts: str | list[dict[st
 	saved = []
 	for index, part_data in enumerate(payload):
 		name = part_data.get("name")
-		doc = frappe.get_doc("Derma Body Template Part", name) if name and frappe.db.exists("Derma Body Template Part", name) else frappe.new_doc("Derma Body Template Part")
+		doc = (
+			frappe.get_doc("Derma Body Template Part", name)
+			if name and frappe.db.exists("Derma Body Template Part", name)
+			else frappe.new_doc("Derma Body Template Part")
+		)
 		doc.body_template = body_template
 		doc.part_name = part_data.get("part_name") or _("Region {0}").format(index + 1)
 		shape_json = part_data.get("shape_json")
@@ -532,7 +567,16 @@ def _get_template_sets() -> list[dict[str, Any]]:
 	rows = frappe.get_all(
 		"Derma Template Set",
 		filters={"disabled": 0},
-		fields=["name", "title", "gender", "workflow", "sequence", "procedure_categories", "body_templates", "notes"],
+		fields=[
+			"name",
+			"title",
+			"gender",
+			"workflow",
+			"sequence",
+			"procedure_categories",
+			"body_templates",
+			"notes",
+		],
 		order_by="sequence asc, title asc",
 		limit=100,
 	)
@@ -570,8 +614,12 @@ def _get_derma_procedure_templates() -> list[dict[str, Any]]:
 		# A template with no marker_behavior/color of its own inherits the category's -
 		# resolve it here so every consumer (frontend included) sees the same effective
 		# value save_chart_mark() would apply, instead of each place re-implementing the fallback.
-		row["custom_derma_marker_behavior"] = row.get("custom_derma_marker_behavior") or category_defaults.get("marker_behavior")
-		row["custom_derma_marker_color"] = row.get("custom_derma_marker_color") or category_defaults.get("marker_color")
+		row["custom_derma_marker_behavior"] = row.get(
+			"custom_derma_marker_behavior"
+		) or category_defaults.get("marker_behavior")
+		row["custom_derma_marker_color"] = row.get("custom_derma_marker_color") or category_defaults.get(
+			"marker_color"
+		)
 	return derma_rows
 
 
@@ -588,7 +636,9 @@ def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]
 		_parse_required_fields(template_row.get("custom_derma_required_fields")),
 		safety_required,
 	)
-	variables, seen = _parse_template_variable_schema(template_row.get("custom_derma_variables_json"), required)
+	variables, seen = _parse_template_variable_schema(
+		template_row.get("custom_derma_variables_json"), required
+	)
 
 	for fieldname in required:
 		if fieldname in seen:
@@ -602,7 +652,9 @@ def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]
 	return variables
 
 
-def _parse_template_variable_schema(value: str | list | dict | None, required: list[str]) -> tuple[list[dict[str, Any]], set[str]]:
+def _parse_template_variable_schema(
+	value: str | list | dict | None, required: list[str]
+) -> tuple[list[dict[str, Any]], set[str]]:
 	rows = _parse_json(value, [])
 	if isinstance(rows, dict):
 		rows = rows.get("variables") or rows.get("fields") or []
@@ -632,7 +684,9 @@ def _parse_template_variable_schema(value: str | list | dict | None, required: l
 			variable = {
 				"fieldname": fieldname,
 				"label": label or default.get("label") or fieldname.replace("_", " ").title(),
-				"fieldtype": _normalize_variable_type(row.get("fieldtype") or row.get("type") or default.get("fieldtype")),
+				"fieldtype": _normalize_variable_type(
+					row.get("fieldtype") or row.get("type") or default.get("fieldtype")
+				),
 				"options": row.get("options") or default.get("options") or "",
 				"source": "Clinical Procedure Template",
 			}
@@ -690,7 +744,11 @@ def _variable_fieldname(label: str | None) -> str:
 
 def _normalize_variable_type(fieldtype: str | None) -> str:
 	fieldtype = (fieldtype or "Data").strip()
-	return fieldtype if fieldtype in {"Data", "Select", "Float", "Int", "Small Text", "Date", "Check"} else "Data"
+	return (
+		fieldtype
+		if fieldtype in {"Data", "Select", "Float", "Int", "Small Text", "Date", "Check"}
+		else "Data"
+	)
 
 
 def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
@@ -702,20 +760,24 @@ def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
 		"lot_no": ("Lot No", "Data", ""),
 		"expiry_date": ("Expiry Date", "Date", ""),
 		"device": ("Device", "Data", ""),
-			"settings": ("Settings", "Small Text", ""),
-			"passes": ("Passes", "Int", ""),
-			"fluence": ("Fluence", "Data", ""),
-			"spot_size": ("Spot Size", "Data", ""),
-			"pulse_duration": ("Pulse Duration", "Data", ""),
-			"repetition_rate": ("Repetition Rate", "Data", ""),
-			"no_of_pulses": ("No Of Pulses", "Int", ""),
+		"settings": ("Settings", "Small Text", ""),
+		"passes": ("Passes", "Int", ""),
+		"fluence": ("Fluence", "Data", ""),
+		"spot_size": ("Spot Size", "Data", ""),
+		"pulse_duration": ("Pulse Duration", "Data", ""),
+		"repetition_rate": ("Repetition Rate", "Data", ""),
+		"no_of_pulses": ("No Of Pulses", "Int", ""),
 		"diagnosis": ("Diagnosis", "Data", ""),
 		"severity": ("Severity", "Select", "Mild\nModerate\nSevere"),
 		"status": ("Status", "Select", "Active\nImproving\nStable\nResolved\nFollow-up"),
 		"lesion_id": ("Lesion ID", "Data", ""),
 		"body_region": ("Body Region / Site", "Data", ""),
 		"plane": ("Plane", "Select", "Intradermal\nSubdermal\nSubcutaneous\nSupraperiosteal"),
-		"technique": ("Technique", "Select", "Needle\nCannula\nBolus\nLinear threading\nFanning\nSerial puncture"),
+		"technique": (
+			"Technique",
+			"Select",
+			"Needle\nCannula\nBolus\nLinear threading\nFanning\nSerial puncture",
+		),
 	}
 	if fieldname not in labels:
 		return None
@@ -737,7 +799,9 @@ def _get_clinical_procedure_encounter_field() -> str | None:
 	return None
 
 
-def _get_derma_procedures(patient: str, appointment: str | None = None, encounter: str | None = None) -> list[dict[str, Any]]:
+def _get_derma_procedures(
+	patient: str, appointment: str | None = None, encounter: str | None = None
+) -> list[dict[str, Any]]:
 	meta = frappe.get_meta("Clinical Procedure")
 	fields = _select_existing_fields(
 		"Clinical Procedure",
@@ -789,7 +853,9 @@ def _get_derma_procedures(patient: str, appointment: str | None = None, encounte
 		template_labels = frappe.get_all(
 			"Clinical Procedure Template",
 			filters={"name": ["in", template_names]},
-			fields=_select_existing_fields("Clinical Procedure Template", ["name", "template", "custom_derma_category"]),
+			fields=_select_existing_fields(
+				"Clinical Procedure Template", ["name", "template", "custom_derma_category"]
+			),
 		)
 		template_map = {row.name: row for row in template_labels}
 		for row in rows:
@@ -875,8 +941,26 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 		row["derma_marks"] = marks
 		row["derma_treatments"] = treatments
 		row["mark_count"] = len(marks)
-		row["photo_count"] = len({value for value in [*(mark.get("photo_set") for mark in marks), *(treatment.get("photo_set") for treatment in treatments)] if value})
-		row["annotation_count"] = len({value for value in [*(mark.get("annotation") for mark in marks), *(treatment.get("annotation") for treatment in treatments)] if value})
+		row["photo_count"] = len(
+			{
+				value
+				for value in [
+					*(mark.get("photo_set") for mark in marks),
+					*(treatment.get("photo_set") for treatment in treatments),
+				]
+				if value
+			}
+		)
+		row["annotation_count"] = len(
+			{
+				value
+				for value in [
+					*(mark.get("annotation") for mark in marks),
+					*(treatment.get("annotation") for treatment in treatments),
+				]
+				if value
+			}
+		)
 		row["derma_detail_text"] = _procedure_history_detail(row, marks, treatments)
 		row["derma_artifact_text"] = _procedure_artifact_text(row)
 
@@ -888,13 +972,31 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 			row["derma_artifact_text"] = _procedure_artifact_text(row)
 
 
-def _procedure_history_detail(row: dict[str, Any], marks: list[dict[str, Any]], treatments: list[dict[str, Any]]) -> str:
+def _procedure_history_detail(
+	row: dict[str, Any], marks: list[dict[str, Any]], treatments: list[dict[str, Any]]
+) -> str:
 	source = marks or treatments
 	if not source:
 		return row.get("custom_derma_notes") or row.get("notes") or ""
-	category = row.get("derma_category") or next((item.get("category") or item.get("procedure_type") for item in source if item.get("category") or item.get("procedure_type")), "")
-	locations = _join_unique(item.get("region_label") or item.get("body_region") or item.get("body_view") for item in source)
-	product = next((item.get("product_name") or item.get("device") for item in source if item.get("product_name") or item.get("device")), "")
+	category = row.get("derma_category") or next(
+		(
+			item.get("category") or item.get("procedure_type")
+			for item in source
+			if item.get("category") or item.get("procedure_type")
+		),
+		"",
+	)
+	locations = _join_unique(
+		item.get("region_label") or item.get("body_region") or item.get("body_view") for item in source
+	)
+	product = next(
+		(
+			item.get("product_name") or item.get("device")
+			for item in source
+			if item.get("product_name") or item.get("device")
+		),
+		"",
+	)
 	dose_total = sum(flt(item.get("dose") or 0) for item in source)
 	dose_unit = next((item.get("dose_unit") for item in source if item.get("dose_unit")), "")
 	settings = next((item.get("settings") for item in source if item.get("settings")), "")
@@ -936,13 +1038,32 @@ def _get_annotation_counts_for_procedures(procedure_names: list[str]) -> dict[st
 	return {key: len(value) for key, value in counts.items()}
 
 
-def _get_derma_photo_sets(patient: str, appointment: str | None = None, encounter: str | None = None) -> list[dict[str, Any]]:
+def _get_derma_photo_sets(
+	patient: str, appointment: str | None = None, encounter: str | None = None
+) -> list[dict[str, Any]]:
 	if not _has_doctype("Derma Photo Set"):
 		return []
 	rows = frappe.get_all(
 		"Derma Photo Set",
 		filters=_base_filters(patient, appointment=appointment, encounter=encounter),
-		fields=_select_existing_fields("Derma Photo Set", ["name", "patient", "appointment", "encounter", "clinical_procedure", "set_type", "body_view", "body_region", "finding", "treatment_entry", "notes", "modified", "creation"]),
+		fields=_select_existing_fields(
+			"Derma Photo Set",
+			[
+				"name",
+				"patient",
+				"appointment",
+				"encounter",
+				"clinical_procedure",
+				"set_type",
+				"body_view",
+				"body_region",
+				"finding",
+				"treatment_entry",
+				"notes",
+				"modified",
+				"creation",
+			],
+		),
 		order_by="modified desc",
 		limit=50,
 	)
@@ -958,7 +1079,24 @@ def _get_previous_photo_sets(patient: str, current_encounter: str | None = None)
 	rows = frappe.get_all(
 		"Derma Photo Set",
 		filters=filters,
-		fields=_select_existing_fields("Derma Photo Set", ["name", "patient", "appointment", "encounter", "clinical_procedure", "set_type", "body_view", "body_region", "finding", "treatment_entry", "notes", "modified", "creation"]),
+		fields=_select_existing_fields(
+			"Derma Photo Set",
+			[
+				"name",
+				"patient",
+				"appointment",
+				"encounter",
+				"clinical_procedure",
+				"set_type",
+				"body_view",
+				"body_region",
+				"finding",
+				"treatment_entry",
+				"notes",
+				"modified",
+				"creation",
+			],
+		),
 		order_by="modified desc",
 		limit=80,
 	)
@@ -975,7 +1113,18 @@ def _hydrate_photo_sets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	child_rows = frappe.get_all(
 		"Derma Photo",
 		filters={"parent": ["in", parent_names], "parenttype": "Derma Photo Set"},
-		fields=["name", "parent", "image", "photo_type", "view", "body_region", "finding", "treatment_entry", "notes", "idx"],
+		fields=[
+			"name",
+			"parent",
+			"image",
+			"photo_type",
+			"view",
+			"body_region",
+			"finding",
+			"treatment_entry",
+			"notes",
+			"idx",
+		],
 		order_by="parent asc, idx asc",
 		limit=500,
 	)
@@ -987,13 +1136,17 @@ def _hydrate_photo_sets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	return rows
 
 
-def _load_annotation_history(encounter: str | None = None, patient: str | None = None) -> list[dict[str, Any]]:
+def _load_annotation_history(
+	encounter: str | None = None, patient: str | None = None
+) -> list[dict[str, Any]]:
 	rows: list[dict[str, Any]] = []
 	if encounter:
 		rows = _load_annotations_for_parents([("Patient Encounter", encounter)])
 
 	if not rows and patient:
-		encounters = frappe.get_all("Patient Encounter", filters={"patient": patient}, fields=["name"], limit=20)
+		encounters = frappe.get_all(
+			"Patient Encounter", filters={"patient": patient}, fields=["name"], limit=20
+		)
 		parents = [("Patient Encounter", row.name) for row in encounters]
 		rows = _load_annotations_for_parents(parents)
 
@@ -1024,7 +1177,11 @@ def _load_derma_annotation_context(
 	if not rows:
 		rows = _load_annotation_history(encounter=encounter, patient=patient)
 
-	encounter_annotations = [row for row in rows if row.get("source_doctype") == "Patient Encounter" or not row.get("source_doctype")]
+	encounter_annotations = [
+		row
+		for row in rows
+		if row.get("source_doctype") == "Patient Encounter" or not row.get("source_doctype")
+	]
 	procedure_annotations: dict[str, list[dict[str, Any]]] = {}
 	for row in rows:
 		if row.get("source_doctype") == "Clinical Procedure" and row.get("source_name"):
@@ -1038,7 +1195,9 @@ def _load_derma_annotation_context(
 	}
 
 
-def _load_annotations_for_parents(parents: list[tuple[str, str]], include_scene: bool = True) -> list[dict[str, Any]]:
+def _load_annotations_for_parents(
+	parents: list[tuple[str, str]], include_scene: bool = True
+) -> list[dict[str, Any]]:
 	"""Annotations hanging off the given parents. `include_scene` drops the `json` column, which
 	averages 35 KB a row and is dead weight for anything that only lists them."""
 	if not parents or not _has_doctype("Health Annotation Table") or not _has_doctype("Health Annotation"):
@@ -1137,18 +1296,24 @@ def _parse_payload(value: Any) -> Any:
 def _drug_prescription_rows(encounter_doc) -> list[dict[str, Any]]:
 	if not _has_field("Patient Encounter", "drug_prescription"):
 		return []
-	allowed = {
-		df.fieldname
-		for df in frappe.get_meta("Drug Prescription").fields
-		if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
-	} if _has_doctype("Drug Prescription") else set()
+	allowed = (
+		{
+			df.fieldname
+			for df in frappe.get_meta("Drug Prescription").fields
+			if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
+		}
+		if _has_doctype("Drug Prescription")
+		else set()
+	)
 	return [
 		{key: row.get(key) for key in allowed if key in row}
 		for row in encounter_doc.get("drug_prescription") or []
 	]
 
 
-def _clinical_procedure_context_filters(encounter: str | None = None, appointment: str | None = None, patient: str | None = None) -> dict[str, Any]:
+def _clinical_procedure_context_filters(
+	encounter: str | None = None, appointment: str | None = None, patient: str | None = None
+) -> dict[str, Any]:
 	meta = frappe.get_meta("Clinical Procedure")
 	filters: dict[str, Any] = {}
 	encounter_field = _get_clinical_procedure_encounter_field()
@@ -1161,7 +1326,9 @@ def _clinical_procedure_context_filters(encounter: str | None = None, appointmen
 	return filters
 
 
-def _get_marks(patient: str, appointment: str | None = None, encounter: str | None = None) -> list[dict[str, Any]]:
+def _get_marks(
+	patient: str, appointment: str | None = None, encounter: str | None = None
+) -> list[dict[str, Any]]:
 	if not _has_doctype("Derma Chart Mark"):
 		return []
 
@@ -1176,7 +1343,9 @@ def _get_marks(patient: str, appointment: str | None = None, encounter: str | No
 
 
 @frappe.whitelist()
-def get_inventory_readiness(patient: str | None = None, encounter: str | None = None, appointment: str | None = None) -> list[dict[str, Any]]:
+def get_inventory_readiness(
+	patient: str | None = None, encounter: str | None = None, appointment: str | None = None
+) -> list[dict[str, Any]]:
 	_ensure_clinical_access()
 	if not patient and encounter:
 		patient = frappe.db.get_value("Patient Encounter", encounter, "patient")
@@ -1196,19 +1365,40 @@ def _build_inventory_readiness(marks: list[dict[str, Any]]) -> list[dict[str, An
 			"Clinical Procedure Template",
 			["name", "template", "item", "custom_derma_category", "custom_derma_product_tracking_required"],
 		)
-		templates = {row.name: row for row in frappe.get_all("Clinical Procedure Template", filters={"name": ["in", template_names]}, fields=fields)}
+		templates = {
+			row.name: row
+			for row in frappe.get_all(
+				"Clinical Procedure Template", filters={"name": ["in", template_names]}, fields=fields
+			)
+		}
 
 	grouped: dict[str, dict[str, Any]] = {}
 	for mark in marks:
 		template = templates.get(mark.get("procedure_template")) or {}
 		category = mark.get("category") or template.get("custom_derma_category")
-		requires_tracking = bool(template.get("custom_derma_product_tracking_required")) or category in {"Botox", "Filler"}
-		has_product_data = any(mark.get(field) for field in ["product_item", "product_name", "dose", "dose_unit", "lot_no", "expiry_date"])
+		requires_tracking = bool(template.get("custom_derma_product_tracking_required")) or category in {
+			"Botox",
+			"Filler",
+		}
+		has_product_data = any(
+			mark.get(field)
+			for field in ["product_item", "product_name", "dose", "dose_unit", "lot_no", "expiry_date"]
+		)
 		if not requires_tracking and not has_product_data:
 			continue
 
-		product_item = mark.get("product_item") or template.get("item") or _find_item_for_product(mark.get("product_name"))
-		product_name = mark.get("product_name") or _item_display_name(product_item) or template.get("template") or category or _("Product")
+		product_item = (
+			mark.get("product_item")
+			or template.get("item")
+			or _find_item_for_product(mark.get("product_name"))
+		)
+		product_name = (
+			mark.get("product_name")
+			or _item_display_name(product_item)
+			or template.get("template")
+			or category
+			or _("Product")
+		)
 		lot_no = mark.get("lot_no") or ""
 		expiry_date = mark.get("expiry_date") or ""
 		dose_unit = mark.get("dose_unit") or ""
@@ -1276,7 +1466,9 @@ def _find_item_for_product(product_name: str | None) -> str | None:
 		return None
 	if frappe.db.exists("Item", product_name):
 		return product_name
-	return frappe.db.get_value("Item", {"item_name": product_name}, "name") or frappe.db.get_value("Item", {"item_code": product_name}, "name")
+	return frappe.db.get_value("Item", {"item_name": product_name}, "name") or frappe.db.get_value(
+		"Item", {"item_code": product_name}, "name"
+	)
 
 
 def _item_display_name(item_code: str | None) -> str | None:
@@ -1313,7 +1505,7 @@ def _get_previous_marks(patient: str, current_encounter: str | None = None) -> l
 	rows = frappe.get_all(
 		"Derma Chart Mark",
 		filters=filters,
-		fields=_select_existing_fields("Derma Chart Mark", DERMA_MARK_FIELDS + ["creation"]),
+		fields=_select_existing_fields("Derma Chart Mark", [*DERMA_MARK_FIELDS, "creation"]),
 		order_by="modified desc",
 		limit=500,
 	)
@@ -1339,20 +1531,22 @@ def _template_defaults(template: str | None) -> dict[str, Any]:
 		return {}
 	fields = _select_existing_fields(
 		"Clinical Procedure Template",
-			[
-				"item",
-				"custom_derma_category",
-				"custom_derma_marker_behavior",
-				"custom_derma_marker_color",
-				"custom_derma_note_template",
-				"custom_derma_required_fields",
+		[
+			"item",
+			"custom_derma_category",
+			"custom_derma_marker_behavior",
+			"custom_derma_marker_color",
+			"custom_derma_note_template",
+			"custom_derma_required_fields",
 		],
 	)
 	return frappe.db.get_value("Clinical Procedure Template", template, fields, as_dict=True) or {}
 
 
 @frappe.whitelist()
-def ensure_chart_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None):
+def ensure_chart_context(
+	patient: str | None = None, appointment: str | None = None, encounter: str | None = None
+):
 	_ensure_clinical_access()
 	"""Ensure an active Patient Encounter and return canonical derma chart route context."""
 
@@ -1366,7 +1560,9 @@ def ensure_chart_context(patient: str | None = None, appointment: str | None = N
 
 
 @frappe.whitelist()
-def get_chart_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None):
+def get_chart_context(
+	patient: str | None = None, appointment: str | None = None, encounter: str | None = None
+):
 	_ensure_clinical_access()
 	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
 	patient_id = context["patient_id"]
@@ -1391,14 +1587,36 @@ def get_chart_context(patient: str | None = None, appointment: str | None = None
 	photo_sets = frappe.get_all(
 		"Derma Photo Set",
 		filters=filters,
-		fields=_select_existing_fields("Derma Photo Set", ["name", "clinical_procedure", "set_type", "body_view", "body_region", "finding", "treatment_entry", "notes", "modified"]),
+		fields=_select_existing_fields(
+			"Derma Photo Set",
+			[
+				"name",
+				"clinical_procedure",
+				"set_type",
+				"body_view",
+				"body_region",
+				"finding",
+				"treatment_entry",
+				"notes",
+				"modified",
+			],
+		),
 		order_by="modified desc",
 		limit=50,
 	)
 	templates = frappe.get_all(
 		"Derma Chart Template",
 		filters={"disabled": 0},
-		fields=["name", "title", "workflow", "body_view", "default_finding_type", "narrative_template", "findings_json", "treatments_json"],
+		fields=[
+			"name",
+			"title",
+			"workflow",
+			"body_view",
+			"default_finding_type",
+			"narrative_template",
+			"findings_json",
+			"treatments_json",
+		],
 		order_by="title asc",
 		limit=100,
 	)
@@ -1424,7 +1642,9 @@ def get_chart_context(patient: str | None = None, appointment: str | None = None
 
 
 @frappe.whitelist()
-def get_v2_chart_context(patient: str | None = None, appointment: str | None = None, encounter: str | None = None):
+def get_v2_chart_context(
+	patient: str | None = None, appointment: str | None = None, encounter: str | None = None
+):
 	_ensure_clinical_access()
 	context = get_chart_context(patient=patient, appointment=appointment, encounter=encounter)
 	context["narrative"] = generate_visit_summary(context.get("encounter_id"), context.get("patient_id"))
@@ -1432,7 +1652,9 @@ def get_v2_chart_context(patient: str | None = None, appointment: str | None = N
 
 
 @frappe.whitelist()
-def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None):
+def get_patient_derma_chart(
+	patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None
+):
 	_ensure_clinical_access()
 	"""Dental-shaped derma chart context for /app/derma-chart."""
 
@@ -1452,7 +1674,12 @@ def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None
 	)
 	annotation_context = section(
 		"annotations",
-		{"annotations": [], "encounter_annotations": [], "procedure_annotations": {}, "latest_annotation": None},
+		{
+			"annotations": [],
+			"encounter_annotations": [],
+			"procedure_annotations": {},
+			"latest_annotation": None,
+		},
 		lambda: _load_derma_annotation_context(
 			encounter=encounter_id,
 			patient=patient,
@@ -1504,12 +1731,16 @@ def get_patient_derma_chart(patient_id: str | None = None, encounter: str | None
 		"followup_items": section(
 			"follow-up intelligence",
 			[],
-			lambda: get_followup_intelligence(patient=patient, encounter=encounter_id, appointment=appointment_id),
+			lambda: get_followup_intelligence(
+				patient=patient, encounter=encounter_id, appointment=appointment_id
+			),
 		),
 		"inventory_readiness": section(
 			"inventory readiness",
 			[],
-			lambda: get_inventory_readiness(patient=patient, encounter=encounter_id, appointment=appointment_id),
+			lambda: get_inventory_readiness(
+				patient=patient, encounter=encounter_id, appointment=appointment_id
+			),
 		),
 		"visit_summary": section(
 			"visit summary",
@@ -1566,7 +1797,9 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 	if _has_field("Clinical Procedure", "practitioner_name"):
 		procedure.practitioner_name = encounter_doc.get("practitioner_name")
 	if _has_field("Clinical Procedure", "medical_department"):
-		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get("medical_department")
+		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get(
+			"medical_department"
+		)
 	procedure_notes = _append_body_template_note(_append_variable_note(values.get("notes"), values), values)
 	if _has_field("Clinical Procedure", "notes") and procedure_notes:
 		procedure.notes = procedure_notes
@@ -1588,11 +1821,16 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 		treatment.procedure_type = _treatment_procedure_type(category)
 		treatment.body_view = values.get("body_view")
 		treatment.body_region = _normalize_derma_body_region(
-			values.get("body_region") or values.get("body_template_title") or values.get("body_template") or values.get("body_view")
+			values.get("body_region")
+			or values.get("body_template_title")
+			or values.get("body_template")
+			or values.get("body_view")
 		)
 		treatment.x_percent = flt(values.get("x_percent") or 0)
 		treatment.y_percent = flt(values.get("y_percent") or 0)
-		treatment.product_name = values.get("product_name") or _procedure_variable(values, "product_name", "injectable", "product", "device")
+		treatment.product_name = values.get("product_name") or _procedure_variable(
+			values, "product_name", "injectable", "product", "device"
+		)
 		dose_value = values.get("dose") or _procedure_variable(values, "dose", "units", "ml", "quantity")
 		treatment.dose = _coerce_dose(dose_value)
 		treatment.dose_unit = values.get("dose_unit") or _infer_dose_unit(values, dose_value)
@@ -1619,7 +1857,18 @@ def _treatment_procedure_type(category: str | None) -> str:
 
 
 def _has_derma_treatment_data(values: dict[str, Any]) -> bool:
-	return any(values.get(field) for field in ["product_name", "dose", "lot_no", "settings", "notes", "procedure_variables", "body_template"])
+	return any(
+		values.get(field)
+		for field in [
+			"product_name",
+			"dose",
+			"lot_no",
+			"settings",
+			"notes",
+			"procedure_variables",
+			"body_template",
+		]
+	)
 
 
 def _procedure_variable(values: dict[str, Any], *keys: str) -> Any:
@@ -1731,10 +1980,14 @@ def _append_body_template_note(notes: str | None, values: dict[str, Any]) -> str
 
 
 @frappe.whitelist()
-def get_derma_annotations(encounter: str | None = None, patient: str | None = None, clinical_procedure: str | None = None):
+def get_derma_annotations(
+	encounter: str | None = None, patient: str | None = None, clinical_procedure: str | None = None
+):
 	_ensure_clinical_access()
 	procedure_names = [clinical_procedure] if clinical_procedure else []
-	return _load_derma_annotation_context(encounter=encounter, patient=patient, procedure_names=procedure_names)
+	return _load_derma_annotation_context(
+		encounter=encounter, patient=patient, procedure_names=procedure_names
+	)
 
 
 ANNOTATION_SUMMARY_PARENTS = ("Patient Encounter", "Clinical Procedure")
@@ -1760,7 +2013,9 @@ def get_derma_annotation_summary(doctype: str, docname: str):
 			"image": row.get("image"),
 			"creation": row.get("creation"),
 			"annotation_data": row.get("annotation_data"),
-			"label": row.get("custom_derma_body_template_title") or row.get("annotation_template") or _("Drawing"),
+			"label": row.get("custom_derma_body_template_title")
+			or row.get("annotation_template")
+			or _("Drawing"),
 		}
 		for row in rows
 	]
@@ -1863,7 +2118,8 @@ def _sync_chart_marks_for_annotation(
 		(
 			el
 			for el in elements
-			if isinstance(el, dict) and (el.get("customData") or {}).get("kind") in ("derma_template", "derma_template_image")
+			if isinstance(el, dict)
+			and (el.get("customData") or {}).get("kind") in ("derma_template", "derma_template_image")
 		),
 		None,
 	)
@@ -1948,14 +2204,19 @@ def _sync_chart_marks_for_annotation(
 	# placement, see EmbeddedExcalidraw's onMarkPlaced) already exist by the time the whole
 	# scene is saved - just link them back to this snapshot rather than re-creating them.
 	stamped_mark_names = {
-		(element.get("customData") or {}).get("derma_chart_mark") or (element.get("customData") or {}).get("mark_name")
+		(element.get("customData") or {}).get("derma_chart_mark")
+		or (element.get("customData") or {}).get("mark_name")
 		for element in elements
-		if isinstance(element, dict) and not element.get("isDeleted") and (element.get("customData") or {}).get("kind") == "derma_mark"
+		if isinstance(element, dict)
+		and not element.get("isDeleted")
+		and (element.get("customData") or {}).get("kind") == "derma_mark"
 	}
 	stamped_mark_names.discard(None)
 	for mark_name in stamped_mark_names:
 		if frappe.db.exists("Derma Chart Mark", mark_name):
-			frappe.db.set_value("Derma Chart Mark", mark_name, "annotation", annotation_name, update_modified=False)
+			frappe.db.set_value(
+				"Derma Chart Mark", mark_name, "annotation", annotation_name, update_modified=False
+			)
 
 
 @frappe.whitelist()
@@ -1997,7 +2258,8 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		# goes into custom_derma_body_template_title (a do_derma-owned field) instead.
 		annotation_template=values.get("annotation_template") or "",
 		annotation_name=values.get("annotation_name"),
-		encounter_type=values.get("encounter_type") or ("Treatment" if doctype == "Clinical Procedure" else ""),
+		encounter_type=values.get("encounter_type")
+		or ("Treatment" if doctype == "Clinical Procedure" else ""),
 		file_data=values.get("file_data"),
 		json_text=json_text,
 		annotation_type=annotation_type,
@@ -2052,7 +2314,9 @@ def _link_procedure_annotation(clinical_procedure: str | None, annotation: str |
 @frappe.whitelist()
 def get_derma_assessment(encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient)
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient
+	)
 	if not encounter_doc:
 		return assessment.empty_assessment()
 	return assessment.read_assessment(encounter_doc)
@@ -2065,7 +2329,9 @@ def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=No
 	if not isinstance(values, dict):
 		frappe.throw(_("Assessment payload must be an object."), frappe.ValidationError)
 
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient, ptype="write")
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient, ptype="write"
+	)
 	if not encounter_doc:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
 
@@ -2079,7 +2345,9 @@ def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=No
 def set_derma_assessment_mode(mode, encounter=None, appointment=None, patient=None):
 	"""Change the documented format. Writes no content and deletes nothing."""
 	_ensure_clinical_access()
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient, ptype="write")
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient, ptype="write"
+	)
 	if not encounter_doc:
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
 
@@ -2091,7 +2359,9 @@ def set_derma_assessment_mode(mode, encounter=None, appointment=None, patient=No
 @frappe.whitelist()
 def get_derma_prescriptions(encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient)
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient
+	)
 	return {
 		"encounter": encounter_doc.name if encounter_doc else encounter or "",
 		"drug_prescription": _drug_prescription_rows(encounter_doc) if encounter_doc else [],
@@ -2106,23 +2376,25 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 	rows = _parse_payload(payload) or []
 	if not isinstance(rows, list):
 		frappe.throw(_("Prescription payload must be a list."), frappe.ValidationError)
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient, ptype="write")
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient, ptype="write"
+	)
 	if not encounter_doc:
 		return {"encounter": "", "drug_prescription": []}
 	if cint(encounter_doc.docstatus) == 2:
 		frappe.throw(_("Cancelled encounters cannot be edited."))
-	allowed = {
-		df.fieldname
-		for df in frappe.get_meta("Drug Prescription").fields
-		if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
-	} if _has_doctype("Drug Prescription") else set()
+	allowed = (
+		{
+			df.fieldname
+			for df in frappe.get_meta("Drug Prescription").fields
+			if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
+		}
+		if _has_doctype("Drug Prescription")
+		else set()
+	)
 	encounter_doc.set(
 		"drug_prescription",
-		[
-			{key: row.get(key) for key in allowed if key in row}
-			for row in rows
-			if isinstance(row, dict)
-		],
+		[{key: row.get(key) for key in allowed if key in row} for row in rows if isinstance(row, dict)],
 	)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
@@ -2132,14 +2404,18 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 @frappe.whitelist()
 def get_derma_anesthesia(encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient)
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient
+	)
 	return {"encounter": encounter_doc.name if encounter_doc else encounter or "", "anesthesia": []}
 
 
 @frappe.whitelist()
 def set_derma_anesthesia(payload=None, encounter=None, appointment=None, patient=None):
 	_ensure_clinical_access()
-	encounter_doc = _resolve_patient_encounter_doc(encounter=encounter, appointment=appointment, patient=patient)
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient
+	)
 	return {"encounter": encounter_doc.name if encounter_doc else encounter or "", "anesthesia": []}
 
 
@@ -2162,7 +2438,9 @@ def get_derma_consents(encounter=None, appointment=None, patient=None):
 		doctype,
 		["name", "consent_form_template", "status", "signed_by", "signed_on", "modified", "docstatus"],
 	)
-	rows = frappe.get_all(doctype, filters=filters, fields=fields, order_by="modified desc", limit_page_length=100)
+	rows = frappe.get_all(
+		doctype, filters=filters, fields=fields, order_by="modified desc", limit_page_length=100
+	)
 	for row in rows:
 		row["doctype"] = doctype
 	return rows
@@ -2231,8 +2509,14 @@ def create_derma_consent(payload=None):
 			if clinical_procedure and _has_field(doctype, "clinical_procedure"):
 				doc.clinical_procedure = clinical_procedure
 			procedure_template = first.get("procedure_template")
-			if not procedure_template and clinical_procedure and _has_field("Clinical Procedure", "procedure_template"):
-				procedure_template = frappe.db.get_value("Clinical Procedure", clinical_procedure, "procedure_template")
+			if (
+				not procedure_template
+				and clinical_procedure
+				and _has_field("Clinical Procedure", "procedure_template")
+			):
+				procedure_template = frappe.db.get_value(
+					"Clinical Procedure", clinical_procedure, "procedure_template"
+				)
 			if procedure_template and _has_field(doctype, "procedure_template"):
 				doc.procedure_template = procedure_template
 
@@ -2284,7 +2568,11 @@ def get_derma_consent_html(name: str):
 	_ensure_clinical_access()
 	if not name:
 		frappe.throw(_("Consent is required."), frappe.ValidationError)
-	doctype = "Encounter Consent" if _has_doctype("Encounter Consent") and frappe.db.exists("Encounter Consent", name) else "Consent Form"
+	doctype = (
+		"Encounter Consent"
+		if _has_doctype("Encounter Consent") and frappe.db.exists("Encounter Consent", name)
+		else "Consent Form"
+	)
 	doc = frappe.get_doc(doctype, name)
 	if not doc.get("rendered_html") and doc.get("consent_form_template") and hasattr(doc, "render_template"):
 		doc.render_template()
@@ -2301,7 +2589,9 @@ def get_derma_consent_html(name: str):
 
 
 @frappe.whitelist()
-def get_nursing_assistant_employees(doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None):
+def get_nursing_assistant_employees(
+	doctype=None, txt=None, searchfield=None, start=0, page_len=20, filters=None
+):
 	_ensure_clinical_access()
 	employee_filters: dict[str, Any] = {}
 	if txt:
@@ -2337,7 +2627,9 @@ def get_procedure_price(procedure_name: str, price_list: str | None = None):
 			price_filters = {"item_code": item_code}
 			if price_list:
 				price_filters["price_list"] = price_list
-			item_rate = frappe.db.get_value("Item Price", price_filters, "price_list_rate", order_by="valid_from desc")
+			item_rate = frappe.db.get_value(
+				"Item Price", price_filters, "price_list_rate", order_by="valid_from desc"
+			)
 			if item_rate is not None:
 				rate = flt(item_rate)
 		if not rate:
@@ -2383,7 +2675,9 @@ def delete_clinical_procedure_entry(doctype: str, name: str):
 
 
 @frappe.whitelist()
-def sync_derma_billables(encounter: str | None = None, appointment: str | None = None, patient: str | None = None):
+def sync_derma_billables(
+	encounter: str | None = None, appointment: str | None = None, patient: str | None = None
+):
 	"""Aggregate this session's Clinical Procedure rows into Patient Appointment billing items.
 
 	This endpoint deliberately stays derma-local. Billing integration can be
@@ -2396,7 +2690,9 @@ def sync_derma_billables(encounter: str | None = None, appointment: str | None =
 	encounter_id = context["encounter_id"]
 	if not appointment_id:
 		frappe.throw(_("An appointment is required to sync billing."))
-	filters = _clinical_procedure_context_filters(encounter=encounter_id, appointment=appointment_id, patient=context["patient_id"])
+	filters = _clinical_procedure_context_filters(
+		encounter=encounter_id, appointment=appointment_id, patient=context["patient_id"]
+	)
 	count = frappe.db.count("Clinical Procedure", filters) if filters else 0
 	return {
 		"appointment": appointment_id,
@@ -2409,8 +2705,7 @@ def sync_derma_billables(encounter: str | None = None, appointment: str | None =
 
 
 def _complete_derma_procedures_for_session(patient: str, encounter: str) -> dict[str, Any]:
-	"""Submit every still-draft Clinical Procedure for this session.
-	"""
+	"""Submit every still-draft Clinical Procedure for this session."""
 	encounter_field = _get_clinical_procedure_encounter_field()
 	if not encounter_field or not patient or not encounter:
 		return {"completed": [], "failed": []}
@@ -2458,7 +2753,9 @@ def complete_derma_session(
 	billing_sync = None
 	invoice = None
 	if appointment_id:
-		billing_sync = sync_derma_billables(encounter=encounter_id, appointment=appointment_id, patient=patient_id)
+		billing_sync = sync_derma_billables(
+			encounter=encounter_id, appointment=appointment_id, patient=patient_id
+		)
 		try:
 			from do_health.api.methods import create_invoice_for_visit
 
@@ -2516,7 +2813,9 @@ def save_chart_mark(values: str | dict[str, Any]):
 		context = ensure_chart_context(payload.get("patient"), payload.get("appointment"))
 		payload["encounter"] = context.get("encounter")
 	if payload.get("encounter") and not payload.get("appointment"):
-		payload["appointment"] = frappe.db.get_value("Patient Encounter", payload.get("encounter"), "appointment")
+		payload["appointment"] = frappe.db.get_value(
+			"Patient Encounter", payload.get("encounter"), "appointment"
+		)
 
 	_normalize_position(payload)
 	category_defaults = _category_defaults(payload.get("category"))
@@ -2524,8 +2823,10 @@ def save_chart_mark(values: str | dict[str, Any]):
 	for field, value in {
 		"category": template_defaults.get("custom_derma_category") or payload.get("category"),
 		"product_item": template_defaults.get("item"),
-		"marker_behavior": template_defaults.get("custom_derma_marker_behavior") or category_defaults.get("marker_behavior"),
-		"marker_color": template_defaults.get("custom_derma_marker_color") or category_defaults.get("marker_color"),
+		"marker_behavior": template_defaults.get("custom_derma_marker_behavior")
+		or category_defaults.get("marker_behavior"),
+		"marker_color": template_defaults.get("custom_derma_marker_color")
+		or category_defaults.get("marker_color"),
 		"marker_label": category_defaults.get("marker_label"),
 		"body_template": category_defaults.get("default_body_template"),
 	}.items():
@@ -2560,7 +2861,9 @@ def _next_mark_sequence(patient: str, encounter: str | None = None, category: st
 
 
 @frappe.whitelist()
-def create_procedure_from_mark(mark: str, procedure_template: str | None = None, values: str | dict[str, Any] | None = None):
+def create_procedure_from_mark(
+	mark: str, procedure_template: str | None = None, values: str | dict[str, Any] | None = None
+):
 	_ensure_clinical_access()
 	if not mark:
 		frappe.throw(_("Chart mark is required."))
@@ -2606,7 +2909,9 @@ def create_procedure_from_mark(mark: str, procedure_template: str | None = None,
 	if _has_field("Clinical Procedure", "practitioner_name"):
 		procedure.practitioner_name = encounter_doc.get("practitioner_name")
 	if _has_field("Clinical Procedure", "medical_department"):
-		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get("medical_department")
+		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get(
+			"medical_department"
+		)
 	procedure.insert(ignore_permissions=True)
 
 	mark_doc.procedure_template = procedure_template
@@ -2615,11 +2920,17 @@ def create_procedure_from_mark(mark: str, procedure_template: str | None = None,
 	mark_doc.save(ignore_permissions=True)
 
 	treatment = _upsert_treatment_from_mark(mark_doc, template_doc)
-	return {"mark": mark_doc.as_dict(), "clinical_procedure": procedure.as_dict(), "treatment_entry": treatment}
+	return {
+		"mark": mark_doc.as_dict(),
+		"clinical_procedure": procedure.as_dict(),
+		"treatment_entry": treatment,
+	}
 
 
 @frappe.whitelist()
-def create_procedure_from_marks(marks: str | list[str], procedure_template: str | None = None, values: str | dict[str, Any] | None = None):
+def create_procedure_from_marks(
+	marks: str | list[str], procedure_template: str | None = None, values: str | dict[str, Any] | None = None
+):
 	_ensure_clinical_access()
 	mark_names = json.loads(marks) if isinstance(marks, str) else list(marks or [])
 	mark_names = [name for name in mark_names if name]
@@ -2687,7 +2998,9 @@ def create_procedure_from_marks(marks: str | list[str], procedure_template: str 
 	note = _batch_procedure_note(mark_docs, payload, category)
 	procedure = frappe.new_doc("Clinical Procedure")
 	procedure.patient = patient
-	procedure.patient_name = mark_docs[0].patient_name or frappe.db.get_value("Patient", patient, "patient_name")
+	procedure.patient_name = mark_docs[0].patient_name or frappe.db.get_value(
+		"Patient", patient, "patient_name"
+	)
 	procedure.appointment = appointment
 	procedure.procedure_template = resolved_template
 	procedure.title = template_doc.template
@@ -2705,7 +3018,9 @@ def create_procedure_from_marks(marks: str | list[str], procedure_template: str 
 	if _has_field("Clinical Procedure", "practitioner_name"):
 		procedure.practitioner_name = encounter_doc.get("practitioner_name")
 	if _has_field("Clinical Procedure", "medical_department"):
-		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get("medical_department")
+		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get(
+			"medical_department"
+		)
 	procedure.insert(ignore_permissions=True)
 
 	treatment = _create_batch_treatment_entry(mark_docs, procedure, template_doc, payload)
@@ -2778,7 +3093,9 @@ def _validate_marks_ready_for_procedure(mark_docs: list[Any], template_doc) -> N
 	missing = []
 	for variable in required_variables:
 		fieldname = variable.get("fieldname")
-		if fieldname and not all(_mark_variable_value(mark_doc, fieldname) not in (None, "") for mark_doc in mark_docs):
+		if fieldname and not all(
+			_mark_variable_value(mark_doc, fieldname) not in (None, "") for mark_doc in mark_docs
+		):
 			missing.append(variable.get("label") or fieldname)
 
 	if template_doc.get("custom_derma_product_tracking_required"):
@@ -2788,9 +3105,15 @@ def _validate_marks_ready_for_procedure(mark_docs: list[Any], template_doc) -> N
 			missing.append(_("Lot No"))
 
 	if missing:
-		frappe.throw(_("Complete required derma procedure details before creating the Clinical Procedure: {0}.").format(", ".join(dict.fromkeys(missing))))
+		frappe.throw(
+			_(
+				"Complete required derma procedure details before creating the Clinical Procedure: {0}."
+			).format(", ".join(dict.fromkeys(missing)))
+		)
 
-	if template_doc.get("custom_derma_before_after_photo_required") and not any(mark_doc.get("photo_set") for mark_doc in mark_docs):
+	if template_doc.get("custom_derma_before_after_photo_required") and not any(
+		mark_doc.get("photo_set") for mark_doc in mark_docs
+	):
 		frappe.throw(_("Photo evidence is required before creating this Clinical Procedure."))
 
 
@@ -2813,7 +3136,13 @@ def _mark_variable_value(mark_doc, fieldname: str):
 
 
 @frappe.whitelist()
-def carry_forward_marks(marks: str | list[str], patient: str | None = None, encounter: str | None = None, appointment: str | None = None, status: str = "Monitoring"):
+def carry_forward_marks(
+	marks: str | list[str],
+	patient: str | None = None,
+	encounter: str | None = None,
+	appointment: str | None = None,
+	status: str = "Monitoring",
+):
 	_ensure_clinical_access()
 	mark_names = json.loads(marks) if isinstance(marks, str) else list(marks or [])
 	mark_names = [name for name in mark_names if name]
@@ -2857,7 +3186,11 @@ def carry_forward_marks(marks: str | list[str], patient: str | None = None, enco
 		doc.appointment = target_appointment
 		doc.encounter = target_encounter
 		doc.status = status or source.get("status") or "Monitoring"
-		doc.note = _("Carried forward from {0}.").format(source.name) if not source.get("note") else f"{source.get('note')}\n" + _("Carried forward from {0}.").format(source.name)
+		doc.note = (
+			_("Carried forward from {0}.").format(source.name)
+			if not source.get("note")
+			else f"{source.get('note')}\n" + _("Carried forward from {0}.").format(source.name)
+		)
 		doc.sequence = _next_mark_sequence(doc.patient, doc.encounter, doc.category)
 		doc.save(ignore_permissions=True)
 		copied.append(doc.as_dict())
@@ -2865,7 +3198,11 @@ def carry_forward_marks(marks: str | list[str], patient: str | None = None, enco
 
 
 def _upsert_treatment_from_mark(mark_doc, template_doc=None) -> dict[str, Any]:
-	treatment = frappe.get_doc("Derma Treatment Entry", mark_doc.treatment_entry) if mark_doc.treatment_entry else frappe.new_doc("Derma Treatment Entry")
+	treatment = (
+		frappe.get_doc("Derma Treatment Entry", mark_doc.treatment_entry)
+		if mark_doc.treatment_entry
+		else frappe.new_doc("Derma Treatment Entry")
+	)
 	category = mark_doc.category or (template_doc.get("custom_derma_category") if template_doc else None)
 	treatment.patient = mark_doc.patient
 	treatment.patient_name = mark_doc.patient_name
@@ -2876,7 +3213,9 @@ def _upsert_treatment_from_mark(mark_doc, template_doc=None) -> dict[str, Any]:
 	treatment.workflow = "Aesthetic" if category in {"Botox", "Filler", "Laser", "Peel"} else "Medical"
 	treatment.procedure_type = _treatment_procedure_type(category)
 	treatment.body_view = mark_doc.body_view
-	treatment.body_region = _normalize_derma_body_region(mark_doc.body_region or mark_doc.body_template or mark_doc.body_view)
+	treatment.body_region = _normalize_derma_body_region(
+		mark_doc.body_region or mark_doc.body_template or mark_doc.body_view
+	)
 	treatment.region_label = mark_doc.region_label
 	treatment.side = mark_doc.side
 	treatment.x_percent = mark_doc.x_percent
@@ -2903,7 +3242,9 @@ def _create_batch_treatment_entry(mark_docs, procedure, template_doc, payload: d
 		return None
 	category = template_doc.get("custom_derma_category") or mark_docs[0].category
 	dose_total = sum(flt(mark.dose or 0) for mark in mark_docs)
-	dose_unit = payload.get("dose_unit") or next((mark.dose_unit for mark in mark_docs if mark.dose_unit), None)
+	dose_unit = payload.get("dose_unit") or next(
+		(mark.dose_unit for mark in mark_docs if mark.dose_unit), None
+	)
 	treatment = frappe.new_doc("Derma Treatment Entry")
 	treatment.patient = procedure.patient
 	treatment.patient_name = procedure.patient_name
@@ -2915,21 +3256,32 @@ def _create_batch_treatment_entry(mark_docs, procedure, template_doc, payload: d
 	treatment.procedure_type = _treatment_procedure_type(category)
 	treatment.body_view = _join_unique(mark.body_view for mark in mark_docs)
 	treatment.body_region = _normalize_derma_body_region(
-		payload.get("body_region") or mark_docs[0].body_region or mark_docs[0].body_template or mark_docs[0].body_view
+		payload.get("body_region")
+		or mark_docs[0].body_region
+		or mark_docs[0].body_template
+		or mark_docs[0].body_view
 	)
 	treatment.region_label = _join_unique(mark.region_label for mark in mark_docs)
 	treatment.x_percent = flt(payload.get("x_percent") or mark_docs[0].x_percent or 0)
 	treatment.y_percent = flt(payload.get("y_percent") or mark_docs[0].y_percent or 0)
-	treatment.product_item = payload.get("product_item") or next((mark.product_item for mark in mark_docs if mark.product_item), None)
-	treatment.product_name = payload.get("product_name") or next((mark.product_name for mark in mark_docs if mark.product_name), None)
+	treatment.product_item = payload.get("product_item") or next(
+		(mark.product_item for mark in mark_docs if mark.product_item), None
+	)
+	treatment.product_name = payload.get("product_name") or next(
+		(mark.product_name for mark in mark_docs if mark.product_name), None
+	)
 	treatment.dose = dose_total or flt(payload.get("dose") or 0)
 	treatment.dose_unit = dose_unit
 	treatment.device = payload.get("device") or next((mark.device for mark in mark_docs if mark.device), None)
 	treatment.settings = payload.get("settings") or _join_unique(mark.settings for mark in mark_docs)
 	treatment.lot_no = payload.get("lot_no") or next((mark.lot_no for mark in mark_docs if mark.lot_no), None)
-	treatment.expiry_date = payload.get("expiry_date") or next((mark.expiry_date for mark in mark_docs if mark.expiry_date), None)
+	treatment.expiry_date = payload.get("expiry_date") or next(
+		(mark.expiry_date for mark in mark_docs if mark.expiry_date), None
+	)
 	if _has_field("Derma Treatment Entry", "variables_json"):
-		treatment.variables_json = json.dumps({"mark_names": [mark.name for mark in mark_docs], "count": len(mark_docs)}, ensure_ascii=False)
+		treatment.variables_json = json.dumps(
+			{"mark_names": [mark.name for mark in mark_docs], "count": len(mark_docs)}, ensure_ascii=False
+		)
 	treatment.notes = _batch_procedure_note(mark_docs, payload, category)
 	treatment.save(ignore_permissions=True)
 	return treatment
@@ -2940,7 +3292,18 @@ def _batch_procedure_note(mark_docs, payload: dict[str, Any], category: str | No
 	dose_total = sum(flt(mark.dose or 0) for mark in mark_docs)
 	dose_unit = payload.get("dose_unit") or next((mark.dose_unit for mark in mark_docs if mark.dose_unit), "")
 	locations = _join_unique(mark.region_label or mark.body_region or mark.body_view for mark in mark_docs)
-	product = payload.get("product_name") or payload.get("product_item") or next((mark.product_name or mark.product_item for mark in mark_docs if mark.product_name or mark.product_item), "")
+	product = (
+		payload.get("product_name")
+		or payload.get("product_item")
+		or next(
+			(
+				mark.product_name or mark.product_item
+				for mark in mark_docs
+				if mark.product_name or mark.product_item
+			),
+			"",
+		)
+	)
 	parts = [
 		_("{0} chart mark(s)").format(len(mark_docs)),
 		category or mark_docs[0].category,
@@ -3028,14 +3391,27 @@ def create_photo_set(values: str | dict[str, Any]):
 		payload["encounter"] = context.get("encounter")
 
 	doc = frappe.new_doc("Derma Photo Set")
-	mark_doc = frappe.get_doc("Derma Chart Mark", payload.get("chart_mark")) if payload.get("chart_mark") else None
+	mark_doc = (
+		frappe.get_doc("Derma Chart Mark", payload.get("chart_mark")) if payload.get("chart_mark") else None
+	)
 	if mark_doc:
 		payload.setdefault("body_view", mark_doc.body_view)
 		payload.setdefault("body_region", mark_doc.body_region or mark_doc.body_template)
 		payload.setdefault("treatment_entry", mark_doc.treatment_entry)
 	if payload.get("body_region"):
 		payload["body_region"] = _normalize_derma_body_region(payload.get("body_region"))
-	for field in ["patient", "appointment", "encounter", "clinical_procedure", "set_type", "body_view", "body_region", "finding", "treatment_entry", "notes"]:
+	for field in [
+		"patient",
+		"appointment",
+		"encounter",
+		"clinical_procedure",
+		"set_type",
+		"body_view",
+		"body_region",
+		"finding",
+		"treatment_entry",
+		"notes",
+	]:
 		if field in payload:
 			doc.set(field, payload[field])
 	_set_patient_name(doc)
@@ -3045,8 +3421,16 @@ def create_photo_set(values: str | dict[str, Any]):
 	if mark_doc:
 		mark_doc.photo_set = doc.name
 		mark_doc.save(ignore_permissions=True)
-	if payload.get("treatment_entry") and frappe.db.exists("Derma Treatment Entry", payload.get("treatment_entry")):
-		frappe.db.set_value("Derma Treatment Entry", payload.get("treatment_entry"), "photo_set", doc.name, update_modified=True)
+	if payload.get("treatment_entry") and frappe.db.exists(
+		"Derma Treatment Entry", payload.get("treatment_entry")
+	):
+		frappe.db.set_value(
+			"Derma Treatment Entry",
+			payload.get("treatment_entry"),
+			"photo_set",
+			doc.name,
+			update_modified=True,
+		)
 	return _hydrate_photo_sets([doc.as_dict()])[0]
 
 
@@ -3085,14 +3469,35 @@ def get_patient_timeline(patient: str, current_encounter: str | None = None, lim
 	findings = frappe.get_all(
 		"Derma Finding",
 		filters={"patient": patient},
-		fields=["name", "encounter", "appointment", "finding_type", "diagnosis", "body_region", "status", "severity", "modified"],
+		fields=[
+			"name",
+			"encounter",
+			"appointment",
+			"finding_type",
+			"diagnosis",
+			"body_region",
+			"status",
+			"severity",
+			"modified",
+		],
 		order_by="modified desc",
 		limit=cint(limit),
 	)
 	treatments = frappe.get_all(
 		"Derma Treatment Entry",
 		filters={"patient": patient},
-		fields=["name", "encounter", "appointment", "workflow", "procedure_type", "product_name", "body_region", "dose", "dose_unit", "modified"],
+		fields=[
+			"name",
+			"encounter",
+			"appointment",
+			"workflow",
+			"procedure_type",
+			"product_name",
+			"body_region",
+			"dose",
+			"dose_unit",
+			"modified",
+		],
 		order_by="modified desc",
 		limit=cint(limit),
 	)
@@ -3123,7 +3528,12 @@ def get_visit_timeline(patient: str, current_encounter: str | None = None, limit
 	visits: dict[str, dict[str, Any]] = {}
 
 	def visit_key(row: dict[str, Any]) -> str:
-		return row.get("encounter") or row.get("appointment") or str(row.get("creation") or row.get("modified") or "")[:10] or _("Unlinked")
+		return (
+			row.get("encounter")
+			or row.get("appointment")
+			or str(row.get("creation") or row.get("modified") or "")[:10]
+			or _("Unlinked")
+		)
 
 	def ensure_visit(row: dict[str, Any]) -> dict[str, Any]:
 		key = visit_key(row)
@@ -3149,7 +3559,9 @@ def get_visit_timeline(patient: str, current_encounter: str | None = None, limit
 		for field in ["encounter", "appointment"]:
 			if not visit.get(field) and row.get(field):
 				visit[field] = row.get(field)
-		if row.get("modified") and (not visit.get("modified") or str(row.get("modified")) > str(visit.get("modified"))):
+		if row.get("modified") and (
+			not visit.get("modified") or str(row.get("modified")) > str(visit.get("modified"))
+		):
 			visit["modified"] = row.get("modified")
 		return visit
 
@@ -3163,7 +3575,13 @@ def get_visit_timeline(patient: str, current_encounter: str | None = None, limit
 		if product and product not in visit["products"]:
 			visit["products"].append(product)
 		if mark.get("status") and mark.get("status") not in {"Active", ""}:
-			visit["status_changes"].append({"status": mark.get("status"), "label": mark.get("diagnosis") or category, "location": _meaningful_location(mark)})
+			visit["status_changes"].append(
+				{
+					"status": mark.get("status"),
+					"label": mark.get("diagnosis") or category,
+					"location": _meaningful_location(mark),
+				}
+			)
 		if mark.get("dose"):
 			unit = mark.get("dose_unit") or _("dose")
 			visit["totals"][unit] = flt(visit["totals"].get(unit) or 0) + flt(mark.get("dose") or 0)
@@ -3185,9 +3603,13 @@ def get_visit_timeline(patient: str, current_encounter: str | None = None, limit
 
 	for visit in visits.values():
 		if not visit["preview_image"]:
-			linked_photo = next((row.get("preview_image") for row in visit["photo_sets"] if row.get("preview_image")), "")
+			linked_photo = next(
+				(row.get("preview_image") for row in visit["photo_sets"] if row.get("preview_image")), ""
+			)
 			visit["preview_image"] = linked_photo
-		total_text = ", ".join(f"{value:g} {unit}" for unit, value in visit.get("totals", {}).items() if value)
+		total_text = ", ".join(
+			f"{value:g} {unit}" for unit, value in visit.get("totals", {}).items() if value
+		)
 		parts = [
 			_("{0} mark(s)").format(len(visit["marks"])) if visit["marks"] else "",
 			_("{0} procedure(s)").format(len(visit["procedures"])) if visit["procedures"] else "",
@@ -3197,7 +3619,9 @@ def get_visit_timeline(patient: str, current_encounter: str | None = None, limit
 		]
 		visit["summary"] = " · ".join(part for part in parts if part)
 
-	rows = sorted(visits.values(), key=lambda row: str(row.get("modified") or row.get("date") or ""), reverse=True)
+	rows = sorted(
+		visits.values(), key=lambda row: str(row.get("modified") or row.get("date") or ""), reverse=True
+	)
 	return rows[: cint(limit)]
 
 
@@ -3206,7 +3630,9 @@ def _procedure_encounter(row: dict[str, Any]) -> str | None:
 
 
 @frappe.whitelist()
-def get_followup_intelligence(patient: str, encounter: str | None = None, appointment: str | None = None) -> list[dict[str, Any]]:
+def get_followup_intelligence(
+	patient: str, encounter: str | None = None, appointment: str | None = None
+) -> list[dict[str, Any]]:
 	_ensure_clinical_access()
 	if not patient:
 		return []
@@ -3249,55 +3675,72 @@ def get_followup_intelligence(patient: str, encounter: str | None = None, appoin
 
 		if status in {"Monitoring", "Worse", "Biopsied", "Excised"}:
 			due_days = {"Worse": 7, "Biopsied": 3, "Excised": 14, "Monitoring": 30}.get(status, 30)
-			items.append({
-				**base,
-				"key": f"{mark.get('name')}-status",
-				"type": "Pathology" if status == "Biopsied" else "Review",
-				"severity": "high" if status in {"Worse", "Biopsied"} else "medium",
-				"title": _("{0} follow-up").format(status),
-				"detail": ", ".join(value for value in [mark.get("diagnosis") or category, location] if value),
-				"due_date": add_days(nowdate(), due_days),
-				"blocking": status in {"Worse", "Biopsied"},
-			})
+			items.append(
+				{
+					**base,
+					"key": f"{mark.get('name')}-status",
+					"type": "Pathology" if status == "Biopsied" else "Review",
+					"severity": "high" if status in {"Worse", "Biopsied"} else "medium",
+					"title": _("{0} follow-up").format(status),
+					"detail": ", ".join(
+						value for value in [mark.get("diagnosis") or category, location] if value
+					),
+					"due_date": add_days(nowdate(), due_days),
+					"blocking": status in {"Worse", "Biopsied"},
+				}
+			)
 
 		if template.get("custom_derma_before_after_photo_required") and not mark.get("photo_set"):
-			items.append({
-				**base,
-				"key": f"{mark.get('name')}-photo",
-				"type": "Photo",
-				"severity": "medium",
-				"title": _("Photo evidence needed"),
-				"detail": _("Capture or link before/after photos for {0}.").format(location),
-				"due_date": nowdate(),
-				"blocking": True,
-			})
+			items.append(
+				{
+					**base,
+					"key": f"{mark.get('name')}-photo",
+					"type": "Photo",
+					"severity": "medium",
+					"title": _("Photo evidence needed"),
+					"detail": _("Capture or link before/after photos for {0}.").format(location),
+					"due_date": nowdate(),
+					"blocking": True,
+				}
+			)
 
-		if template.get("custom_derma_product_tracking_required") and (not mark.get("product_name") or not mark.get("lot_no")):
-			items.append({
-				**base,
-				"key": f"{mark.get('name')}-inventory",
-				"type": "Inventory",
-				"severity": "high",
-				"title": _("Product / lot missing"),
-				"detail": _("Product and lot are required for {0}.").format(category),
-				"due_date": nowdate(),
-				"blocking": True,
-			})
+		if template.get("custom_derma_product_tracking_required") and (
+			not mark.get("product_name") or not mark.get("lot_no")
+		):
+			items.append(
+				{
+					**base,
+					"key": f"{mark.get('name')}-inventory",
+					"type": "Inventory",
+					"severity": "high",
+					"title": _("Product / lot missing"),
+					"detail": _("Product and lot are required for {0}.").format(category),
+					"due_date": nowdate(),
+					"blocking": True,
+				}
+			)
 
 		if category in {"Botox", "Filler", "Laser"} and mark.get("clinical_procedure"):
 			interval = {"Botox": 90, "Filler": 180, "Laser": 28}.get(category, 30)
-			items.append({
-				**base,
-				"key": f"{mark.get('name')}-next-session",
-				"type": "Next Session",
-				"severity": "low",
-				"title": _("{0} next session due").format(category),
-				"detail": _("Plan next {0} review for {1}.").format(category, location),
-				"due_date": add_days(nowdate(), interval),
-				"blocking": False,
-			})
+			items.append(
+				{
+					**base,
+					"key": f"{mark.get('name')}-next-session",
+					"type": "Next Session",
+					"severity": "low",
+					"title": _("{0} next session due").format(category),
+					"detail": _("Plan next {0} review for {1}.").format(category, location),
+					"due_date": add_days(nowdate(), interval),
+					"blocking": False,
+				}
+			)
 
-	items.sort(key=lambda row: ({"high": 0, "medium": 1, "low": 2}.get(row.get("severity"), 3), row.get("due_date") or ""))
+	items.sort(
+		key=lambda row: (
+			{"high": 0, "medium": 1, "low": 2}.get(row.get("severity"), 3),
+			row.get("due_date") or "",
+		)
+	)
 	return items
 
 
@@ -3308,7 +3751,11 @@ def _open_todos_for_marks(mark_names: list[str]) -> dict[str, str]:
 	fields = _select_existing_fields("ToDo", ["name", "reference_type", "reference_name", "status"])
 	rows = frappe.get_all(
 		"ToDo",
-		filters={"reference_type": "Derma Chart Mark", "reference_name": ["in", mark_names], "status": ["!=", "Closed"]},
+		filters={
+			"reference_type": "Derma Chart Mark",
+			"reference_name": ["in", mark_names],
+			"status": ["!=", "Closed"],
+		},
 		fields=fields,
 		limit=200,
 	)
@@ -3395,11 +3842,20 @@ def build_mark_narrative(marks: list[dict[str, Any]]) -> str:
 	if procedures:
 		procedure_lines = []
 		for category, rows in by_category.items():
-			if category not in procedure_categories and not any(row.get("clinical_procedure") for row in rows):
+			if category not in procedure_categories and not any(
+				row.get("clinical_procedure") for row in rows
+			):
 				continue
 			dose_total = sum(flt(row.get("dose") or 0) for row in rows)
 			dose_unit = next((row.get("dose_unit") for row in rows if row.get("dose_unit")), "")
-			product = next((row.get("product_name") or row.get("product_item") or row.get("device") for row in rows if row.get("product_name") or row.get("product_item") or row.get("device")), "")
+			product = next(
+				(
+					row.get("product_name") or row.get("product_item") or row.get("device")
+					for row in rows
+					if row.get("product_name") or row.get("product_item") or row.get("device")
+				),
+				"",
+			)
 			locations = sorted({loc for row in rows if (loc := _meaningful_location(row))})
 			line_bits = [
 				_("{0}: {1} mark(s)").format(category, len(rows)),
@@ -3419,7 +3875,11 @@ def build_mark_narrative(marks: list[dict[str, Any]]) -> str:
 		dose = _meaningful_dose(row)
 		lot = row.get("lot_no")
 		expiry = row.get("expiry_date")
-		product_line = " · ".join(value for value in [product, dose, f"Lot {lot}" if lot else "", f"Exp {expiry}" if expiry else ""] if value)
+		product_line = " · ".join(
+			value
+			for value in [product, dose, f"Lot {lot}" if lot else "", f"Exp {expiry}" if expiry else ""]
+			if value
+		)
 		if product_line and product_line not in product_lines:
 			product_lines.append("- " + product_line)
 	if product_lines:
@@ -3428,22 +3888,49 @@ def build_mark_narrative(marks: list[dict[str, Any]]) -> str:
 	photo_count = len([row for row in marks if row.get("photo_set")])
 	annotation_count = len([row for row in marks if row.get("annotation")])
 	if photo_count:
-		parts.append(_("Photos / Annotations") + "\n" + _("- {0} chart mark(s) include linked photo evidence.").format(photo_count))
+		parts.append(
+			_("Photos / Annotations")
+			+ "\n"
+			+ _("- {0} chart mark(s) include linked photo evidence.").format(photo_count)
+		)
 	elif annotation_count:
-		parts.append(_("Photos / Annotations") + "\n" + _("- {0} chart mark(s) include linked drawings.").format(annotation_count))
+		parts.append(
+			_("Photos / Annotations")
+			+ "\n"
+			+ _("- {0} chart mark(s) include linked drawings.").format(annotation_count)
+		)
 
-	follow_up_rows = [row for row in marks if row.get("status") in {"Monitoring", "Follow-up", "Worse", "Biopsied", "Excised"}]
+	follow_up_rows = [
+		row
+		for row in marks
+		if row.get("status") in {"Monitoring", "Follow-up", "Worse", "Biopsied", "Excised"}
+	]
 	if follow_up_rows:
 		lines = []
 		for row in follow_up_rows[:8]:
-			lines.append("- " + ", ".join(value for value in [row.get("status"), row.get("diagnosis") or row.get("category"), _meaningful_location(row)] if value))
+			lines.append(
+				"- "
+				+ ", ".join(
+					value
+					for value in [
+						row.get("status"),
+						row.get("diagnosis") or row.get("category"),
+						_meaningful_location(row),
+					]
+					if value
+				)
+			)
 		parts.append(_("Follow-up") + "\n" + "\n".join(lines))
 	return "\n\n".join(parts)
 
 
 def _meaningful_location(row: dict[str, Any]) -> str | None:
 	location = row.get("region_label") or row.get("body_region") or row.get("body_view")
-	if location and location == row.get("body_view") and row.get("body_region") in {"Face", "Body", "Scalp", "Hands"}:
+	if (
+		location
+		and location == row.get("body_view")
+		and row.get("body_region") in {"Face", "Body", "Scalp", "Hands"}
+	):
 		return row.get("body_view")
 	return location
 

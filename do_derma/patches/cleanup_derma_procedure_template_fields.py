@@ -13,7 +13,11 @@ def add_derma_variables_field():
 	if not frappe.db.exists("DocType", "Clinical Procedure Template"):
 		return
 	meta = frappe.get_meta("Clinical Procedure Template")
-	insert_after = "custom_derma_allowed_body_regions" if meta.has_field("custom_derma_allowed_body_regions") else "description"
+	insert_after = (
+		"custom_derma_allowed_body_regions"
+		if meta.has_field("custom_derma_allowed_body_regions")
+		else "description"
+	)
 	create_custom_fields(
 		{
 			"Clinical Procedure Template": [

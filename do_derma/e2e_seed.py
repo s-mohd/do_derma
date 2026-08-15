@@ -211,7 +211,11 @@ def _ensure_clinical_procedure(
 		"status": "Draft",
 	}
 	encounter_field = next(
-		(field for field in ("patient_encounter", "custom_patient_encounter", "encounter") if _has_field("Clinical Procedure", field)),
+		(
+			field
+			for field in ("patient_encounter", "custom_patient_encounter", "encounter")
+			if _has_field("Clinical Procedure", field)
+		),
 		None,
 	)
 	if encounter_field:

@@ -2,7 +2,6 @@ import json
 
 import frappe
 
-
 SIDEBAR_ITEM = {
 	"section": "Patient Actions",
 	"label": "Derma Chart",
@@ -45,7 +44,9 @@ TEMPLATES = [
 		"body_view": "Face Front",
 		"default_finding_type": "",
 		"narrative_template": "Botulinum toxin treatment documented by facial region with units, product, lot number, consent, and follow-up plan.",
-		"treatments_json": [{"workflow": "Aesthetic", "procedure_type": "Botox", "body_region": "Face", "dose_unit": "Units"}],
+		"treatments_json": [
+			{"workflow": "Aesthetic", "procedure_type": "Botox", "body_region": "Face", "dose_unit": "Units"}
+		],
 	},
 	{
 		"title": "Laser Session",
@@ -101,7 +102,11 @@ def _upsert_templates():
 			"disabled": 0,
 			"findings_json": json.dumps(template.get("findings_json", []), indent=2),
 			"treatments_json": json.dumps(template.get("treatments_json", []), indent=2),
-			**{key: value for key, value in template.items() if key not in {"findings_json", "treatments_json"}},
+			**{
+				key: value
+				for key, value in template.items()
+				if key not in {"findings_json", "treatments_json"}
+			},
 		}
 		if name:
 			frappe.db.set_value("Derma Chart Template", name, payload)

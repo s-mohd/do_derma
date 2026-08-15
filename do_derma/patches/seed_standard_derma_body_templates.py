@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import frappe
 
-
 FEMALE_IMAGE_ALIASES = {
 	"Body Front": "Female Front Body",
 	"Body Back": "Female Rear Body",
@@ -93,7 +92,11 @@ def execute():
 	}
 
 	for title, template_type, gender, view_key, sequence in STANDARD_TEMPLATES:
-		doc = frappe.get_doc("Derma Body Template", title) if frappe.db.exists("Derma Body Template", title) else frappe.new_doc("Derma Body Template")
+		doc = (
+			frappe.get_doc("Derma Body Template", title)
+			if frappe.db.exists("Derma Body Template", title)
+			else frappe.new_doc("Derma Body Template")
+		)
 		doc.title = title
 		doc.template_type = template_type
 		doc.gender = gender
@@ -131,7 +134,13 @@ def update_category_allowed_templates():
 			allowed = "Body Front, Body Back, Body Left, Body Right, Male Body Front, Male Body Back, Male Body Left, Male Body Right, Face Front, Male Face Front"
 		else:
 			allowed = "Body Front, Body Back, Body Left, Body Right, Face Front, Male Body Front, Male Body Back, Male Body Left, Male Body Right, Male Face Front"
-		frappe.db.set_value("Clinical Procedure Template", name, "custom_derma_allowed_body_templates", allowed, update_modified=False)
+		frappe.db.set_value(
+			"Clinical Procedure Template",
+			name,
+			"custom_derma_allowed_body_templates",
+			allowed,
+			update_modified=False,
+		)
 
 
 def update_category_default_templates():
@@ -148,5 +157,9 @@ def update_category_default_templates():
 		"Biopsy": "Body Front",
 	}
 	for category, template in defaults.items():
-		if frappe.db.exists("Derma Procedure Category", category) and frappe.db.exists("Derma Body Template", template):
-			frappe.db.set_value("Derma Procedure Category", category, "default_body_template", template, update_modified=False)
+		if frappe.db.exists("Derma Procedure Category", category) and frappe.db.exists(
+			"Derma Body Template", template
+		):
+			frappe.db.set_value(
+				"Derma Procedure Category", category, "default_body_template", template, update_modified=False
+			)

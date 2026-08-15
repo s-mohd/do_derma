@@ -40,7 +40,10 @@ def add_clinical_procedure_template_preset_field():
 
 
 def remove_obsolete_annotation_treatment_field():
-	name = frappe.db.exists("Custom Field", {"dt": "Clinical Procedure Template", "fieldname": "custom_derma_annotation_treatment"})
+	name = frappe.db.exists(
+		"Custom Field",
+		{"dt": "Clinical Procedure Template", "fieldname": "custom_derma_annotation_treatment"},
+	)
 	if not name:
 		return
 	frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)

@@ -49,6 +49,7 @@ CONSENT_TEMPLATE = "DEMO Consent"
 BODY_TEMPLATE_IMAGE = ("demo-face-map.png", 600, 800, (238, 228, 220))
 PHOTO_IMAGES = (("demo-photo-before.png", (214, 178, 168)), ("demo-photo-after.png", (226, 208, 200)))
 
+
 def _rectangle_outline(left: float, top: float, width: float, height: float) -> list[list[float]]:
 	"""A closed polygon in template-relative 0..1 coordinates.
 
@@ -100,8 +101,18 @@ VISITS = (
 		"days_ago": 62,
 		"mode": "SOAP",
 		"marks": (
-			("DEMO Botox Glabella", 50.0, 18.0, {"product_name": "Botulinum A", "dose": 20, "dose_unit": "Units"}),
-			("DEMO Botox Glabella", 38.0, 22.0, {"product_name": "Botulinum A", "dose": 12, "dose_unit": "Units"}),
+			(
+				"DEMO Botox Glabella",
+				50.0,
+				18.0,
+				{"product_name": "Botulinum A", "dose": 20, "dose_unit": "Units"},
+			),
+			(
+				"DEMO Botox Glabella",
+				38.0,
+				22.0,
+				{"product_name": "Botulinum A", "dose": 12, "dose_unit": "Units"},
+			),
 			("DEMO Filler Cheek", 22.0, 46.0, {"product_name": "HA Filler", "dose": 1.0, "dose_unit": "ml"}),
 		),
 	},
@@ -192,7 +203,9 @@ def teardown_demo_data() -> dict[str, Any]:
 	summary["deleted"]["Patient"] = _delete_names("Patient", [patient] if patient else [])
 
 	templates = [template for template, *_ in PROCEDURE_TEMPLATES]
-	summary["deleted"]["Clinical Procedure Template"] = _delete_names("Clinical Procedure Template", templates)
+	summary["deleted"]["Clinical Procedure Template"] = _delete_names(
+		"Clinical Procedure Template", templates
+	)
 	# healthcare's Clinical Procedure Template.after_insert calls
 	# create_item_from_template(), so each template left an Item behind. Leaving
 	# them makes a re-seed fail on a duplicate primary key rather than reuse them.
@@ -292,7 +305,9 @@ def _ensure_procedure_category(summary: dict[str, Any]) -> str | None:
 		}
 	)
 	if api._has_field("Derma Procedure Category", "default_body_template"):
-		doc.default_body_template = BODY_TEMPLATE if frappe.db.exists("Derma Body Template", BODY_TEMPLATE) else None
+		doc.default_body_template = (
+			BODY_TEMPLATE if frappe.db.exists("Derma Body Template", BODY_TEMPLATE) else None
+		)
 	doc.insert(ignore_permissions=True)
 	return doc.name
 
@@ -306,7 +321,9 @@ def _ensure_body_template(summary: dict[str, Any]) -> str | None:
 		# The studio only lists templates that carry an image, so repair a link a
 		# half-finished run left empty without re-uploading one that is fine.
 		if not frappe.db.get_value("Derma Body Template", BODY_TEMPLATE, "image"):
-			frappe.db.set_value("Derma Body Template", BODY_TEMPLATE, "image", _ensure_png(*BODY_TEMPLATE_IMAGE))
+			frappe.db.set_value(
+				"Derma Body Template", BODY_TEMPLATE, "image", _ensure_png(*BODY_TEMPLATE_IMAGE)
+			)
 		return BODY_TEMPLATE
 
 	doc = frappe.get_doc(
@@ -689,15 +706,18 @@ def _ensure_annotations(summary: dict[str, Any]) -> dict[str, Any]:
 	}
 
 	if procedure:
-		saved["procedure"] = _existing_annotation("Clinical Procedure", procedure) or api.save_derma_annotation(
-			{
-				"patient": summary["patient"],
-				"encounter": encounter,
-				"clinical_procedure": procedure,
-				"file_data": _png_data_url(600, 800, (232, 236, 240)),
-				"json_text": json.dumps(_demo_scene(summary["body_template"])),
-			}
-		)["name"]
+		saved["procedure"] = (
+			_existing_annotation("Clinical Procedure", procedure)
+			or api.save_derma_annotation(
+				{
+					"patient": summary["patient"],
+					"encounter": encounter,
+					"clinical_procedure": procedure,
+					"file_data": _png_data_url(600, 800, (232, 236, 240)),
+					"json_text": json.dumps(_demo_scene(summary["body_template"])),
+				}
+			)["name"]
+		)
 
 	return saved
 

@@ -44,7 +44,9 @@ def add_marker_preset_field():
 
 
 def update_marker_behavior_options():
-	name = frappe.db.exists("Custom Field", {"dt": "Clinical Procedure Template", "fieldname": "custom_derma_marker_behavior"})
+	name = frappe.db.exists(
+		"Custom Field", {"dt": "Clinical Procedure Template", "fieldname": "custom_derma_marker_behavior"}
+	)
 	if name:
 		frappe.db.set_value(
 			"Custom Field",
