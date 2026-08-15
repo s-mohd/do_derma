@@ -1,9 +1,9 @@
 # Procedure Annotation Popup — QA Findings
 
 Date: 2026-08-14
-Status: **Findings recorded; findings 1 and 2 fixed.** The repairs are specced and tracked in
+Status: **Findings recorded; findings 1, 2 and 3 fixed.** The repairs are specced and tracked in
 [`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md);
-findings 3, 4 and 5 are still open. A browser pass over the procedure-anchored
+findings 4 and 5 are still open. A browser pass over the procedure-anchored
 annotation studio, the counterpart to the consultation pass recorded in
 [`2026-08-14-annotation_studio_safety.md`](2026-08-14-annotation_studio_safety.md) and
 [`2026-08-14-annotation_output_fidelity.md`](2026-08-14-annotation_output_fidelity.md).
@@ -78,6 +78,12 @@ This is the same class as the duplicate-numbering defect fixed today, in the opp
 and it is worse: that one printed a number twice, this one omits the mark entirely.
 
 ### 3. Resuming a procedure drawing opens unfitted, and its areas never draw
+
+**Fixed** (2026-08-15) — phase 3 of
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md). The
+diagnosis below is half right: the template element was not merely unmeasured, it could not be
+painted at all — `demo_seed` writes it with no `fileId` and a `{"name": …}` stub with no image URL,
+so fit and areas landed on a phantom and the late repair replaced the whole scene.
 
 Opening the saved drawing on `HLC-CPR-2026-02868` gave a blank canvas at **100%** zoom. The
 content is there — pressing *Fit* revealed the template at 88% — so the initial `fitToTemplate`

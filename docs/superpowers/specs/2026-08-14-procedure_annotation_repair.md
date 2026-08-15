@@ -1,9 +1,10 @@
 # Procedure Annotation Popup — Repair
 
 Date: 2026-08-14
-Status: **Phases 1–2 implemented & verified** (2026-08-14) — see [Verification](#verification).
-Phase 2 deviated from the plan (it needed a new endpoint) — see
-[Reconciliation](#reconciliation--what-changed-vs-the-plan). Phases 3–4 not started.
+Status: **Phases 1–3 implemented & verified** (2026-08-15) — see [Verification](#verification).
+Phases 2 and 3 both deviated from the plan (phase 2 needed a new endpoint; phase 3's race turned
+out to be a template element that could not be painted at all) — see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan). Phase 4 not started.
 
 The findings this spec repairs were recorded by a browser pass in
 [`2026-08-14-procedure_annotation_qa.md`](2026-08-14-procedure_annotation_qa.md); each phase below
@@ -233,6 +234,72 @@ round trip, and a save still refreshes exactly once through `onSaved`.
 Unchanged: when marks are written (`onMarkPlaced` is untouched), `_sync_chart_marks_for_annotation`
 and all four of its properties, `delete_chart_mark`, and the scene payload.
 
+### 6. Nothing is measured against an unmeasured template — `EmbeddedExcalidraw.jsx`
+
+`getTemplateBounds` stops inventing a template. Its `|| 1` fallback is what produced the 1px
+outlines the QA pass photographed, and every caller already handles `null`
+(`buildPlacementPayload` and `buildDrawnPlacementPayload` fall back to 50%, `renderChartMarks`
+returns, `renderTemplateParts` clears the layer).
+
+```jsx
+function getTemplateBounds(api) {
+  const template = getTemplateElement(api)
+  if (!template || template.isDeleted) return null
+  if (!isPositiveSize(template.width) || !isPositiveSize(template.height)) return null
+  return { x: template.x || 0, y: template.y || 0, width: template.width, height: template.height }
+}
+```
+
+The wait is one bounded rAF loop, in the same shape as the canvas retry it sits below:
+
+```jsx
+function whenTemplateMeasured(api, expectsTemplate = true) {
+  if (!api || !expectsTemplate || getTemplateBounds(api)) return Promise.resolve()
+  return new Promise((resolve) => { /* rAF until measured, TEMPLATE_MEASURE_RETRY_LIMIT frames */ })
+}
+```
+
+`loadSceneIntoApi` awaits it before fitting (`expectsTemplate` read off the hydrated elements, so
+the consultation sketchpad never waits), `insertTemplateImage` awaits it before fitting, and the
+marks effect and the `renderTemplateParts` bridge method await it before drawing. `fitToTemplate`
+ignores a template element it cannot measure rather than parking the view on an invisible box, and
+`getRenderedPartCount` counts only outlines with real bounds — so `Hide Areas` is offered when
+areas are visible, not when they merely exist.
+
+### 7. A template that cannot be painted is rebuilt in place — `EmbeddedExcalidraw.jsx`
+
+**This is the actual defect behind finding 3.** A scene can carry a template element with no
+`fileId` and a `customData.template` stub with no `image` — `demo_seed._demo_scene` writes exactly
+that. `hydrateTemplateImageFiles` cannot rebuild it (no `fileId`, no URL), so the element is a
+phantom: fit lands on it, areas trace it, and nothing is drawn.
+
+```jsx
+  async function rebuildUnrenderableTemplate() {
+    if (!api || isTemplateRenderable(api)) return
+    const template = chartTemplateRef.current
+    const sceneTemplateName = getTemplateElement(api)?.customData?.template?.name
+    if (!template?.image) return
+    if (sceneTemplateName && sceneTemplateName !== template.name) return
+    await loadTemplateIntoCanvas(api, template, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
+  }
+```
+
+Two properties make that safe:
+
+- **The rebuild keeps the box.** `templateGeometry` reuses the previous element's `x/y/width/height`
+  when the same template is being replaced, and fits to the canvas only for a first insert or a
+  switch to another silhouette. Moving the box would slide every stroke and mark off the anatomy.
+- **The rebuild keeps the drawing.** `insertTemplateImage` used to hand `updateScene` the image
+  alone (`const existing = []`), so the resize watcher's repair replaced the whole scene. It now
+  keeps every non-template element. That wipe — not the fit — is why the QA pass saw `Hide Areas`
+  offered over a canvas with no outlines on it: the count was taken before the scene was replaced.
+  A side effect worth naming: switching to another body template mid-drawing no longer erases what
+  is on the canvas either. Silently discarding a drawing was never the intended behaviour of a
+  picker click, and no spec asserted it.
+
+The name guard is the boundary: a drawing made on another silhouette is left as it is rather than
+silently re-backed with the chart's current body template.
+
 ## Security
 
 `discard_chart_marks` is a new whitelisted endpoint that **deletes patient data**, so it calls
@@ -268,6 +335,13 @@ entry, a photo set, or a submitted procedure. `TestDiscardChartMarks` asserts ea
   procedure) survives, and the practitioner is told how many stayed.
 - Regression: Save Annotation still keeps every mark, and closing an untouched studio still costs
   no round trip and no prompt.
+- A resumed procedure drawing opens at the same zoom its first open had, not at an untouched 100%.
+- A resumed drawing shows its area outlines, and `Hide Areas` is offered only when outlines are
+  actually on the canvas.
+- A drawing whose template image was never persisted — no `fileId`, no image URL on the stub —
+  gets its picture rebuilt, in the box the scene already had, and keeps every mark and stroke.
+- A drawing made on a different body template than the one the chart currently shows is left with
+  its own background rather than re-backed.
 
 ## Phases
 
@@ -279,7 +353,7 @@ entry, a photo set, or a submitted procedure. `TestDiscardChartMarks` asserts ea
    the dialog said would happen. **Done.**
 3. **Finding 3 — resume race.** Fit and part geometry both wait on the template *element* having
    non-zero bounds, not just the canvas. *Exit:* a resumed procedure drawing opens fitted with its
-   area outlines drawn.
+   area outlines drawn. **Done.**
 4. **Findings 4 and 5 — drawer filter/search, header wording.** *Exit:* the drawer filters to the
    procedure's own category with a search box; the header names the patient once.
 
@@ -307,6 +381,19 @@ entry, a photo set, or a submitted procedure. `TestDiscardChartMarks` asserts ea
   deleting rows behind a modal and leaving the tab showing them is the same class of lie the phase
   set out to fix. `openDermaAnnotationStudio` now forwards a `{ marksChanged }` result and
   `DermaChart.vue` refreshes on it.
+- **Phase 3 was not a frame race.** The plan read the QA note literally — wait a frame for the
+  template element to be measured — and a spec written to that contract passed on the shipped
+  bundle, twice, even with the settle window cut to 1.5s. The real cause is a template element the
+  canvas cannot paint: `demo_seed._demo_scene` (and any drawing saved the same way) stores one with
+  no `fileId` and a `{"name": …}` template stub, so `hydrateTemplateImageFiles` has nothing to
+  rebuild from. The fit and the outlines were landing on a phantom, and the resize watcher's late
+  repair then replaced the entire scene — `insertTemplateImage` passed `updateScene` the image
+  alone. A spec seeded with that scene shape failed red (`data-mark-count` `0`, *"rebuilding the
+  template image threw the drawing away"*). The measured-bounds guard the plan asked for is still
+  here and still correct; it is the smaller half of the phase.
+- **`insertTemplateImage` no longer replaces the scene, and a rebuild keeps the previous box.**
+  Neither was in the plan. Both are forced by the above: repairing a template must not cost the
+  drawing, and must not move the anatomy under marks that were placed against it.
 - **The bench's job queue blocked the browser verification, not the code.** Every HTTP delete
   returned **503 QueueOverloaded** — the `default` RQ queue held its 600-job cap of
   `delete_dynamic_links` jobs left by earlier e2e runs with no worker consuming them (oldest
@@ -365,6 +452,30 @@ No migrate: no doctype, patch or fixture changed. No bundle filename changed.
 
 **Not yet run:** nothing outstanding for this phase.
 
+### Phase 3
+
+Frontend only: `bench build --app do_derma` required, no bundle filename changed, no Python, patch
+or fixture touched, so no migrate and nothing for `ruff` or the Frappe runner to say.
+
+**Browser (Playwright).** New `e2e/tests/annotation-resume.spec.ts`, two specs. The second —
+*"rebuilds a template that cannot render without losing the drawing"* — was **watched red first**
+on the shipped bundle: `expect(locator).toHaveAttribute` failed with `Expected "1", Received "0"`
+on `data-mark-count`, the drawing gone after the rebuild. Green after the change and a rebuild.
+
+The first spec, *"opens a saved drawing fitted to its template, with the areas drawn"*, **passed on
+the pre-fix bundle** and is kept as a regression guard rather than claimed as a red test — see the
+Reconciliation note above. It asserts the resumed zoom equals the first open's zoom (Excalidraw
+renders it as the reset-zoom label) and that `Hide Areas` is offered.
+
+`npx playwright test annotation-` — **36 passed** (8.4m), so badges, canvas, consultation, discard,
+freehand, anchoring and the toolbar button are unaffected by the strict bounds and the
+scene-preserving insert. The rest of the suite — `tab-spine`, `assessment-modes`, `chart-context`,
+`feature-toggles`, `orphan-triage` — **21 passed** (30.1s).
+
+**Not yet run:** the demo-data reproduction from the QA pass (`HLC-CPR-2026-02868`) in a real
+browser; the seeded spec above reproduces that scene shape exactly and is what the fix is measured
+against.
+
 ### Left behind
 
 The browser check placed a real mark on demo procedure `HLC-CPR-2026-02869`, on top of the
@@ -380,5 +491,7 @@ do_derma.demo_seed.teardown_demo_data` then `setup_demo_data` resets them.
 | `public/js/chart/DermaChart.vue` | Phase 2: refresh the chart when a discard removed marks |
 | `do_derma/tests/test_api.py` | Phase 2: `TestDiscardChartMarks` *(5 cases)* |
 | `e2e/tests/annotation-discard.spec.ts` | Phase 2 *(new)*: discard deletes what it placed, keeps what it did not |
+| `public/js/chart/excalidraw/EmbeddedExcalidraw.jsx` | Phase 3: strict `getTemplateBounds`, `whenTemplateMeasured`, `isTemplateRenderable`, `rebuildUnrenderableTemplate`, `templateGeometry`, scene-preserving `insertTemplateImage`, visible-only `getRenderedPartCount` |
+| `e2e/tests/annotation-resume.spec.ts` | Phase 3 *(new)*: a resumed drawing opens fitted with its areas; an unpaintable template is rebuilt without losing the drawing |
 | `e2e/tests/annotation-badges.spec.ts` | Rewrite the "not badge-worthy" assertion to the new contract |
 | `docs/superpowers/specs/2026-08-14-procedure_annotation_qa.md` | Point findings 1 and 2 at this spec |

@@ -6,6 +6,7 @@ const MIN_DRAWN_MARK_SIZE = 6
 export const BADGE_KIND = "derma_badge"
 export const TEMPLATE_PART_KIND = "derma_template_part"
 const FIT_RETRY_LIMIT = 3
+const TEMPLATE_MEASURE_RETRY_LIMIT = 30
 
 /**
  * Everything by which a drawing could enter or leave the app outside do_derma's own Save and
@@ -151,8 +152,10 @@ function parseAnnotation(annotation) {
       applyDermaTool()
     },
     renderTemplateParts: (parts) => {
-      renderTemplateParts(api, parts)
-      styleTemplateParts(api, partStateRef.current)
+      whenTemplateMeasured(api, Boolean(chartTemplateRef.current?.image)).then(() => {
+        renderTemplateParts(api, parts)
+        styleTemplateParts(api, partStateRef.current)
+      })
     },
     setPartStates: (state) => {
       partStateRef.current = {
@@ -169,9 +172,15 @@ function parseAnnotation(annotation) {
     setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
     updateMarkVariables: (payload) => updateMarkVariables(api, payload),
     resetView: () => fitToTemplate(api),
+    // Counts outlines the practitioner can see. An area with degenerate bounds is not drawn,
+    // and offering "Hide Areas" over it says the canvas holds something it does not.
     getRenderedPartCount: () =>
       (api?.getSceneElements?.() || []).filter(
-        (element) => !element.isDeleted && element.customData?.kind === TEMPLATE_PART_KIND
+        (element) =>
+          !element.isDeleted &&
+          element.customData?.kind === TEMPLATE_PART_KIND &&
+          isPositiveSize(element.width) &&
+          isPositiveSize(element.height)
       ).length,
   }))
 
@@ -183,10 +192,11 @@ function parseAnnotation(annotation) {
       pendingSceneImport.current = ""
       return
     }
-    loadSceneIntoApi(api, scene, false).then(() => {
+    loadSceneIntoApi(api, scene, false).then(async () => {
       latestImported.current = initialAnnotation.name
       pendingSceneImport.current = ""
       adoptSceneTemplate(api, latestTemplateImage)
+      await rebuildUnrenderableTemplate()
       // Areas are derived from the template and stripped before persisting, so a resumed
       // scene never carries them - render them here or the drawing comes back without any.
       renderTemplateParts(api, chartTemplateRef.current?.parts || [])
@@ -195,6 +205,22 @@ function parseAnnotation(annotation) {
       onSceneReady?.()
     })
   }, [api, initialAnnotation?.name])
+
+	/**
+	 * A resumed scene can carry a template element that cannot be painted - no file, and a
+	 * template stub with no image URL to rebuild one from. Left alone it is a phantom: the fit
+	 * lands on an invisible box, the areas trace it, and the resize-driven reload repairs it
+	 * later by replacing the scene. Rebuild it here instead, in place, before anything is
+	 * measured against it, and only when the body template on the chart is the same row.
+	 */
+	async function rebuildUnrenderableTemplate() {
+		if (!api || isTemplateRenderable(api)) return
+		const template = chartTemplateRef.current
+		const sceneTemplateName = getTemplateElement(api)?.customData?.template?.name
+		if (!template?.image) return
+		if (sceneTemplateName && sceneTemplateName !== template.name) return
+		await loadTemplateIntoCanvas(api, template, latestTemplateImage, loadingTemplateImage, templateLoadGeneration)
+	}
 
 		async function loadSceneIntoApi(api, scene, commitToHistory) {
 		  const hydrated = await hydrateTemplateImageFiles(scene)
@@ -206,6 +232,7 @@ function parseAnnotation(annotation) {
         files: hydrated.files || {},
         commitToHistory,
 	      })
+	      await whenTemplateMeasured(api, hasTemplateElement(hydrated.elements))
 	      fitToTemplate(api)
 	    }
 
@@ -241,7 +268,9 @@ function parseAnnotation(annotation) {
 	useEffect(() => {
 		marksRef.current = marks || []
 		if (!api || pendingSceneImport.current) return
-		renderChartMarks(api, marksRef.current)
+		whenTemplateMeasured(api, Boolean(chartTemplateRef.current?.image)).then(() =>
+			renderChartMarks(api, marksRef.current)
+		)
 	}, [api, marks])
 
 	  useEffect(() => {
@@ -1041,15 +1070,54 @@ function adoptSceneTemplate(api, latestTemplateImageRef) {
 	if (signature) latestTemplateImageRef.current = signature
 }
 
+/**
+ * Null until the template element is measured. A `|| 1` fallback here used to hand out a 1px
+ * template, which draws every area outline degenerate and fits the view onto nothing.
+ */
 function getTemplateBounds(api) {
   const template = getTemplateElement(api)
-  if (!template) return null
+  if (!template || template.isDeleted) return null
+  if (!isPositiveSize(template.width) || !isPositiveSize(template.height)) return null
   return {
     x: template.x || 0,
     y: template.y || 0,
-    width: template.width || 1,
-    height: template.height || 1,
+    width: template.width,
+    height: template.height,
   }
+}
+
+function isPositiveSize(value) {
+  return Number.isFinite(value) && value > 0
+}
+
+/** A template element the canvas can actually paint: measured, and holding a loaded image file. */
+function isTemplateRenderable(api) {
+  const template = getTemplateElement(api)
+  if (!template || !getTemplateBounds(api)) return false
+  return Boolean(template.fileId && normalizeBinaryFiles(api.getFiles?.())[template.fileId]?.dataURL)
+}
+
+/**
+ * The scene Excalidraw reports back can lag an updateScene by a frame or more, so the template
+ * element is unmeasured for a moment after a resumed drawing lands. Everything positioned
+ * against it - the fit, the area outlines, the mark layer - waits here first.
+ */
+function whenTemplateMeasured(api, expectsTemplate = true) {
+  if (!api || !expectsTemplate || getTemplateBounds(api)) return Promise.resolve()
+  return new Promise((resolve) => {
+    const settle = (attempt) => {
+      if (getTemplateBounds(api) || attempt >= TEMPLATE_MEASURE_RETRY_LIMIT) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(() => settle(attempt + 1))
+    }
+    settle(0)
+  })
+}
+
+function hasTemplateElement(elements = []) {
+  return elements.some((element) => element.customData?.kind === "derma_template" && !element.isDeleted)
 }
 
 function clamp(value, min, max) {
@@ -1098,15 +1166,14 @@ async function insertTemplateImage(api, template, guard = {}) {
 
   const appState = api.getAppState()
   if (isStaleTemplateLoad(guard)) return false
-  const canvasWidth = appState.width || 900
-  const canvasHeight = appState.height || 620
-  const fit = getTemplateFitBounds(template, canvasWidth, canvasHeight)
-  const scale = Math.min(fit.maxWidth / naturalWidth, fit.maxHeight / naturalHeight, 1.05)
-  const width = naturalWidth * scale
-  const height = naturalHeight * scale
-  const x = fit.x + fit.width / 2 - width / 2
-  const y = fit.y + fit.height / 2 - height / 2
-  const existing = []
+  const previous = getTemplateElement(api)
+  const { x, y, width, height } = templateGeometry(api, template, previous, naturalWidth, naturalHeight)
+  // Everything already drawn stays. This used to hand updateScene the image alone, so a rebuild
+  // of an unrenderable template - which is what the resize watcher asks for - took the
+  // practitioner's drawing with it.
+  const existing = api
+    .getSceneElements()
+    .filter((element) => element.customData?.kind !== "derma_template")
   const imageElement = {
     id: `${fileId}-element`,
     type: "image",
@@ -1148,9 +1215,37 @@ async function insertTemplateImage(api, template, guard = {}) {
     elements: [imageElement, ...existing],
     commitToHistory: true,
   })
+  await whenTemplateMeasured(api)
   fitToTemplate(api)
   api.refresh?.()
   return true
+}
+
+/**
+ * Where the template image goes. Rebuilding the same template keeps the box the scene already
+ * has: marks and strokes were placed against it, and moving it would slide them off the anatomy.
+ * Anything else - a first insert, or a switch to another silhouette - is fitted to the canvas.
+ */
+function templateGeometry(api, template, previous, naturalWidth, naturalHeight) {
+  const isRebuildInPlace =
+    previous &&
+    isPositiveSize(previous.width) &&
+    isPositiveSize(previous.height) &&
+    (!previous.customData?.template?.name || previous.customData.template.name === template.name)
+  if (isRebuildInPlace) {
+    return { x: previous.x || 0, y: previous.y || 0, width: previous.width, height: previous.height }
+  }
+  const appState = api.getAppState()
+  const fit = getTemplateFitBounds(template, appState.width || 900, appState.height || 620)
+  const scale = Math.min(fit.maxWidth / naturalWidth, fit.maxHeight / naturalHeight, 1.05)
+  const width = naturalWidth * scale
+  const height = naturalHeight * scale
+  return {
+    x: fit.x + fit.width / 2 - width / 2,
+    y: fit.y + fit.height / 2 - height / 2,
+    width,
+    height,
+  }
 }
 
 function isStaleTemplateLoad(guard = {}) {
@@ -1334,8 +1429,10 @@ function fitToTemplate(api, attempt = 0) {
     requestAnimationFrame(() => fitToTemplate(api, attempt + 1))
     return
   }
-  const templateElement = getTemplateElement(api)
-  const visibleElements = templateElement && !templateElement.isDeleted
+  // An unmeasured template is not something to fit onto - fitting to it parks the view on a
+  // box nobody can see, which is what a resumed drawing used to open on.
+  const templateElement = getTemplateBounds(api) ? getTemplateElement(api) : null
+  const visibleElements = templateElement
     ? [templateElement]
     : api.getSceneElements().filter((element) => !element.isDeleted)
   if (!visibleElements.length) return
