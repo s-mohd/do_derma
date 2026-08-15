@@ -80,6 +80,13 @@ function procedureVariables(procedure = {}) {
   return procedure.derma_variables || procedure.variables || []
 }
 
+function procedureSearchText(procedure = {}) {
+  return [procedureLabel(procedure), procedure.custom_derma_category, procedure.description]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+}
+
 function taggingHint(procedure, label) {
   if (isAreaBehavior(procedure)) {
     return __("Tagging as: {0} - drag on the canvas to outline the treated area.").replace("{0}", label)
@@ -90,11 +97,20 @@ function taggingHint(procedure, label) {
   return __("Tagging as: {0} - click the canvas to place a mark.").replace("{0}", label)
 }
 
+/** A Clinical Procedure names its patient ("Amina Haddad - Laser"); the header already does. */
+function procedureAnchorLabel(context = {}) {
+  const label = context.procedureTemplate || context.procedureLabel || context.clinicalProcedure || ""
+  const patientName = context.patientName || ""
+  const prefix = `${patientName} - `
+  return patientName && label.startsWith(prefix) ? label.slice(prefix.length) : label
+}
+
 function anchorDescription(context = {}) {
-  if (context.clinicalProcedure) {
-    return `${__("Procedure")} — ${context.procedureLabel || context.clinicalProcedure}`
-  }
-  return `${__("Consultation")} — ${context.patientName || context.patient || ""}`.trim()
+  const patientName = context.patientName || context.patient || ""
+  const anchor = context.clinicalProcedure
+    ? `${__("Procedure")}: ${procedureAnchorLabel(context)}`
+    : __("Consultation")
+  return [patientName, anchor].filter(Boolean).join(" — ")
 }
 
 function resumedTemplateName(annotation) {
@@ -317,6 +333,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [saving, setSaving] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
   const [showAllTemplates, setShowAllTemplates] = useState(false)
+  const [showAllProcedures, setShowAllProcedures] = useState(false)
+  const [procedureSearch, setProcedureSearch] = useState("")
   const [areasHidden, setAreasHidden] = useState(false)
   // Bumped by the canvas on every scene change, so the badge layer follows what is drawn.
   const [sceneRevision, setSceneRevision] = useState(0)
@@ -348,6 +366,23 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const templates = showAllTemplates ? allTemplates : sexMatchedTemplates
   const isSexFiltered = sexMatchedTemplates.length < allTemplates.length
   const procedures = useMemo(() => (procedureTemplates || []).filter((procedure) => procedure.name), [procedureTemplates])
+  const anchorProcedureCategory = useMemo(
+    () => procedures.find((row) => row.name === context.procedureTemplate)?.custom_derma_category || "",
+    [procedures, context.procedureTemplate],
+  )
+  // Same rule the template picker uses for sex: filter to what this anchor is for, never to nothing.
+  const categoryMatchedProcedures = useMemo(() => {
+    if (!anchorProcedureCategory) return procedures
+    const matched = procedures.filter((row) => row.custom_derma_category === anchorProcedureCategory)
+    return matched.length ? matched : procedures
+  }, [procedures, anchorProcedureCategory])
+  const isCategoryFiltered = categoryMatchedProcedures.length < procedures.length
+  const visibleProcedures = useMemo(() => {
+    const pool = showAllProcedures ? procedures : categoryMatchedProcedures
+    const needle = procedureSearch.trim().toLowerCase()
+    if (!needle) return pool
+    return pool.filter((row) => procedureSearchText(row).includes(needle))
+  }, [procedures, categoryMatchedProcedures, showAllProcedures, procedureSearch])
   const templateGroups = useMemo(() => groupedTemplates(templates), [templates])
   // Resolve the selection against every template, so resuming a drawing made on an
   // off-sex template never silently swaps its background.
@@ -820,8 +855,28 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
           {drawer === "procedures" ? <div className="derma-annotation-panel">
             <h3>{__("Procedures")}</h3>
+            <input
+              type="search"
+              className="derma-annotation-search"
+              data-test="annotation-procedure-search"
+              value={procedureSearch}
+              placeholder={__("Search procedures")}
+              onChange={(event) => setProcedureSearch(event.target.value)}
+            />
+            {isCategoryFiltered || showAllProcedures ? (
+              <label className="derma-template-show-all" data-test="annotation-show-all-procedures">
+                <input
+                  type="checkbox"
+                  checked={showAllProcedures}
+                  onChange={(event) => setShowAllProcedures(event.target.checked)}
+                />
+                {showAllProcedures
+                  ? __("Showing all categories")
+                  : __("Show all ({0} only)").replace("{0}", anchorProcedureCategory)}
+              </label>
+            ) : null}
             <div className="derma-treatment-list">
-              {procedures.map((procedure) => {
+              {visibleProcedures.map((procedure) => {
                 const name = procedureLabel(procedure)
                 return (
                   <button
@@ -838,6 +893,13 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 )
               })}
             </div>
+            {!visibleProcedures.length ? (
+              <p className="derma-annotation-empty" data-test="annotation-procedure-empty">
+                {procedures.length
+                  ? __("No procedure template matches this search.")
+                  : __("No derma procedure templates are configured.")}
+              </p>
+            ) : null}
           </div> : null}
         </aside> : null}
 

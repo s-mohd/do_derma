@@ -1697,6 +1697,9 @@ function openAnnotationStudio(anchor = {}) {
       appointment: appointment.value.name || props.context?.appointment,
       clinicalProcedure,
       procedureLabel: anchor.procedureLabel || "",
+      // The Clinical Procedure Template behind the anchor: the studio filters its
+      // procedures drawer to that template's category and titles the header with it.
+      procedureTemplate: anchor.procedureTemplate || "",
     },
     bodyTemplates: bodyTemplates.value,
     procedureTemplates: procedureTemplates.value,
@@ -1751,17 +1754,20 @@ function annotateProcedure(row) {
     frappe.msgprint(__("Save the procedure before annotating it."))
     return
   }
-  const procedureLabel = row.display_name || row.procedure_template || clinicalProcedure
+  const procedureTemplate = row.procedure_template || ""
+  const procedureLabel = row.display_name || procedureTemplate || clinicalProcedure
+  const anchor = { clinicalProcedure, procedureLabel, procedureTemplate }
   const existing = procedureAnnotations.value[clinicalProcedure] || []
   if (!existing.length) {
-    openAnnotationStudio({ clinicalProcedure, procedureLabel, annotation: null })
+    openAnnotationStudio({ ...anchor, annotation: null })
     return
   }
-  openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, annotations: existing })
+  openProcedureAnnotationPicker({ ...anchor, annotations: existing })
 }
 
 /** A procedure can hold several drawings: resume one deliberately, or start fresh. */
-function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, annotations }) {
+function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, procedureTemplate, annotations }) {
+  const anchor = { clinicalProcedure, procedureLabel, procedureTemplate }
   const dialog = new frappe.ui.Dialog({
     title: `${__("Annotations")} · ${procedureLabel}`,
     size: "large",
@@ -1769,7 +1775,7 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, anno
     primary_action_label: __("New Annotation"),
     primary_action: () => {
       dialog.hide()
-      openAnnotationStudio({ clinicalProcedure, procedureLabel, annotation: null })
+      openAnnotationStudio({ ...anchor, annotation: null })
     },
     // Frappe keeps hidden modals in the DOM; a re-opened picker would stack a
     // second copy of every data-test hook.
@@ -1802,7 +1808,7 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, anno
   $wrapper.find('[data-test="annotation-picker-edit"]').on("click", (event) => {
     const index = Number(event.currentTarget.getAttribute("data-index"))
     dialog.hide()
-    openAnnotationStudio({ clinicalProcedure, procedureLabel, annotation: annotations[index] || null })
+    openAnnotationStudio({ ...anchor, annotation: annotations[index] || null })
   })
   dialog.show()
 }

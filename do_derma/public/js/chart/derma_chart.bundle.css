@@ -4214,6 +4214,22 @@ body.derma-annotation-open .modal-backdrop {
     "left   main";
 }
 
+.derma-annotation-search {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 6px 9px;
+  font-size: 12px;
+  color: var(--derma-text-strong);
+  border: 1px solid var(--derma-border-subtle);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.derma-annotation-search:focus {
+  outline: none;
+  border-color: var(--derma-brand);
+}
+
 .derma-template-show-all {
   display: flex;
   align-items: center;

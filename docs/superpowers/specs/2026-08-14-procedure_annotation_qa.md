@@ -1,9 +1,9 @@
 # Procedure Annotation Popup — QA Findings
 
 Date: 2026-08-14
-Status: **Findings recorded; findings 1, 2 and 3 fixed.** The repairs are specced and tracked in
-[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md);
-findings 4 and 5 are still open. A browser pass over the procedure-anchored
+Status: **Findings recorded; all five fixed.** The repairs are specced and tracked in
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md).
+A browser pass over the procedure-anchored
 annotation studio, the counterpart to the consultation pass recorded in
 [`2026-08-14-annotation_studio_safety.md`](2026-08-14-annotation_studio_safety.md) and
 [`2026-08-14-annotation_output_fidelity.md`](2026-08-14-annotation_output_fidelity.md).
@@ -102,12 +102,23 @@ the *template element* not being measured. Same race, one level down.
 
 ### 4. The procedures drawer lists every template on the site, unfiltered and unsearchable
 
+**Fixed** (2026-08-15) — phase 4 of
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md). The
+drawer filters to the anchor procedure's own `custom_derma_category` — falling back to the full
+list rather than to an empty picker, the rule the body-template drawer already uses for sex — and
+carries a search box over label, category and description.
+
 Eleven entries for this patient, including the `E2E ` test fixtures and unrelated site templates
 (Facial, Laser), with no search box and no filter by the procedure's own category — while the
 Templates drawer beside it does filter, by patient sex. A clinic with a real template list will
 scroll. Seed fixtures leaking in is dev-clone noise, but the absent filter is not.
 
 ### 5. Cosmetic: the header repeats the patient name
+
+**Fixed** (2026-08-15) — phase 4 of
+[`2026-08-14-procedure_annotation_repair.md`](2026-08-14-procedure_annotation_repair.md). The
+header now reads `<patient> — Procedure: <template>`: the anchor is named by its
+`Clinical Procedure Template`, which never embeds the patient.
 
 `Procedure — DEMO Amina Haddad - DEMO Laser Resurfacing`: the Clinical Procedure's own name
 already embeds the patient, so the name appears twice in one line.

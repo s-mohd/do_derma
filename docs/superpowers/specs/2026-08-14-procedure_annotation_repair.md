@@ -1,10 +1,10 @@
 # Procedure Annotation Popup — Repair
 
 Date: 2026-08-14
-Status: **Phases 1–3 implemented & verified** (2026-08-15) — see [Verification](#verification).
-Phases 2 and 3 both deviated from the plan (phase 2 needed a new endpoint; phase 3's race turned
-out to be a template element that could not be painted at all) — see
-[Reconciliation](#reconciliation--what-changed-vs-the-plan). Phase 4 not started.
+Status: **Implemented & verified** (2026-08-15) — all four phases; see
+[Verification](#verification). Phases 2 and 3 both deviated from the plan (phase 2 needed a new
+endpoint; phase 3's race turned out to be a template element that could not be painted at all) —
+see [Reconciliation](#reconciliation--what-changed-vs-the-plan).
 
 The findings this spec repairs were recorded by a browser pass in
 [`2026-08-14-procedure_annotation_qa.md`](2026-08-14-procedure_annotation_qa.md); each phase below
@@ -300,6 +300,55 @@ Two properties make that safe:
 The name guard is the boundary: a drawing made on another silhouette is left as it is rather than
 silently re-backed with the chart's current body template.
 
+### 8. The procedures drawer filters to the anchor's category and takes a search — `DermaAnnotationStudio.jsx`
+
+The drawer listed every derma-flagged `Clinical Procedure Template` on the site. It now narrows to
+the category of the template the anchor procedure was booked with, using **the same rule the body
+template picker already uses for patient sex** — filter to what this anchor is for, and fall back
+to everything rather than to an empty picker:
+
+```jsx
+const anchorProcedureCategory = useMemo(
+  () => procedures.find((row) => row.name === context.procedureTemplate)?.custom_derma_category || "",
+  [procedures, context.procedureTemplate],
+)
+const categoryMatchedProcedures = useMemo(() => {
+  if (!anchorProcedureCategory) return procedures
+  const matched = procedures.filter((row) => row.custom_derma_category === anchorProcedureCategory)
+  return matched.length ? matched : procedures
+}, [procedures, anchorProcedureCategory])
+```
+
+`visibleProcedures` then applies the search string over the label, the category and the
+description. The escape hatch is the templates drawer's checkbox, worded for categories
+(`data-test="annotation-show-all-procedures"`), and it appears only when the filter is actually
+holding rows back. An empty result says so (`data-test="annotation-procedure-empty"`) instead of
+rendering a blank panel.
+
+`custom_derma_category` is already on every row `get_derma_chart_context` returns
+(`DERMA_TEMPLATE_FIELDS`, `api.py:129`), so **no endpoint and no schema check changes**; a site
+whose templates carry no category falls through to the unfiltered list by the same guard.
+
+### 9. The anchor is named once — `DermaAnnotationStudio.jsx` / `DermaChart.vue`
+
+`annotateProcedure` now passes `procedureTemplate` (the `Clinical Procedure Template` docname)
+beside the existing `procedureLabel`, through the picker and into `context`. The header prefers it,
+because a Clinical Procedure's own name embeds the patient:
+
+```jsx
+function anchorDescription(context = {}) {
+  const patientName = context.patientName || context.patient || ""
+  const anchor = context.clinicalProcedure
+    ? `${__("Procedure")}: ${procedureAnchorLabel(context)}`
+    : __("Consultation")
+  return [patientName, anchor].filter(Boolean).join(" — ")
+}
+```
+
+`procedureAnchorLabel` strips a `"<patient> - "` prefix when it has to fall back to the display
+name, so an anchor opened from a surface that never learned the template still reads once. Both
+branches now lead with the patient, so the consultation and procedure headers are one shape.
+
 ## Security
 
 `discard_chart_marks` is a new whitelisted endpoint that **deletes patient data**, so it calls
@@ -342,6 +391,13 @@ entry, a photo set, or a submitted procedure. `TestDiscardChartMarks` asserts ea
   gets its picture rebuilt, in the box the scene already had, and keeps every mark and stroke.
 - A drawing made on a different body template than the one the chart currently shows is left with
   its own background rather than re-backed.
+- The procedures drawer opens showing the anchor procedure's own category, and typing in the
+  search box narrows it to the matching templates.
+- A search that matches nothing says so rather than showing an empty panel, and clearing it
+  restores the list.
+- A site whose templates carry no category, or whose anchor's category matches nothing, still
+  gets the full list rather than an empty drawer.
+- The header names the patient once and names the procedure by its template.
 
 ## Phases
 
@@ -355,7 +411,7 @@ entry, a photo set, or a submitted procedure. `TestDiscardChartMarks` asserts ea
    non-zero bounds, not just the canvas. *Exit:* a resumed procedure drawing opens fitted with its
    area outlines drawn. **Done.**
 4. **Findings 4 and 5 — drawer filter/search, header wording.** *Exit:* the drawer filters to the
-   procedure's own category with a search box; the header names the patient once.
+   procedure's own category with a search box; the header names the patient once. **Done.**
 
 ## Open Questions
 
@@ -476,6 +532,26 @@ scene-preserving insert. The rest of the suite — `tab-spine`, `assessment-mode
 browser; the seeded spec above reproduces that scene shape exactly and is what the fix is measured
 against.
 
+### Phase 4
+
+Frontend only again: `bench build --app do_derma` required, no bundle filename changed, no Python,
+patch or fixture touched, so no migrate and nothing for `ruff` or the Frappe runner.
+
+**Browser (Playwright).** New `e2e/tests/annotation-procedure-drawer.spec.ts`, two specs — the
+category filter keeps every sibling template in the anchor's own category, the search narrows to
+one and then to none with the empty message, clearing restores the count, and the header names the
+seeded patient exactly once while reading `Procedure: E2E Filler`. **2 passed** (12.7s). The
+first run failed on a strict-mode violation (four `.derma-annotation-empty` nodes in the studio),
+which is why the drawer's empty state carries its own `data-test` hook.
+
+The show-all-categories branch is asserted conditionally: the dev site is a production clone, so
+whether any other-category template exists is site data. When the checkbox is offered, the spec
+requires it to widen the list.
+
+**Regression:** `annotation-anchoring`, `-consultation`, `-badges`, `-discard` — **20 passed**
+(5.3m); `annotation-canvas`, `-freehand`, `-resume` — **14 passed** (3.2m). Between them they
+cover both header branches and every drawer selection in the suite.
+
 ### Left behind
 
 The browser check placed a real mark on demo procedure `HLC-CPR-2026-02869`, on top of the
@@ -486,12 +562,14 @@ do_derma.demo_seed.teardown_demo_data` then `setup_demo_data` resets them.
 
 | File | Change |
 |---|---|
-| `public/js/chart/annotation/DermaAnnotationStudio.jsx` | Phase 1: drop the `hasParams` gate; em dash for an empty parameter cell. Phase 2: `sessionMarks`, the counted confirm, `discardDrawing`, and the close result |
+| `public/js/chart/annotation/DermaAnnotationStudio.jsx` | Phase 1: drop the `hasParams` gate; em dash for an empty parameter cell. Phase 2: `sessionMarks`, the counted confirm, `discardDrawing`, and the close result. Phase 4: `anchorProcedureCategory` / `visibleProcedures` / search box / show-all checkbox / empty state, and `anchorDescription` naming the patient once |
 | `do_derma/api.py` | Phase 2: `discard_chart_marks` + `_is_mark_documented` |
-| `public/js/chart/DermaChart.vue` | Phase 2: refresh the chart when a discard removed marks |
+| `public/js/chart/DermaChart.vue` | Phase 2: refresh the chart when a discard removed marks. Phase 4: pass `procedureTemplate` through the annotate entry points and the picker |
+| `public/js/chart/derma_chart.bundle.css` | Phase 4: `.derma-annotation-search` |
+| `e2e/tests/annotation-procedure-drawer.spec.ts` | Phase 4 *(new)*: category filter, search, empty state, header names the patient once |
 | `do_derma/tests/test_api.py` | Phase 2: `TestDiscardChartMarks` *(5 cases)* |
 | `e2e/tests/annotation-discard.spec.ts` | Phase 2 *(new)*: discard deletes what it placed, keeps what it did not |
 | `public/js/chart/excalidraw/EmbeddedExcalidraw.jsx` | Phase 3: strict `getTemplateBounds`, `whenTemplateMeasured`, `isTemplateRenderable`, `rebuildUnrenderableTemplate`, `templateGeometry`, scene-preserving `insertTemplateImage`, visible-only `getRenderedPartCount` |
 | `e2e/tests/annotation-resume.spec.ts` | Phase 3 *(new)*: a resumed drawing opens fitted with its areas; an unpaintable template is rebuilt without losing the drawing |
 | `e2e/tests/annotation-badges.spec.ts` | Rewrite the "not badge-worthy" assertion to the new contract |
-| `docs/superpowers/specs/2026-08-14-procedure_annotation_qa.md` | Point findings 1 and 2 at this spec |
+| `docs/superpowers/specs/2026-08-14-procedure_annotation_qa.md` | Point findings 1, 2, 4 and 5 at this spec |
