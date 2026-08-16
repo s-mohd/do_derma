@@ -600,11 +600,10 @@ two ticked areas and saved (Phase 4 *Exit*); an open outline is refused with inl
 creates no area, and so is a closed bow tie (AC 8, both legs); and an outline closed back on its
 first point does become an area — the guard rejects the right things, not everything.
 
-**Full browser suite.** `npx playwright test` — **71 passed** (1 `auth.setup` + 70 specs: 57 that
-predate this phase plus 13 new). That run predates the queue defect below reaching its cap; a later
-run of the same suite failed 2 `annotation-discard` specs, both on `QueueOverloaded` and neither on
-anything in this diff. The 14th new spec (the bow tie, added from the code review) was run on its
-own file afterwards, not in a full-suite pass.
+**Full browser suite.** `npx playwright test` — **72 passed** (1 `auth.setup` + 71 specs: 57 that
+predate this phase plus 14 new), run after the queue defect below was cleared. An earlier pass of
+the same suite failed 2 `annotation-discard` specs purely on `QueueOverloaded`; with the queue
+drained and a worker consuming, they pass.
 
 **Full Python suite.** `bench --site dermaone.localhost run-tests --app do_derma` — **123 tests,
 OK**. Unchanged from Phase 3: this phase touches no `api.py` code path.
@@ -627,14 +626,17 @@ no `*.bundle.*` filename changed, so the `frappe.require` contract holds.
 - **No TypeScript typecheck.** The repo has no `typescript` dependency — Playwright strips types
   with esbuild and never checks them. Nothing was added to change that.
 - No migrate: this phase changes no schema.
-- **Environment defect found, not fixed:** this bench has no live background worker (`logs/worker.
-  error.log` ends 2026-07-11 with `Error 61 connecting to 127.0.0.1:11002`), so the `default` queue
-  sits at its 600-job cap and every `delete_doc` now fails with `QueueOverloaded`. That is what
-  makes the browser spec's cleanup leave rows behind — hence the disabled fixture template — and it
-  fails unrelated specs that delete documents (`annotation-discard`) on any run after the cap is
-  reached. Drain with `bench worker --queue default --burst`; check depth first with
-  `redis-cli -p 11002 llen rq:queue:Users-hameed-Developer-bench-v16:default`. Not done here: those
-  600 jobs have been queued since 2026-07-11 and running them is the bench owner's call.
+- **Environment defect (cleared, but it will come back).** The `worker-pool` process under
+  `bench start` is alive yet has consumed nothing since 2026-07-11, when it lost redis
+  (`logs/worker.error.log`: `Error 61 connecting to 127.0.0.1:11002`). The `default` queue therefore
+  reached Frappe's 600-job cap and every `delete_doc` began failing with `QueueOverloaded` — which
+  is what made the browser spec's cleanup leave rows behind (hence the disabled fixture template)
+  and what failed `annotation-discard`. The backlog was 600 `delete_dynamic_links` + 35
+  `build_index_for_all_routes` + 2 gravatar cleanups, no mail jobs; it was drained with
+  `bench worker --queue <q> --burst` and the suite then passed 72/72. **The stale worker was not
+  restarted**: `bench start` is supervised by honcho, which kills every sibling process — the
+  webserver included — when one exits. Until it is restarted by hand, run
+  `bench worker --queue default,long,short` alongside a long e2e run, or the cap returns.
 
 ### Phase 3
 
