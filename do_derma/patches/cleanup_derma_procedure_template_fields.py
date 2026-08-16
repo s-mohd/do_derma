@@ -14,8 +14,8 @@ def add_derma_variables_field():
 		return
 	meta = frappe.get_meta("Clinical Procedure Template")
 	insert_after = (
-		"custom_derma_allowed_body_regions"
-		if meta.has_field("custom_derma_allowed_body_regions")
+		"custom_derma_allowed_body_templates"
+		if meta.has_field("custom_derma_allowed_body_templates")
 		else "description"
 	)
 	create_custom_fields(

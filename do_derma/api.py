@@ -129,7 +129,6 @@ DERMA_TEMPLATE_FIELDS = [
 	"medical_department",
 	"custom_derma_category",
 	"custom_derma_allowed_body_templates",
-	"custom_derma_allowed_body_regions",
 	"custom_derma_variables_json",
 	"custom_derma_marker_behavior",
 	"custom_derma_marker_color",
@@ -1981,6 +1980,7 @@ def _template_defaults(template: str | None) -> dict[str, Any]:
 		[
 			"item",
 			"custom_derma_category",
+			"custom_derma_allowed_body_templates",
 			"custom_derma_marker_behavior",
 			"custom_derma_marker_color",
 			"custom_derma_note_template",
@@ -3181,6 +3181,24 @@ def complete_derma_session(
 	}
 
 
+def _ensure_body_template_allowed(
+	procedure_template: str | None, body_template: str | None, template_row: dict[str, Any]
+) -> None:
+	"""Refuse a mark on a body map the procedure's template does not allow.
+
+	The list is free text a clinic types into a Small Text field, so it is read
+	case-insensitively and an empty value means no restriction. A body template is
+	named by its title, which `field:title` autonaming makes its name.
+	"""
+
+	allowed = _split_csv(template_row.get("custom_derma_allowed_body_templates"))
+	if not (body_template and allowed):
+		return
+	if str(body_template).casefold() in {entry.casefold() for entry in allowed}:
+		return
+	frappe.throw(_("{0} cannot be charted on {1}.").format(procedure_template, body_template))
+
+
 @frappe.whitelist()
 def save_chart_mark(values: str | dict[str, Any]):
 	_ensure_clinical_access()
@@ -3211,6 +3229,10 @@ def save_chart_mark(values: str | dict[str, Any]):
 	}.items():
 		if value and not payload.get(field):
 			payload[field] = value
+
+	_ensure_body_template_allowed(
+		payload.get("procedure_template"), payload.get("body_template"), template_defaults
+	)
 
 	if payload.get("body_template") and not payload.get("body_view"):
 		payload["body_view"] = frappe.db.get_value("Derma Body Template", payload["body_template"], "title")
@@ -3269,6 +3291,7 @@ def create_procedure_from_mark(
 		frappe.throw(_("Procedure creation requires an appointment-linked encounter."))
 
 	template_doc = frappe.get_doc("Clinical Procedure Template", procedure_template)
+	_ensure_body_template_allowed(procedure_template, mark_doc.body_template, template_doc.as_dict())
 	_validate_marks_ready_for_procedure([mark_doc], template_doc)
 	procedure = frappe.new_doc("Clinical Procedure")
 	procedure.patient = mark_doc.patient

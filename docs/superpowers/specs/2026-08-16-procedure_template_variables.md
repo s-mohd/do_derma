@@ -1,11 +1,12 @@
 # One Owner For Procedure Template Variables
 
 Date: 2026-08-16
-Status: **Phases 1-3 implemented & verified** (2026-08-16), Phase 4 draft. Phase 1 deviated on
+Status: **Implemented & verified** (2026-08-17). Phase 1 deviated on
 where an explicit `"required": false` is believed, on how much of the category's unread machinery
 had to go with the five fields, and on shipping one patch rather than two; Phase 2 deviated on
 where the required list under test comes from; Phase 3 deviated on who owns `required` in the
-save payload and on where the builder lives — see
+save payload and on where the builder lives; Phase 4 added a studio change the plan did not
+have — a server-only gate refused the map the studio itself had chosen — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -310,8 +311,9 @@ creation.
 flag-derived rows.
 *Exit:* a variable set can be authored end to end without typing JSON.
 
-**Phase 4 — scope enforcement and cleanup.** `allowed_body_templates` enforced in
-`save_chart_mark`; `custom_derma_allowed_body_regions` deleted.
+**Phase 4 — scope enforcement and cleanup.** ✅ Shipped 2026-08-17. `allowed_body_templates`
+enforced in `save_chart_mark` and `create_procedure_from_mark`, the studio opening on a map the
+anchor's procedure allows; `custom_derma_allowed_body_regions` deleted.
 *Exit:* a procedure cannot be charted on a body map its template forbids.
 
 ## Open Questions
@@ -497,6 +499,60 @@ flag-derived rows.
   builder now owns the fieldname at authoring time, which is where that check belongs; it is not
   written here because it needs the mark's field list, which is spec 1's territory.
 
+### Phase 4 (2026-08-17)
+
+- **The studio opens on a body map the anchor's procedure allows, which the plan did not ask for.**
+  Design §7 was a server check alone, and it broke eight browser specs on the first run with
+  *"E2E Freehand Graft cannot be charted on DEMO Face Map."* — the studio had opened on whichever
+  image-carrying map came first for the patient's sex, which has nothing to do with the procedure
+  being charted. **A gate that refuses the map the app itself chose is not enforcement, it is a
+  broken chart.** `scopedTemplates` now narrows the default to the maps the anchor's own
+  `Clinical Procedure Template` allows — the same *narrow, never to nothing* rule the sex and
+  category pickers already use — and the picker still lists every map, so the clinician can go
+  anywhere and hear the refusal from the server.
+- **Scoping the default beat switching the map when a procedure is armed.** The first attempt
+  moved the canvas at arming time. It re-broke `annotation-canvas.spec.ts:175` (the previous map's
+  base64 image stayed in the scene's `files`, which `stripTemplateImagePayload` only clears for the
+  template elements still present — the 193 MB defect that spec exists to prevent) and
+  `annotation-resume.spec.ts:82` (fit measured across two maps: 90% then 98%). Choosing the map
+  before the first load makes both moot: **one template image is ever loaded, so there is nothing
+  stale to strip and nothing to refit.** The consultation studio, which has no anchor procedure,
+  keeps whatever map it opens on and relies on the refusal.
+- **Both writes are gated, not just `save_chart_mark`.** `create_procedure_from_mark`
+  (`api.py:3290`) copies `body_template` out of its own `values` payload onto the mark and saves it
+  with `ignore_permissions=True`, so the check runs there too, against the `Clinical Procedure
+  Template` doc it has already loaded. A mark whose map was allowed when it was placed and
+  forbidden by the time it is promoted is refused at promotion.
+- **One reader of the allowed list per layer, not three.** The check landed as a third parser
+  beside `DermaChart.vue`'s (case-sensitive, name-or-title) and the studio's — three rules for one
+  field, so a map matched by title in the chart could be refused by the server. `variableFieldname`
+  set the precedent in Phase 3, so `public/js/shared/allowed_body_templates.js` now owns the
+  frontend rule for both, mirroring `_ensure_body_template_allowed`. The name-or-title branch is
+  gone: `Derma Body Template` autonames `field:title`, so it never named two things.
+- **The allowed list is read case-insensitively, and only against the body template's name.**
+  `Derma Body Template` autonames `field:title`, so its name *is* its title and the chart's
+  name-or-title matching had one meaning all along. The list itself is free text in a Small Text
+  field, so `_ensure_body_template_allowed` folds case and `_split_csv` drops the spacing —
+  `"  E2E FACE MAP ,"` allows `E2E Face Map`. Rejected: an exact match, which turns a typo into a
+  chart nobody can mark.
+- **The annotation fan-out swallows the refusal, deliberately.**
+  `_sync_chart_marks_for_annotation` (`api.py:2616`) calls `save_chart_mark` inside a `try` that
+  logs and moves on, so a forbidden pairing loses that one mark to the Error Log rather than
+  failing the whole annotation save. It sends no `body_template` of its own, so in practice only
+  the category default can reach the check from there.
+- **A mark update that names neither field is not re-checked.** The gate binds where the pairing is
+  chosen — placement and promotion. `persistMarkVariables` sends `{name, patient, …values}`, so
+  typing a variable into an existing mark does not re-litigate the map it was placed on.
+- **The patch is `cleanup_derma_allowed_body_regions.py`, not the
+  `cleanup_derma_category_requirement_fields.py` the plan named.** Phase 1 already deleted the
+  category's five fields with the doctype JSON, so the field name is what is left to say.
+  `seed_derma_v2_defaults.py` no longer *creates* `custom_derma_allowed_body_regions` either — a
+  fresh site creating a Custom Field for the next patch to delete would be theatre — and the three
+  patches that used it as an `insert_after` anchor now point at
+  `custom_derma_allowed_body_templates`.
+- **`_template_defaults` fetches the allowed list**, so the check reuses the row `save_chart_mark`
+  already reads instead of a second `frappe.db.get_value` per mark.
+
 ## Verification
 
 ### Phase 1
@@ -639,8 +695,55 @@ pipx run ruff check do_derma/     → All checks passed
 pipx run ruff format do_derma/    → 1 file reformatted, then clean
 ```
 
-**Not yet run:** the full Playwright suite. Acceptance criterion 7 belongs to Phase 4 and is
-unimplemented.
+**Not yet run at the time:** the full Playwright suite — Phase 4 ran it and reports it below.
+
+### Phase 4
+
+Integration (Frappe's runner):
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_body_template_scope
+→ Ran 10 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 225 tests in 26.0s, OK (skipped=1)
+```
+
+`test_body_template_scope.py` covers acceptance criterion 7 in both directions — a map outside the
+list refused with both names in the message, an allowed map saved, an empty list permitting
+everything, a mark with no procedure template unrestricted, and the list read the way a clinic
+types it (`"  E2E FACE MAP ,"`) — plus the second write path (`create_procedure_from_mark` refusing
+a mark whose stored map has left the list) and the cleanup patch (the Custom Field gone, a second
+run a no-op, `DERMA_TEMPLATE_FIELDS` no longer selecting it). The gate tests were watched to fail
+first: with `api.py` stashed, 3 of them fail with *ValidationError not raised*.
+
+Migrate:
+
+```
+bench --site dermaone.localhost migrate → clean; Clinical Procedure Template.custom_derma_allowed_body_regions
+                                          is gone (has_field False, no Custom Field row)
+```
+
+Browser:
+
+```
+npx playwright test                                → 90 passed, 1 failed (10.4m)
+npx playwright test e2e/tests/body-template-scope.spec.ts \
+                   e2e/tests/annotation-canvas.spec.ts \
+                   e2e/tests/annotation-resume.spec.ts  → 12 passed (2.5m)
+```
+
+The one failure is `annotation-anchoring.spec.ts` *"keeps a dragged treatment area at its drawn
+size across resume"* — the known failure that predates this spec and belongs to spec 1. This is
+the first **full** Playwright run any phase of this spec has recorded, which is what caught the two
+regressions the first design of the studio change caused (see Reconciliation).
+
+Build and lint:
+
+```
+bench build --app do_derma        → no bundle filename changed
+pipx run ruff check do_derma/     → All checks passed
+pipx run ruff format do_derma/    → 81 files left unchanged
+```
 
 ## Files to touch (summary)
 
@@ -649,11 +752,16 @@ unimplemented.
 | `do_derma/api.py` | *(Phase 1)* delete `_category_required_fields` and the category's unread machinery; honest `required` via `_variable_is_required` + `SAFETY_FLAG_REQUIRED_SOURCES`; `get_config_health` drops the categories key. *(Phase 3)* `get_derma_template_variables` / `save_derma_template_variables`, `_validated_variable_rows`, `_locked_required_sources`, `VARIABLE_FIELDTYPES`. Later: `allowed_body_templates` check; `DERMA_TEMPLATE_FIELDS` entry removed |
 | `do_derma/do_derma/doctype/derma_procedure_category/derma_procedure_category.json` | *(Phase 1)* drop five unread fields; `requirements_section` becomes `note_section` |
 | `do_derma/patches/materialize_derma_template_required_fields.py` | *(new, Phase 1)* |
-| `do_derma/patches/cleanup_derma_category_requirement_fields.py` | *(new, Phase 4)* — only `custom_derma_allowed_body_regions` is left for it |
+| `do_derma/patches/cleanup_derma_allowed_body_regions.py` | *(new, Phase 4)* deletes the Custom Field; Phase 1's doctype JSON already took the category's five |
+| `do_derma/patches/seed_derma_v2_defaults.py`, `upgrade_derma_template_variables.py`, `cleanup_derma_procedure_template_fields.py` | *(Phase 4)* stop creating `custom_derma_allowed_body_regions` and anchor on `custom_derma_allowed_body_templates` |
+| `do_derma/tests/test_body_template_scope.py` | *(new, Phase 4)* the mark gate and the cleanup patch |
+| `e2e/tests/body-template-scope.spec.ts` | *(new, Phase 4)* creates a second body map of its own, and deletes it again |
 | `do_derma/patches.txt` | one entry in Phase 1, one in Phase 4 |
 | `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(Phase 1)* the `category_name` labels go; *(Phase 3)* a Variables button per row opens the builder, and a save emits `changed` |
 | `public/js/config/panels/TemplateVariableBuilder.vue` | *(new, Phase 3)* the row grid: label / fieldname preview / type / options / required, locked rows badged with their flag |
 | `public/js/shared/variable_fieldname.js` | *(new, Phase 3)* one `variableFieldname()` for the builder and the studio, mirroring `_variable_fieldname` |
+| `public/js/shared/allowed_body_templates.js` | *(new, Phase 4)* one reader of the allowed list for the chart and the studio, mirroring `_ensure_body_template_allowed` |
+| `public/js/chart/DermaChart.vue` | *(Phase 4)* `ensureSelectedBodyTemplate` reads the shared helper; the name-or-title match goes |
 | `public/js/config/App.vue` | *(Phase 3)* a refresh no longer unmounts the panel that asked for it |
 | `public/js/config/derma_config.bundle.css` | *(Phase 3)* `.config-builder` |
 | `e2e/tests/config-variable-builder.spec.ts` | *(new, Phase 3)* borrows `E2E Filler` and restores it |
@@ -661,7 +769,7 @@ unimplemented.
 | `public/js/config/panels/CategoriesPanel.vue` | *(Phase 1)* the "Read by nothing" column and its footnote go |
 | `do_derma/tests/test_config_workspace.py` | *(Phase 1)* the category-name warning, unread-field and health cases follow the deletion |
 | `e2e/tests/config-workspace.spec.ts` | *(Phase 1)* the category spec drops the unread-field badge |
-| `public/js/chart/annotation/DermaAnnotationStudio.jsx` | *(Phase 2)* asterisk + missing-count in `VariableEditor`; one `variableKey()` for all four call sites |
+| `public/js/chart/annotation/DermaAnnotationStudio.jsx` | *(Phase 2)* asterisk + missing-count in `VariableEditor`; one `variableKey()` for all four call sites. *(Phase 4)* `scopedTemplates` picks the opening body map |
 | `public/js/chart/derma_chart.bundle.css` | *(Phase 2)* `.derma-variable-required` and `.derma-variable-required-note` |
 | `do_derma/tests/test_template_variables.py` | *(new)* |
 | `e2e/tests/template-variables.spec.ts` | *(new, Phase 2)* — borrows `E2E Filler`'s required list and restores it, rather than seeding demo data the browser specs cannot reach |

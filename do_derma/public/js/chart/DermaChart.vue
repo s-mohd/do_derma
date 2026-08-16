@@ -611,6 +611,7 @@ import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
 import DermaEvidencePanel from "./components/DermaEvidencePanel.vue"
 import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
+import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -2174,18 +2175,16 @@ function ensureSelectedBodyTemplate(force = false) {
   const stillAvailable = selectedBodyTemplate.value?.name && bodyTemplates.value.some((row) => row.name === selectedBodyTemplate.value.name)
   if (!force && stillAvailable) return
 
-  const allowed = String(selectedTemplate.value?.custom_derma_allowed_body_templates || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean)
+  const allowed = allowedBodyTemplates(selectedTemplate.value)
+  const isAllowed = (row) => allowed.includes(String(row.name).toLowerCase())
   const gender = preferredTemplateGender()
   const genderMatch = (row) => row.gender === gender
   const categoryDefault = selectedTemplate.value?.derma_category_defaults?.default_body_template || categorySettings(selectedTemplate.value?.custom_derma_category)?.default_body_template
   selectedBodyTemplate.value =
     bodyTemplates.value.find((row) => row.name === categoryDefault && genderMatch(row)) ||
     bodyTemplates.value.find((row) => row.name === categoryDefault) ||
-    bodyTemplates.value.find((row) => (allowed.includes(row.name) || allowed.includes(row.title)) && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => allowed.includes(row.name) || allowed.includes(row.title)) ||
+    bodyTemplates.value.find((row) => isAllowed(row) && genderMatch(row)) ||
+    bodyTemplates.value.find((row) => isAllowed(row)) ||
     preferredBodyTemplate("Body") ||
     preferredBodyTemplate("Face") ||
     bodyTemplates.value.find((row) => row.image && genderMatch(row)) ||

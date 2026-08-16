@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 import { variableFieldname } from "../../shared/variable_fieldname.js"
+import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
@@ -425,10 +426,11 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const templates = showAllTemplates ? allTemplates : sexMatchedTemplates
   const isSexFiltered = sexMatchedTemplates.length < allTemplates.length
   const procedures = useMemo(() => (procedureTemplates || []).filter((procedure) => procedure.name), [procedureTemplates])
-  const anchorProcedureCategory = useMemo(
-    () => procedures.find((row) => row.name === context.procedureTemplate)?.custom_derma_category || "",
+  const anchorProcedureDoc = useMemo(
+    () => procedures.find((row) => row.name === context.procedureTemplate) || null,
     [procedures, context.procedureTemplate],
   )
+  const anchorProcedureCategory = anchorProcedureDoc?.custom_derma_category || ""
   // Same rule the template picker uses for sex: filter to what this anchor is for, never to nothing.
   const categoryMatchedProcedures = useMemo(() => {
     if (!anchorProcedureCategory) return procedures
@@ -442,11 +444,18 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     if (!needle) return pool
     return pool.filter((row) => procedureSearchText(row).includes(needle))
   }, [procedures, categoryMatchedProcedures, showAllProcedures, procedureSearch])
+  // The anchor's own procedure template decides which body map the studio opens on: save_chart_mark
+  // refuses a map outside its allowed list, so opening on one would lose the first mark placed.
+  // Same rule the pickers use for sex and category - narrow to the scope, never to nothing.
+  const scopedTemplates = useMemo(() => {
+    const matched = templates.filter((template) => isBodyTemplateAllowed(anchorProcedureDoc, template.name))
+    return matched.length ? matched : templates
+  }, [templates, anchorProcedureDoc])
   const templateGroups = useMemo(() => groupedTemplates(templates), [templates])
   // Resolve the selection against every template, so resuming a drawing made on an
   // off-sex template never silently swaps its background.
   const selectedTemplate =
-    allTemplates.find((template) => template.name === selectedTemplateName) || templates[0] || null
+    allTemplates.find((template) => template.name === selectedTemplateName) || scopedTemplates[0] || null
   const selectedParts = selectedTemplate?.parts || []
   const activeProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === activeProcedure)
   // The editor binds to the mark being edited first, the armed procedure second.
@@ -454,8 +463,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const editorProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === editorProcedureName)
 
   useEffect(() => {
-    if (!selectedTemplateName && templates[0]?.name) setSelectedTemplateName(templates[0].name)
-  }, [selectedTemplateName, templates])
+    if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
+  }, [selectedTemplateName, scopedTemplates])
 
   useEffect(() => {
     if (!selectedTemplate?.image) return

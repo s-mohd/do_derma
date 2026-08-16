@@ -39,20 +39,12 @@ def add_clinical_procedure_template_fields():
 					"module": "Do Derma",
 				},
 				{
-					"fieldname": "custom_derma_allowed_body_regions",
-					"fieldtype": "Small Text",
-					"label": "Allowed Body Regions",
-					"description": "Comma-separated body region labels.",
-					"insert_after": "custom_derma_allowed_body_templates",
-					"module": "Do Derma",
-				},
-				{
 					"fieldname": "custom_derma_variables_json",
 					"fieldtype": "Code",
 					"label": "Derma Variables JSON",
 					"options": "JSON",
 					"description": "Procedure variables shown in the derma annotation studio. Use fieldname, label, fieldtype, options, and required.",
-					"insert_after": "custom_derma_allowed_body_regions",
+					"insert_after": "custom_derma_allowed_body_templates",
 					"module": "Do Derma",
 				},
 				{
