@@ -1,8 +1,8 @@
 # Body Template Areas That Keep What You Type
 
 Date: 2026-08-16
-Status: **Phase 1 implemented & verified** (2026-08-16) — Phases 2-4 still **Draft**. Phase 1
-deviated from the plan on how the schema ships; see
+Status: **Phases 1-2 implemented & verified** (2026-08-16) — Phases 3-4 still **Draft**. Both
+shipped phases deviated from the plan; see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -320,8 +320,11 @@ to the other selected parts before save. No new endpoint.
 ### 7. Part Link on the mark + backfill
 
 New field on `Derma Chart Mark`: `body_template_part`, Link → `Derma Body Template Part`,
-inserted after `body_region`, shipped by patch. Added to `DERMA_MARK_FIELDS` so the existing
-blind copy at `api.py:2773-2778` carries it.
+inserted after `region_label`, shipped in `derma_chart_mark.json` (as-built; see
+Reconciliation). Added to `DERMA_MARK_FIELDS` so the existing blind copy at `api.py:2773-2778`
+carries it — which means the annotation fan-out can also set it from client-authored
+`customData.variables`, so `save_chart_mark` drops a part that does not belong to the payload's
+own `body_template` (`_resolve_mark_template_part`).
 
 Backfill patch, idempotent and safe on a site missing either doctype:
 
@@ -389,8 +392,8 @@ Python test module.
 *Exit:* type *Plane: Subdermal* on an area, save, reload the page, reopen the annotation, and the
 value is there — and `frappe.get_all("Derma Mark Variable", …)` returns it.
 
-**Phase 2 — the mark names its region.** `body_template_part` Link, studio stops dropping
-`template_part`, `DERMA_MARK_FIELDS` entry, backfill patch.
+**Phase 2 — the mark names its region.** ✅ **Shipped 2026-08-16.** `body_template_part` Link,
+studio stops dropping `template_part`, `DERMA_MARK_FIELDS` entry, backfill patch.
 *Exit:* a newly placed mark resolves to its `Derma Body Template Part` by Link, and the backfill
 links existing unambiguous marks on a migrated site without touching the rest.
 
@@ -419,7 +422,31 @@ selected areas in one action.
 
 ## Reconciliation — what changed vs the plan
 
-Phase 1 only. Phases 2-4 are untouched plan.
+### Phase 2 (2026-08-16)
+
+- **The field ships in `derma_chart_mark.json`, not a patch**, and sits after `region_label`
+  rather than after `body_region` — same reasoning as Phase 1's `area_variables`: the doctype is
+  do_derma's own, so a patch would be a second owner of the same schema. Only the backfill is a
+  patch (`do_derma.patches.backfill_derma_mark_template_part`).
+- **Its label is `Area`, not "Body Template Part".** `CONTEXT.md` fixes *Area* as the term over
+  `part_name` / `region_label` / `body_region`; the fieldname keeps the Link target's name.
+- **`save_chart_mark` validates the pairing** (`_resolve_mark_template_part`). The plan had the
+  Link ride the blind `DERMA_MARK_FIELDS` copy untouched, but that copy is also fed by
+  `_sync_chart_marks_for_annotation` from client-authored `customData.variables` — a scene could
+  otherwise stamp any part, from any body template, onto a mark. A part that does not exist, or
+  belongs to another `body_template`, is dropped rather than stored.
+- **Drawn marks resolve their own area** (`EmbeddedExcalidraw.jsx:buildDrawnPlacementPayload`).
+  The plan only cited the stamp path at `:499-501`; area- and freehand-drawn marks emitted no
+  `body_region` / `region_label` / `template_part` at all, so AC 3 — "a mark placed on an area" —
+  would have been false for exactly the marks most literally drawn on one. The centroid is run
+  through the existing `findTemplatePartAtPoint` hit-test.
+- **The backfill groups its lookups.** The sketch ran one `frappe.get_all` per mark; as-built it
+  loads the parts of the affected templates once and matches in memory. Same `len(matches) == 1`
+  rule, same null-on-ambiguity outcome.
+- **Filters are `["is", "set"]` / `["is", "not set"]`** rather than the sketch's
+  `["in", ["", None]]`, which in SQL compares against `NULL` and matches nothing.
+
+### Phase 1 (2026-08-16)
 
 - **No `add_derma_mark_area_variables.py` patch.** The plan shipped `area_variables` through a
   `post_model_sync` patch modelled on `add_derma_annotation_title_field.py`. That idiom exists for
@@ -462,6 +489,44 @@ Phase 1 only. Phases 2-4 are untouched plan.
 
 Real runs, 2026-08-16, site `dermaone.localhost`.
 
+### Phase 2
+
+**Migrate.** `bench --site dermaone.localhost migrate` — clean; created the `body_template_part`
+column and ran `backfill_derma_mark_template_part` against the dev clone's real marks.
+
+**Integration tests.** `bench --site dermaone.localhost run-tests --module
+do_derma.tests.test_body_template_areas` — **22 tests, OK** (12 from Phase 1, 10 new). The new
+ones cover: a mark stores the part it was placed on while `body_region` still normalises to the
+coarse value and `region_label` keeps the exact name (AC 3); the link reads back through
+`_get_marks`; a mark placed off any area keeps a null link (AC 12, read path); a part belonging
+to another body template is refused; a part that no longer exists is refused; the backfill links
+an unambiguous `region_label` (AC 10), leaves an ambiguous one alone, ignores parts of another
+template, is re-runnable and never relinks an already-linked mark, and is a no-op on a site
+without the field.
+
+**Full suite.** `bench --site dermaone.localhost run-tests --app do_derma` — **112 tests, OK**.
+
+**Code review.** Two-axis review (standards / spec fidelity) against `ea661f7`. Fixed from it:
+the unvalidated part link, the `Area` label, the drawn-mark region gap, the backfill's
+per-mark query, the duplicated test helper, and the assertion-free backfill test. The spec was
+reconciled here rather than left contradicting the code.
+
+**Lint.** `pipx run ruff check do_derma/` and `ruff format --check` — pass.
+
+**Bundles.** `bench build --app do_derma` — done in 1.47s. Two bundles changed
+(`derma_chart`, via the studio and the Excalidraw surface); no filename changed.
+
+#### Not yet run (Phase 2)
+
+- No Playwright coverage; still Phase 4.
+- No manual browser pass — AC 3 for the **drawn** (area/freehand) path is argued from the code
+  path: `buildDrawnPlacementPayload` runs the centroid through the same
+  `findTemplatePartAtPoint` hit-test the stamp path uses on the click origin.
+- AC 12's *print* and *promote to Clinical Procedure* legs are covered only by the pre-existing
+  suite passing, not by a test that pins a null link specifically.
+
+### Phase 1
+
 **Migrate.** `bench --site dermaone.localhost migrate` — clean; created `Derma Mark Variable` and
 the `area_variables` table field on `Derma Chart Mark`.
 
@@ -490,7 +555,7 @@ new doctype folder — all pass. (Pre-existing findings elsewhere in the repo we
 **Bundles.** `bench build --app do_derma` — done in 1.55s. No bundle filename changed, so the
 `frappe.require` contract holds.
 
-### Not yet run
+#### Not yet run (Phase 1)
 
 - No Playwright coverage. `e2e/tests/body-template-areas.spec.ts` is Phase 4 in this spec.
 - No manual browser pass through the annotation studio (type a value, save, reopen), so **AC 2 is
@@ -507,11 +572,12 @@ new doctype folder — all pass. (Pre-existing findings elsewhere in the repo we
 |---|---|
 | `do_derma/do_derma/doctype/derma_mark_variable/` | *(new)* child doctype |
 | `do_derma/do_derma/doctype/derma_chart_mark/derma_chart_mark.json` | `area_variables` Table, `body_template_part` Link |
-| `do_derma/api.py` | `_apply_mark_area_variables`, `_hydrate_mark_area_variables`, `DERMA_MARK_FIELDS` entry, `include_disabled`, soft-disable + no-churn in `save_derma_body_template_parts` |
+| `do_derma/api.py` | `_apply_mark_area_variables`, `_hydrate_mark_area_variables`, `_resolve_mark_template_part`, `DERMA_MARK_FIELDS` entry, `include_disabled`, soft-disable + no-churn in `save_derma_body_template_parts` |
 | ~~`do_derma/patches/add_derma_mark_area_variables.py`~~ | dropped — the field ships in the doctype JSON, see Reconciliation |
 | `do_derma/patches/backfill_derma_mark_template_part.py` | *(new)* idempotent link backfill |
 | `do_derma/patches.txt` | two entries, `post_model_sync` |
 | `public/js/chart/annotation/DermaAnnotationStudio.jsx` | send `body_template_part` + `area_variables`; seed `partValues` on open |
+| `public/js/chart/excalidraw/EmbeddedExcalidraw.jsx` | drawn placements resolve their own area (`findTemplatePartAtPoint`) |
 | `public/js/body-template-editor/body-template-editor.bundle.jsx` | merge by `part_name`, polygon validation, retired-areas list, copy-to-areas |
 | `do_derma/tests/test_body_template_areas.py` | *(new)* |
 | `do_derma/demo_seed.py` | area values + a retired region for the browser specs |

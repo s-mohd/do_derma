@@ -7,16 +7,13 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
+from do_derma.patches.backfill_derma_mark_template_part import execute as backfill_template_part
 from do_derma.tests.test_api import DermaTestHelpers
 
 
 class TestMarkAreaVariables(DermaTestHelpers, IntegrationTestCase):
 	"""Area variable values typed on a body-map region are clinical data on the mark,
 	not a rendered badge string."""
-
-	def _save_mark(self, patient, **extra):
-		payload = {"patient": patient, "x_percent": 10, "y_percent": 20, **extra}
-		return api.save_chart_mark(json.dumps(payload))
 
 	def _rows(self, mark):
 		return frappe.get_all(
@@ -155,3 +152,129 @@ class TestMarkAreaVariables(DermaTestHelpers, IntegrationTestCase):
 			mark = self._save_mark(patient, area_variables=[{"label": "Plane", "value": "Subdermal"}])
 
 		self.assertEqual(self._rows(mark["name"]), [])
+
+
+class TestMarkTemplatePartLink(DermaTestHelpers, IntegrationTestCase):
+	"""The mark names the area it sits on by Link, while body_region keeps the coarse
+	15-value vocabulary every existing read depends on."""
+
+	def test_a_mark_placed_on_an_area_links_to_that_part(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+
+		mark = self._save_mark(
+			patient,
+			body_template=template,
+			body_template_part=part,
+			body_region="Left Cheek",
+			region_label="Left Cheek",
+		)
+
+		stored = frappe.db.get_value(
+			"Derma Chart Mark",
+			mark["name"],
+			["body_template_part", "body_region", "region_label"],
+			as_dict=True,
+		)
+		self.assertEqual(stored.body_template_part, part)
+		self.assertEqual(stored.body_region, "Face")
+		self.assertEqual(stored.region_label, "Left Cheek")
+
+	def test_the_part_link_is_read_back_with_the_mark(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+		self._save_mark(patient, body_template=template, body_template_part=part, region_label="Left Cheek")
+
+		self.assertEqual(api._get_marks(patient)[0]["body_template_part"], part)
+
+	def test_a_mark_placed_off_any_area_keeps_a_null_link(self):
+		patient = self._make_patient()
+
+		mark = self._save_mark(patient, body_region="Face")
+
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"))
+
+	def test_the_backfill_links_an_unambiguous_region_label(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+		mark = self._save_mark(patient, body_template=template, region_label="Left Cheek")
+
+		backfill_template_part()
+
+		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"), part)
+
+	def test_the_backfill_leaves_an_ambiguous_region_label_alone(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek")
+		self._make_body_template_part(template, "Left Cheek")
+		mark = self._save_mark(patient, body_template=template, region_label="Left Cheek")
+
+		backfill_template_part()
+
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"))
+
+	def test_the_backfill_ignores_parts_of_another_body_template(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		other_template = self._make_body_template()
+		self._make_body_template_part(other_template, "Left Cheek")
+		mark = self._save_mark(patient, body_template=template, region_label="Left Cheek")
+
+		backfill_template_part()
+
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"))
+
+	def test_the_backfill_is_re_runnable_and_never_relinks(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+		renamed = self._make_body_template_part(template, "Right Cheek")
+		mark = self._save_mark(
+			patient, body_template=template, body_template_part=renamed, region_label="Left Cheek"
+		)
+
+		backfill_template_part()
+		backfill_template_part()
+
+		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"), renamed)
+		self.assertNotEqual(renamed, part)
+
+	def test_a_part_from_another_body_template_is_refused(self):
+		"""The annotation fan-out copies client-authored values into the payload, so a part
+		that belongs to a different body template must not label the mark."""
+		patient = self._make_patient()
+		template = self._make_body_template()
+		foreign_part = self._make_body_template_part(self._make_body_template(), "Left Cheek")
+
+		mark = self._save_mark(patient, body_template=template, body_template_part=foreign_part)
+
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"))
+
+	def test_a_part_that_no_longer_exists_is_refused(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+
+		mark = self._save_mark(patient, body_template=template, body_template_part="gone-with-the-map")
+
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"))
+
+	def test_the_backfill_is_a_no_op_on_a_site_without_the_field(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek")
+		mark = self._save_mark(patient, body_template=template, region_label="Left Cheek")
+		real_has_field = api._has_field
+		with patch.object(
+			api,
+			"_has_field",
+			side_effect=lambda dt, fn: (
+				False if (dt, fn) == ("Derma Chart Mark", "body_template_part") else real_has_field(dt, fn)
+			),
+		):
+			backfill_template_part()
+
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "body_template_part"))

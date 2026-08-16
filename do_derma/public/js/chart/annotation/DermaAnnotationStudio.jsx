@@ -723,6 +723,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             body_view: payload.body_view,
             body_region: payload.body_region,
             region_label: payload.region_label,
+            // The exact area. body_region stays the coarse vocabulary, region_label the text.
+            body_template_part: payload.template_part || null,
             x_percent: payload.x_percent,
             y_percent: payload.y_percent,
             // Present for drawn marks (area, freehand). It is the idempotency key the annotation

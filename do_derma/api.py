@@ -90,6 +90,7 @@ DERMA_MARK_FIELDS = [
 	"body_view",
 	"body_region",
 	"region_label",
+	"body_template_part",
 	"side",
 	"x_percent",
 	"y_percent",
@@ -791,6 +792,24 @@ def _apply_mark_area_variables(doc, raw: Any) -> None:
 				"source": "Area",
 			},
 		)
+
+
+def _resolve_mark_template_part(payload: dict[str, Any]) -> None:
+	"""Keep the area link only when it names an area of the payload's own body template.
+
+	The annotation fan-out copies client-authored customData straight into this payload, so
+	an unrelated part name reaching the field would label the mark with someone else's area.
+	"""
+	part = payload.get("body_template_part")
+	if not part:
+		return
+	owner = (
+		frappe.db.get_value("Derma Body Template Part", part, "body_template")
+		if _has_doctype("Derma Body Template Part")
+		else None
+	)
+	if not owner or owner != payload.get("body_template"):
+		payload.pop("body_template_part")
 
 
 def _hydrate_mark_area_variables(mark_rows: list[dict[str, Any]]) -> None:
@@ -2840,6 +2859,7 @@ def save_chart_mark(values: str | dict[str, Any]):
 		payload["body_view"] = frappe.db.get_value("Derma Body Template", payload["body_template"], "title")
 	if payload.get("body_region"):
 		payload["body_region"] = _normalize_derma_body_region(payload.get("body_region"))
+	_resolve_mark_template_part(payload)
 
 	doc = frappe.get_doc("Derma Chart Mark", name) if name else frappe.new_doc("Derma Chart Mark")
 	for field in DERMA_MARK_FIELDS:

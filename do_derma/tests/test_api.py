@@ -161,6 +161,42 @@ class DermaTestHelpers:
 			frappe.db.set_value("Clinical Procedure Template", doc.name, "custom_derma_category", category)
 		return doc.name
 
+	def _save_mark(self, patient, **extra):
+		return api.save_chart_mark(
+			json.dumps({"patient": patient, "x_percent": 10, "y_percent": 20, **extra})
+		)
+
+	def _make_body_template(self, **extra):
+		token = frappe.generate_hash(length=8)
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Derma Body Template",
+					"title": f"Derma {token}",
+					"gender": "Female",
+					"view_key": f"derma_{token}",
+					**extra,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _make_body_template_part(self, body_template, part_name, **extra):
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Derma Body Template Part",
+					"body_template": body_template,
+					"part_name": part_name,
+					"shape_json": json.dumps([[0, 0], [10, 0], [10, 10], [0, 10]]),
+					**extra,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
 	def _make_limited_user(self):
 		email = f"derma-no-access-{frappe.generate_hash(length=6)}@example.com"
 		if not frappe.db.exists("User", email):

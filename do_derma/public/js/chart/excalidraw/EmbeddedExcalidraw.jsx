@@ -562,6 +562,7 @@ function buildDrawnPlacementPayload(api, template, chartTemplate, element, proce
   const centerY = centre.y
   const xPercent = bounds ? clamp(((centerX - bounds.x) / bounds.width) * 100, 0, 100) : 50
   const yPercent = bounds ? clamp(((centerY - bounds.y) / bounds.height) * 100, 0, 100) : 50
+  const region = findTemplatePartAtPoint(api, centerX, centerY)
   return {
     temp_element_ids: [element.id],
     annotation_json: JSON.stringify({ element_id: element.id, shape }),
@@ -575,6 +576,10 @@ function buildDrawnPlacementPayload(api, template, chartTemplate, element, proce
     marker_color: template?.custom_derma_marker_color,
     body_template: chartTemplate?.name,
     body_view: chartTemplate?.title,
+    // A drawn mark has no click origin, so the area is resolved from where it landed.
+    body_region: region?.part_name || region?.partName,
+    region_label: region?.part_name || region?.partName,
+    template_part: region?.name || region?.partId,
     procedure_variables: sanitizeVariables(procedureVariables),
   }
 }
