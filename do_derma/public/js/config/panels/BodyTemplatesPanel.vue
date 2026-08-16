@@ -27,6 +27,17 @@
           <td>
             {{ template.title || template.name }}
             <span v-if="template.disabled" class="config-badge" data-test="config-body-template-disabled">{{ __("Disabled") }}</span>
+            <div v-if="template.warnings.length" class="config-warnings">
+              <span
+                v-for="warning in template.warnings"
+                :key="warning"
+                class="config-badge warn"
+                data-test="config-body-template-warning"
+                :data-warning="warning"
+              >
+                {{ warningLabel(warning) }}
+              </span>
+            </div>
           </td>
           <td>{{ template.template_type || "—" }}</td>
           <td>{{ template.gender || "—" }}</td>
@@ -44,11 +55,21 @@
 </template>
 
 <script setup>
+import { labelFor } from "../labels"
+
 const __ = window.__ || ((txt) => txt)
+
+const WARNING_LABELS = {
+  no_areas: "Nothing can be marked on it yet",
+}
 
 defineProps({
   templates: { type: Array, default: () => [] },
 })
+
+function warningLabel(warning) {
+  return labelFor(WARNING_LABELS, warning)
+}
 
 function designAreas(template) {
   // The designer reads its template from window.location.search, and set_route

@@ -85,6 +85,41 @@ test.describe("Derma configuration workspace", () => {
 			"/app/annotation-template",
 		);
 	});
+
+	test("counts a map nothing can be marked on, on the rail and in the row", async ({ page, request }) => {
+		const stamp = Date.now();
+		const live = await createDoc<{ name: string }>(request, "Derma Body Template", {
+			title: `E2E Config Empty Map ${stamp}`,
+			template_type: "Face",
+			gender: "Female",
+			view_key: `e2e_config_empty_${stamp}`,
+			sequence: 99,
+		});
+
+		try {
+			await page.goto("/app/derma-config");
+			await expect(page.locator('[data-test="derma-config-root"]')).toBeVisible();
+
+			const badge = page.locator('[data-test="config-rail-warning-count"][data-tool="body-templates"]');
+			await expect(badge).toBeVisible();
+			expect(Number(await badge.innerText())).toBeGreaterThan(0);
+
+			await expect(
+				page
+					.locator(`[data-test="config-body-template-row"][data-template="${live.name}"]`)
+					.locator('[data-test="config-body-template-warning"][data-warning="no_areas"]'),
+			).toBeVisible();
+
+			// The disabled fixture has no areas either, and a retired map is not a problem.
+			await expect(
+				page
+					.locator(`[data-test="config-body-template-row"][data-template="${template}"]`)
+					.locator('[data-test="config-body-template-warning"]'),
+			).toHaveCount(0);
+		} finally {
+			await deleteDoc(request, "Derma Body Template", live.name);
+		}
+	});
 });
 
 /**

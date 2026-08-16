@@ -538,7 +538,16 @@ def get_config_body_templates() -> list[dict[str, Any]]:
 	counts = _count_template_areas([row.get("name") for row in rows])
 	for row in rows:
 		row["area_count"], row["retired_area_count"] = counts.get(row.get("name"), (0, 0))
+		row["warnings"] = _body_template_warnings(row)
 	return rows
+
+
+def _body_template_warnings(row: dict[str, Any]) -> list[str]:
+	"""A live map with no live Area cannot be marked on at all. Retired Areas do not
+	count, and a retired map is not a problem waiting to be fixed."""
+	if cint(row.get("disabled")) or row.get("area_count"):
+		return []
+	return ["no_areas"]
 
 
 def _count_template_areas(template_names: list[str]) -> dict[str, tuple[int, int]]:
@@ -729,20 +738,31 @@ def get_config_readiness() -> dict[str, Any]:
 	}
 
 
+def get_config_health(sections: dict[str, Any]) -> dict[str, int]:
+	"""How many rows each tool has to fix, keyed by the config rail's tool keys. Counted
+	from the sections the panels render, so a badge and its panel cannot disagree."""
+	return {
+		"body-templates": len([row for row in sections["body_templates"] if row.get("warnings")]),
+		"procedure-templates": len([row for row in sections["procedure_templates"] if row.get("warnings")]),
+		"categories": len([row for row in sections["categories"] if row.get("unread_fields")]),
+		"readiness": len(sections["readiness"].get("warnings", [])),
+	}
+
+
 @frappe.whitelist()
 def get_derma_config_overview():
 	"""Everything the config workspace lists, in one round trip."""
 	_ensure_clinical_access()
 	errors: list[str] = []
-	return {
+	sections = {
 		"body_templates": _safe_derma_context("body templates", [], get_config_body_templates, errors),
 		"procedure_templates": _safe_derma_context(
 			"procedure templates", [], get_config_procedure_templates, errors
 		),
 		"categories": _safe_derma_context("categories", [], get_config_categories, errors),
 		"readiness": _safe_derma_context("readiness", {}, get_config_readiness, errors),
-		"errors": errors,
 	}
+	return {**sections, "health": get_config_health(sections), "errors": errors}
 
 
 @frappe.whitelist()

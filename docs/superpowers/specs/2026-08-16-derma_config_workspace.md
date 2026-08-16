@@ -1,10 +1,11 @@
 # A Place To Configure Derma
 
 Date: 2026-08-16
-Status: **Phases 1-3 implemented & verified** (2026-08-16); Phase 4 remains **Draft**. Phase 1
+Status: **Implemented & verified** (2026-08-16), all four phases. Phase 1
 deviated from the plan on how the designer is opened and on where the page-row patch logic lives;
 Phase 2 added a per-field owner and a warning vocabulary the plan did not name; Phase 3 reports the
-enforcement mode as read-only and names the client-side gate — see
+enforcement mode as read-only and names the client-side gate; Phase 4 reaches the page through a
+`route_type: Page` sidebar item rather than the planned `do_derma.openConfig()` — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -222,6 +223,13 @@ once every rail item has a panel:
 | `config-feature-toggle` / `config-feature-toggles-empty` | one row per toggle (`data-toggle`, `data-enabled`) and the degraded state |
 | `config-edit-derma-settings` | the desk-form link |
 
+Phase 4 adds two, and renames nothing:
+
+| Hook | On |
+|---|---|
+| `config-rail-warning-count` | the rail badge, carrying `data-tool="<key>"`; rendered only when the count is non-zero |
+| `config-body-template-warning` | one badge per body-map warning, carrying `data-warning="<code>"` |
+
 ### 5. Discoverability
 
 `derma_sidebar.js` gains `do_derma.openConfig()` alongside the existing `openChart`, following the
@@ -275,7 +283,8 @@ form.
 spec 4 fills; here it shows the current enforcement mode read-only, plus the feature toggles.
 *Exit:* every rail item leads somewhere real.
 
-**Phase 4 — health counts on the rail.** Per-tool warning badges, plus the sidebar entry point.
+**Phase 4 — health counts on the rail.** ✅ Shipped 2026-08-16. Per-tool warning badges counted on
+the server, a `no_areas` warning on body maps, plus the sidebar entry point.
 *Exit:* the rail shows what needs attention before you click into it.
 
 ## Open Questions
@@ -450,6 +459,46 @@ spec 4 fills; here it shows the current enforcement mode read-only, plus the fea
   "Still blocks", because `_safe_derma_context`'s `{}` fallback knows nothing and the old render
   asserted the stricter answer.
 
+### Phase 4 (2026-08-16)
+
+- **The sidebar item is `route_type: "Page"`, and `do_derma.openConfig()` was never written.** The
+  plan gave `derma_sidebar.js` a second function beside `openChart`. `openChart` earns its
+  existence: it resolves patient context through `ensure_chart_context` before routing. Config
+  resolves nothing, so `openConfig` would have been a one-line wrapper around a route the sidebar
+  can already express — and this site's two live `Primary Nav` items (`Doctor Dashboard`,
+  `Billing & Claims Manager`) are both `route_type: "Page"`. `derma_sidebar.js` is untouched.
+- **The counts are computed on the server, in `get_config_health(sections)`.** Counting in `App.vue`
+  would have put the body-map rule ("a live map with no live Area") in the browser while the
+  procedure-template rule stayed on the server, and a badge that disagrees with the panel under it
+  is worse than no badge. It reads the sections already built for the response, so it costs no
+  extra query, and the keys are the rail's own tool keys.
+- **Body maps gained a warning code, `no_areas`.** The rail needs one rule per tool, and body maps
+  had none — the panel showed an area count and left the reader to judge. Retired Areas do not
+  count (nothing can be marked on them) and a **retired map warns about nothing**, because a map
+  taken out of service is not work waiting to be done. Categories reuse `unread_fields`, which
+  Phase 2 already shows as badges, rather than gaining a second vocabulary for the same fact.
+- **A degraded section counts zero, and says so elsewhere.** `_safe_derma_context`'s `[]` / `{}`
+  fallbacks flow into the count unchanged, so a section that failed to load contributes no badge —
+  `config-partial` is what names it. Claiming health for an unread section would be the stricter
+  lie.
+- **"No navbar item" still holds.** The Non-Goal names Frappe's own `Navbar Item`; what ships is a
+  do_health `Health Sidebar Item` in the `Primary Nav` section — the same doctype the chart's
+  `Patient Actions` entry has always used, and the shape both live `Primary Nav` rows already use.
+  No Frappe Workspace, `Navbar Item` or portal route was created.
+- **The item carries no `allowed_roles`, so it is visible to every desk user**, matching Open
+  Question 1's default (`"roles": []` on the page; the API gate is the boundary). A user without a
+  clinical role now finds the entry and gets the endpoint's `PermissionError` instead of never
+  finding the page at all. Seeding roles here would put a second copy of `CLINICAL_ACCESS_ROLES` in
+  a patch, which is the drift this spec has avoided throughout.
+- **The Readiness badge reads `1` on every site until spec 4 ships.** `completion_gate_is_client_side`
+  is a true statement about this site, not a false positive: nothing on the server refuses a blocked
+  session. It clears the day `blocker_enforcement` exists and `complete_derma_session` consults it,
+  which is spec 4's Phase 2 — the badge is that spec's countdown, not decoration.
+- **`_upsert_sidebar_item` moved to `patches/helpers.py` as `upsert_sidebar_item`.** The config item
+  needs the same column-existence defence that `seed_derma_sidebar_item` grew for the chart item.
+  Importing an underscore-prefixed function across patch modules would have been the wrong seam;
+  the shared version sits beside `ensure_standard_page`, and the chart patch now calls it.
+
 ## Verification
 
 ### Phase 1
@@ -581,6 +630,60 @@ failure (`annotation-anchoring.spec.ts:228`) predates it. The panel's own degrad
 browser spec — forcing a server-side section failure from Chromium would need a fixture that
 breaks the endpoint for every other spec in the run. Phase 4 is unimplemented.
 
+### Phase 4
+
+Integration:
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_config_workspace
+→ Ran 37 tests, OK (skipped=1)
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 167 tests in 30.0s, OK (skipped=1)
+```
+
+The 10 new cases cover: `get_config_health` counting each tool by the rule its panel shows, a
+degraded section counting zero, the overview carrying exactly the four rail keys as integers, a
+broken section reporting no false health, a live map with no Areas warning `no_areas`, retired
+Areas not clearing that warning, a retired map warning about nothing, a map with one live Area
+warning about nothing, and — in `TestConfigSidebarItem` — the seeded item routing to
+`Page`/`derma-config` with `context_requirement: none`, and a re-run leaving exactly one row.
+
+Migrate:
+
+```
+bench --site dermaone.localhost migrate → clean; Health Sidebar Item
+                                          "Primary Nav-Derma Configuration" present,
+                                          route_type Page, route_value derma-config, sequence 7
+```
+
+Browser:
+
+```
+npx playwright test e2e/tests/config-workspace.spec.ts → 12 passed (20.5s)
+npx playwright test                                    → 82 passed, 1 failed (9.7m)
+```
+
+The new spec plants a **live** body map with no Areas, then proves the rail badge for
+`body-templates` is visible with a count above zero, that the live map's row carries
+`config-body-template-warning[data-warning="no_areas"]`, and that the disabled fixture — equally
+Area-less — carries no warning badge at all.
+
+The one failure is again `annotation-anchoring.spec.ts:228`, on
+`expect(element.customData?.generated_by).toBeUndefined()`. Re-running that spec with the whole
+Phase 4 change stashed reproduces it, so it predates this phase; Phase 4 touches no chart or
+annotation code.
+
+Build and lint:
+
+```
+bench build --app do_derma          → derma_config.bundle.css 4.54 Kb
+pipx run ruff check <changed files> → All checks passed
+pipx run ruff format                → 1 file reformatted (the test module), then clean
+```
+
+**Not yet run:** nothing. The pre-existing `annotation-anchoring` failure is tracked by spec 1,
+not here.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -594,19 +697,21 @@ breaks the endpoint for every other spec in the run. Phase 4 is unimplemented.
 | `public/js/config/panels/ReadinessPanel.vue` | *(new, Phase 3)* enforcement mode, ToDo rule, feature toggles |
 | `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(new, Phase 2)* required-field owners and warnings |
 | `public/js/config/panels/CategoriesPanel.vue` | *(new, Phase 2)* usage counts and unread requirement fields |
-| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; Phase 2 adds `get_config_procedure_templates`, `get_config_categories`, `_required_field_owners`, `_is_derma_template` and the two safety-flag constants; Phase 3 adds `get_config_readiness` |
+| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; Phase 2 adds `get_config_procedure_templates`, `get_config_categories`, `_required_field_owners`, `_is_derma_template` and the two safety-flag constants; Phase 3 adds `get_config_readiness`; Phase 4 adds `get_config_health` and `_body_template_warnings` |
 | `do_derma/settings.py` | *(Phase 3)* `get_readiness_settings` — the singleton's single owner, ahead of spec 4 |
 | `do_derma/tests/test_settings.py` | *(Phase 3)* the readiness-settings fallbacks |
-| `do_derma/patches/helpers.py` | *(new)* `ensure_standard_page`, shared by the three page patches |
+| `do_derma/patches/helpers.py` | *(new)* `ensure_standard_page`, shared by the three page patches; Phase 4 adds `upsert_sidebar_item`, shared by the two sidebar patches |
 | `do_derma/patches/ensure_derma_config_page.py` | *(new)* |
 | `do_derma/patches/ensure_derma_body_template_editor_page.py` | *(new)* — never existed |
 | `do_derma/patches/ensure_derma_chart_page.py` | refactored onto `ensure_standard_page` |
-| `do_derma/patches.txt` | two entries |
-| `public/js/derma_sidebar.js` | `do_derma.openConfig()` — Phase 4, not shipped yet |
-| `do_derma/tests/test_config_workspace.py` | *(new)*; Phase 2 adds the procedure-template and category classes |
-| `e2e/tests/config-workspace.spec.ts` | *(new)*; Phase 2 adds the configuration-lists describe block |
+| `do_derma/patches.txt` | three entries |
+| `do_derma/patches/seed_derma_config_sidebar_item.py` | *(new, Phase 4)* the `Primary Nav` entry point |
+| `do_derma/patches/seed_derma_sidebar_item.py` | *(Phase 4)* its upsert moved to `helpers.py` |
+| `public/js/derma_sidebar.js` | **untouched** — Phase 4 routes through the sidebar item's `route_type: Page`, so `do_derma.openConfig()` was never needed |
+| `do_derma/tests/test_config_workspace.py` | *(new)*; Phase 2 adds the procedure-template and category classes; Phase 4 adds `TestConfigHealth` and `TestConfigSidebarItem` |
+| `e2e/tests/config-workspace.spec.ts` | *(new)*; Phase 2 adds the configuration-lists describe block; Phase 4 adds the rail-badge spec |
 | `e2e/helpers/derma.ts` | Phase 2 adds `SEED.itemGroup`, so no spec hardcodes the seeded item group |
-| `public/js/config/derma_config.bundle.css` | Phase 2 adds the chip and warning-badge styles |
+| `public/js/config/derma_config.bundle.css` | Phase 2 adds the chip and warning-badge styles; Phase 4 the rail badge |
 
 `bench build --app do_derma` is **required** — a new bundle name,
 `derma_config.bundle.js`, joins the `frappe.require` contract. No existing bundle filename changes.

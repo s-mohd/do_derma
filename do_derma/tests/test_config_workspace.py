@@ -11,6 +11,7 @@ from do_derma.patches.ensure_derma_body_template_editor_page import (
 	execute as ensure_body_template_editor_page,
 )
 from do_derma.patches.ensure_derma_config_page import execute as ensure_config_page
+from do_derma.patches.seed_derma_config_sidebar_item import execute as seed_config_sidebar_item
 from do_derma.settings import FEATURE_TOGGLES
 from do_derma.tests.test_api import DermaTestHelpers
 
@@ -325,6 +326,116 @@ class TestConfigReadiness(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(overview["readiness"], {})
 		self.assertIn("readiness", overview["errors"])
 		self.assertIn(template, [row["name"] for row in overview["body_templates"]])
+
+
+class TestConfigHealth(ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase):
+	"""The rail counts what each tool has to fix. Counting on the server keeps the badge
+	and the panel from disagreeing on a site whose data neither of them chose."""
+
+	def test_counts_every_tool_by_the_rule_its_panel_shows(self):
+		sections = {
+			"body_templates": [{"warnings": ["no_areas"]}, {"warnings": []}],
+			"procedure_templates": [{"warnings": ["no_required_fields"]}, {"warnings": []}],
+			"categories": [{"unread_fields": ["consent_required"]}, {"unread_fields": []}],
+			"readiness": {"warnings": ["completion_gate_is_client_side"]},
+		}
+
+		self.assertEqual(
+			api.get_config_health(sections),
+			{"body-templates": 1, "procedure-templates": 1, "categories": 1, "readiness": 1},
+		)
+
+	def test_a_degraded_section_counts_nothing(self):
+		sections = {
+			"body_templates": [],
+			"procedure_templates": [],
+			"categories": [],
+			"readiness": {},
+		}
+
+		self.assertEqual(set(api.get_config_health(sections).values()), {0})
+
+	def test_a_body_template_with_no_areas_needs_attention(self):
+		template = self._make_body_template()
+
+		overview = api.get_derma_config_overview()
+		row = next(row for row in overview["body_templates"] if row["name"] == template)
+
+		self.assertEqual(row["warnings"], ["no_areas"])
+		self.assertGreaterEqual(overview["health"]["body-templates"], 1)
+
+	def test_retired_areas_do_not_make_a_template_chartable(self):
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Chin", disabled=1)
+
+		row = next(
+			row for row in api.get_derma_config_overview()["body_templates"] if row["name"] == template
+		)
+
+		self.assertEqual(row["warnings"], ["no_areas"])
+
+	def test_a_retired_template_with_no_areas_is_not_a_problem(self):
+		template = self._make_body_template(disabled=1)
+
+		row = next(
+			row for row in api.get_derma_config_overview()["body_templates"] if row["name"] == template
+		)
+
+		self.assertEqual(row["warnings"], [])
+
+	def test_a_template_with_a_live_area_is_not_a_problem(self):
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek")
+
+		row = next(
+			row for row in api.get_derma_config_overview()["body_templates"] if row["name"] == template
+		)
+
+		self.assertEqual(row["warnings"], [])
+
+	def test_the_overview_carries_one_count_per_rail_tool(self):
+		health = api.get_derma_config_overview()["health"]
+
+		self.assertEqual(sorted(health), ["body-templates", "categories", "procedure-templates", "readiness"])
+		for count in health.values():
+			self.assertIsInstance(count, int)
+
+	def test_a_broken_section_reports_no_false_health(self):
+		with patch.object(api, "get_config_categories", side_effect=Exception("boom")):
+			overview = api.get_derma_config_overview()
+
+		self.assertEqual(overview["health"]["categories"], 0)
+		self.assertIn("categories", overview["errors"])
+
+
+class TestConfigSidebarItem(IntegrationTestCase):
+	"""The workspace had no entry point anywhere in the app. The patch plants one, and
+	runs on live sites, so a re-run must leave a single row alone."""
+
+	ITEM = "Primary Nav-Derma Configuration"
+
+	def setUp(self):
+		if not frappe.db.exists("DocType", "Health Sidebar Item"):
+			self.skipTest("do_health is not installed on this site")
+
+	def test_it_routes_to_the_config_page(self):
+		seed_config_sidebar_item()
+
+		item = frappe.get_doc("Health Sidebar Item", self.ITEM)
+		self.assertEqual((item.route_type, item.route_value), ("Page", "derma-config"))
+		self.assertEqual(item.context_requirement, "none")
+		self.assertTrue(item.is_active)
+
+	def test_re_running_keeps_exactly_one_row(self):
+		seed_config_sidebar_item()
+		seed_config_sidebar_item()
+
+		self.assertEqual(
+			frappe.db.count(
+				"Health Sidebar Item", {"section": "Primary Nav", "label": "Derma Configuration"}
+			),
+			1,
+		)
 
 
 class TestPagePatches(IntegrationTestCase):

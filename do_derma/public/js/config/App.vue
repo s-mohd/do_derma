@@ -12,6 +12,15 @@
         @click="activeTool = tool.key"
       >
         {{ __(tool.label) }}
+        <span
+          v-if="health[tool.key]"
+          class="config-rail-badge"
+          data-test="config-rail-warning-count"
+          :data-tool="tool.key"
+          :title="__('Needs attention')"
+        >
+          {{ health[tool.key] }}
+        </span>
       </button>
       <div class="config-rail-separator"></div>
       <a class="config-rail-item outbound" :href="ANNOTATION_TEMPLATE_LIST" data-test="config-rail-item-annotation-templates">
@@ -60,6 +69,7 @@ const bodyTemplates = ref([])
 const procedureTemplates = ref([])
 const categories = ref([])
 const readiness = ref({})
+const health = ref({})
 const failedSections = ref([])
 const loading = ref(true)
 const loadError = ref("")
@@ -74,6 +84,7 @@ async function load() {
     procedureTemplates.value = payload.procedure_templates || []
     categories.value = payload.categories || []
     readiness.value = payload.readiness || {}
+    health.value = payload.health || {}
     failedSections.value = payload.errors || []
   } catch (error) {
     console.warn("[do_derma] Failed to load configuration", error)

@@ -20,3 +20,4 @@ do_derma.patches.add_derma_annotation_title_field
 do_derma.patches.backfill_derma_mark_template_part
 do_derma.patches.ensure_derma_body_template_editor_page
 do_derma.patches.ensure_derma_config_page
+do_derma.patches.seed_derma_config_sidebar_item
