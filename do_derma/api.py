@@ -497,6 +497,55 @@ def _hydrate_template_parts(
 	return part_rows
 
 
+def get_config_body_templates() -> list[dict[str, Any]]:
+	"""Every Body Template with its Area counts, retired templates and Areas included -
+	the config list exists to show what the chart filters out. Counts are aggregated in
+	the database because a truncated read here would report the wrong number."""
+	if not _has_doctype("Derma Body Template"):
+		return []
+
+	rows = frappe.get_all(
+		"Derma Body Template",
+		fields=["name", "title", "template_type", "gender", "sequence", "disabled"],
+		order_by="sequence asc, title asc",
+		limit_page_length=0,
+	)
+	counts = _count_template_areas([row.get("name") for row in rows])
+	for row in rows:
+		row["area_count"], row["retired_area_count"] = counts.get(row.get("name"), (0, 0))
+	return rows
+
+
+def _count_template_areas(template_names: list[str]) -> dict[str, tuple[int, int]]:
+	"""Body Template -> (live areas, retired areas). Only the disabled flag is read, so
+	the whole unlimited list stays small."""
+	if not template_names or not _has_doctype("Derma Body Template Part"):
+		return {}
+
+	rows = frappe.get_all(
+		"Derma Body Template Part",
+		filters={"body_template": ["in", template_names]},
+		fields=["body_template", "disabled"],
+		limit_page_length=0,
+	)
+	counts: dict[str, tuple[int, int]] = {}
+	for row in rows:
+		live, retired = counts.get(row.body_template, (0, 0))
+		counts[row.body_template] = (live, retired + 1) if cint(row.disabled) else (live + 1, retired)
+	return counts
+
+
+@frappe.whitelist()
+def get_derma_config_overview():
+	"""Everything the config workspace lists, in one round trip."""
+	_ensure_clinical_access()
+	errors: list[str] = []
+	return {
+		"body_templates": _safe_derma_context("body templates", [], get_config_body_templates, errors),
+		"errors": errors,
+	}
+
+
 @frappe.whitelist()
 def get_derma_body_template_parts(body_template: str, include_disabled: int | str = 0):
 	_ensure_clinical_access()

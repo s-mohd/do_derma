@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import frappe
+from do_derma.patches.helpers import ensure_standard_page
 
 
 def execute():
@@ -10,25 +10,4 @@ def execute():
 	database row if it was deleted manually. Creating it in a patch avoids the need
 	to enable developer mode on production.
 	"""
-	page_name = "derma-chart"
-	values = {
-		"page_name": page_name,
-		"title": "Derma Chart",
-		"module": "Do Derma",
-		"standard": "Yes",
-		"system_page": 0,
-	}
-
-	if frappe.db.exists("Page", page_name):
-		doc = frappe.get_doc("Page", page_name)
-		changed = False
-		for fieldname, value in values.items():
-			if doc.get(fieldname) != value:
-				doc.set(fieldname, value)
-				changed = True
-		if changed:
-			doc.save(ignore_permissions=True)
-	else:
-		frappe.get_doc({"doctype": "Page", "name": page_name, **values}).insert(ignore_permissions=True)
-
-	frappe.clear_cache()
+	ensure_standard_page("derma-chart", "Derma Chart")

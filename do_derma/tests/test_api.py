@@ -237,6 +237,13 @@ class TestClinicalAccessGate(DermaTestHelpers, IntegrationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			api.get_derma_body_template_parts("does-not-matter")
 
+	def test_config_overview_is_gated(self):
+		"""It lists how the clinic is configured, and the config page keeps roles: [],
+		so this check is the only thing standing in front of it."""
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			api.get_derma_config_overview()
+
 	def test_annotation_summary_is_gated(self):
 		"""It reads another patient's drawings if it is not, and it is reachable from any desk
 		form, so it is the easiest of these to call unnoticed."""

@@ -122,6 +122,7 @@ Two Frappe desk pages under `do_derma/do_derma/page/`, each a thin `on_page_show
 |---|---|---|---|
 | Derma Chart | `/app/derma-chart` | Vue 3 | `public/js/chart/derma_chart.bundle.js` → `App.vue` → `DermaChart.vue` |
 | Derma Body Map Designer | `/app/derma-body-template-editor` | React + Excalidraw | `public/js/body-template-editor/body-template-editor.bundle.jsx` |
+| Derma Configuration | `/app/derma-config` | Vue 3 | `public/js/config/derma_config.bundle.js` → `App.vue` → `panels/*.vue` |
 
 Frappe's esbuild treats any `*.bundle.{js,jsx,css}` under `public/js/` as an entrypoint and emits to `public/dist/` (gitignored). Bundle filenames are the contract with `frappe.require` — renaming one breaks the page.
 

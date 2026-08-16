@@ -1,7 +1,9 @@
 # A Place To Configure Derma
 
 Date: 2026-08-16
-Status: **Draft**
+Status: **Phase 1 implemented & verified** (2026-08-16); Phases 2-4 remain **Draft**. Phase 1
+deviated from the plan on how the designer is opened and on where the page-row patch logic lives —
+see [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
 
@@ -136,17 +138,19 @@ def get_derma_config_overview():
 	"""Everything the config workspace lists, in one round trip."""
 	_ensure_clinical_access()
 	return {
-		"body_templates": _config_body_templates(),
+		"body_templates": get_config_body_templates(),
 		"procedure_templates": _config_procedure_templates(),
 		"categories": _get_categories(),
 		"settings": get_feature_toggles(),
 	}
 ```
 
-`_config_body_templates()` reuses `_get_body_templates` / `_attach_body_template_parts` with the
-`include_disabled` flag spec 1 adds, and carries an `area_count` plus a `retired_area_count` per
-template. `_config_procedure_templates()` reuses `_select_existing_fields` over
-`DERMA_TEMPLATE_FIELDS` so a site missing any `custom_derma_*` field degrades instead of throwing.
+`get_config_body_templates()` queries `Derma Body Template` unfiltered and unlimited and carries an
+`area_count` plus a `retired_area_count` per template (see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan) — it does *not* reuse
+`_get_body_templates`, whose `limit=100` / `limit=1000` would silently under-count).
+`_config_procedure_templates()` reuses `_select_existing_fields` over `DERMA_TEMPLATE_FIELDS` so a
+site missing any `custom_derma_*` field degrades instead of throwing.
 
 Each section is wrapped in `_safe_derma_context(label, fallback, getter)` so one broken sub-query
 logs and returns an empty list rather than blanking the page — the same treatment the chart gives
@@ -165,22 +169,35 @@ its context.
 └──────────────────┘└──────────────────────────────────────────────┘
 ```
 
-"Design regions →" routes to `derma-body-template-editor` with the template name, so the
-designer's `?template=` requirement (`bundle.jsx:66`) is always satisfied:
+"Design areas →" opens `derma-body-template-editor` with the template name, so the designer's
+`?template=` requirement (`bundle.jsx:111`) is always satisfied. The row action says *area*, not
+*region*, because `CONTEXT.md` retires *region* in new UI copy:
 
 ```js
-frappe.set_route("derma-body-template-editor", { template: template.name })
+window.location.assign(`/app/derma-body-template-editor?template=${encodeURIComponent(template.name)}`)
 ```
 
-New `data-test` hooks — `derma-config-root`, `config-rail-item-<tool>`, `config-body-template-row`,
-`config-design-regions` — designed up front because the Playwright specs select on them. **No
-existing `data-test` attribute is renamed.**
+New `data-test` hooks, designed up front because the Playwright specs select on them. **No existing
+`data-test` attribute is renamed.**
+
+| Hook | On |
+|---|---|
+| `derma-config-root` | the page shell |
+| `config-rail-item-<tool>` | each rail item, plus `config-rail-item-annotation-templates` for the outbound link |
+| `config-loading` / `config-error` / `config-partial` | load states, `config-partial` naming the degraded sections |
+| `config-body-templates` / `config-body-templates-empty` | the panel and its empty state |
+| `config-body-template-row` | one per template, carrying `data-template="<name>"` |
+| `config-body-template-disabled` | the retired badge |
+| `config-area-count` / `config-retired-area-count` | the two counts |
+| `config-design-areas` / `config-new-body-template` | the row action and the header action |
+| `config-placeholder` | a rail item whose panel has not shipped yet |
 
 ### 5. Discoverability
 
 `derma_sidebar.js` gains `do_derma.openConfig()` alongside the existing `openChart`, following the
 same shape (no context resolution needed — it just routes). The file is already in
-`app_include_js` (`hooks.py:14-17`), so nothing new is loaded globally.
+`app_include_js` (`hooks.py:14-17`), so nothing new is loaded globally. **This lands in Phase 4**,
+with the sidebar item that calls it — a function nothing calls is dead code until then.
 
 **What stays unchanged:** `DermaChart.vue`, `derma_chart.bundle.js`, every existing endpoint, the
 `Page` rows for the two existing pages, and the whole permission model.
@@ -202,7 +219,7 @@ same shape (no context resolution needed — it just routes). The file is alread
 1. `/app/derma-config` loads and shows the rail with four tools plus the outbound Annotation
    Templates link.
 2. The body-template table lists every template including disabled ones, with area counts.
-3. "Design regions →" opens the designer already loaded with that template — no manual URL.
+3. "Design areas →" opens the designer already loaded with that template — no manual URL.
 4. A user without a clinical role calling `get_derma_config_overview` gets a `PermissionError`.
 5. One failing sub-query (e.g. a site with no `Derma Procedure Category` doctype) leaves the other
    panels rendered.
@@ -213,8 +230,8 @@ same shape (no context resolution needed — it just routes). The file is alread
 
 ## Phases
 
-**Phase 1 — shell plus the body-template table.** Page row, patch, bundle, rail,
-`get_derma_config_overview` returning body templates only, and the working "Design regions"
+**Phase 1 — shell plus the body-template table.** ✅ Shipped 2026-08-16. Page row, patch, bundle,
+rail, `get_derma_config_overview` returning body templates only, and the working "Design areas"
 button. Also ships `ensure_derma_body_template_editor_page`.
 *Exit:* an administrator reaches any body map's designer in two clicks, having typed no URL.
 
@@ -242,6 +259,110 @@ shows the current enforcement mode read-only.
 - **Where does the Annotation Template link point?**
   *Default:* the do_health desk list view, opened in the same tab.
 
+## Reconciliation — what changed vs the plan
+
+### Phase 1 (2026-08-16)
+
+- **"Design areas" navigates with `window.location.assign`, not `frappe.set_route`.** The plan's
+  `frappe.set_route("derma-body-template-editor", { template: name })` cannot work: the router
+  stores a plain-object argument in `frappe.route_options` and re-encodes it as
+  `key=encodeURIComponent(JSON.stringify(value))` (`frappe/public/js/frappe/router.js:368-371`), so
+  a string arrives as `?template=%22Face%20Map%22` — quoted. The designer reads it raw with
+  `new URLSearchParams(window.location.search).get("template")`
+  (`public/js/body-template-editor/body-template-editor.bundle.jsx:111`) and would look up a
+  template whose name includes the quotes. An `<a href>` is no better: the router's own click
+  handler (`router.js:26-70`) funnels it through the same encoder. A literal navigation to
+  `/app/derma-body-template-editor?template=<encoded>` is the one form the designer already
+  understands — it is how the page is opened by hand today. Cost: a full desk reload on that click.
+- **The page-row patch logic moved into `do_derma/patches/helpers.py::ensure_standard_page`**, and
+  `ensure_derma_chart_page` was refactored onto it. The plan said "`ensure_derma_chart_page.py` with
+  the name changed", which would have meant three copies of the converge-field-by-field loop.
+  Rewriting an already-applied patch is safe — patches run once and this one is idempotent either
+  way.
+- **Every Vue component in the bundle declares `const __ = window.__ || ((txt) => txt)`.** Without
+  it the page mounted to a blank main section with `_ctx.__ is not a function`: Vue's template
+  compiler emits `_ctx.__` for an identifier it does not recognise as a global. `DermaChart.vue:615`
+  already does exactly this; the plan did not mention it because it reads as boilerplate. Found by
+  the Playwright spec, not by review.
+- **Three panels are a shared inline placeholder, not four `panels/*.vue` files.** Only
+  `BodyTemplatesPanel.vue` exists; Procedure Templates, Categories and Readiness render "This tool
+  arrives in a later pass" until their phase lands. Writing three empty components now is the
+  speculative generality the repo's rules forbid.
+- **`get_derma_config_overview` returns `errors` alongside `body_templates`.** `_safe_derma_context`
+  takes an accumulator list, and the page needs it to show which section failed — otherwise a broken
+  sub-query is indistinguishable from an empty one. `test_a_broken_sub_query_degrades_to_an_empty_list`
+  proves the degraded section itself; with one section in the payload it cannot yet prove the *other*
+  panels survive, so the second half of acceptance criterion 5 lands with Phase 2.
+- **`get_config_body_templates` is a dedicated public read, not a reuse of `_get_body_templates`.**
+  The plan asked it to reuse the chart's reader with an `include_disabled` flag. That reader is
+  capped at `limit=100` templates and `_attach_body_template_parts` at `limit=1000` parts *across
+  all templates*, so a large clinic would see silently wrong area counts — the one number this page
+  exists to show. It now reads `Derma Body Template` unfiltered with `limit_page_length=0` and
+  counts areas in `_count_template_areas`, which reads only `body_template` + `disabled`. Side
+  benefit: no `regions_json`, `shape_json` or hydrated variables cross the wire for a table that
+  renders none of them. `_get_body_templates` is left exactly as spec 1 left it.
+- **`test_it_recreates_a_deleted_row` skips under `developer_mode`.** Deleting and re-inserting a
+  source-backed `Page` writes the JSON back to the app folder on a developer-mode site, which
+  rewrote `derma_config.json` with fresh timestamps mid-test. The patch only exists for sites
+  without developer mode, so skipping there is honest rather than a workaround.
+- **`+ New template` calls `frappe.new_doc("Derma Body Template")`** (Open Question 2's default,
+  routed rather than inline), and the rail's outbound Annotation Templates link is a plain
+  `/app/annotation-template` href.
+- **The row action is "Design areas", not "Design regions"** (`data-test="config-design-areas"`).
+  `CONTEXT.md` retires *region* in favour of *Area*, and the column two cells to its left already
+  said "Areas". Caught in review before any spec depended on the old hook.
+- **The gate case lives in `TestClinicalAccessGate`** (`tests/test_api.py`) as
+  `test_config_overview_is_gated`, where `CLAUDE.md` says the gate's regression coverage belongs —
+  not in a second access-control class inside `test_config_workspace.py`, which is where it was
+  first written.
+- **`do_derma.openConfig()` is not shipped.** It is Phase 4's, together with the sidebar item that
+  calls it; adding it now would have been an exported function with no caller.
+
+## Verification
+
+### Phase 1
+
+Integration (Frappe's runner, real site with `healthcare` + `do_health`):
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_config_workspace
+→ Ran 6 tests, OK (skipped=1)
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_api
+→ Ran 43 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 130 tests in 24.8s, OK (skipped=1)
+```
+
+`test_config_workspace.py` covers: a disabled template appearing in the list, live vs retired area
+counts, a template with no areas, the degraded sub-query path with its `errors` entry, and both page
+patches being re-runnable without moving `modified`. The access gate is
+`TestClinicalAccessGate.test_config_overview_is_gated` in `test_api.py`, which proves
+`_ensure_clinical_access()` runs before any read.
+
+Browser (Playwright, on fixtures the spec plants itself):
+
+```
+npx playwright test e2e/tests/config-workspace.spec.ts → 4 passed
+npx playwright test                                    → 75 passed (9.5m)
+```
+
+`config-workspace.spec.ts` proves the disabled template is listed with its badge and a zero area
+count, that "Design areas" lands on `[data-test="body-map-designer"]` with `?template=` set to the
+exact name, and that each of the four rail items swaps the panel while the outbound Annotation
+Templates link keeps its `/app/annotation-template` href (acceptance criterion 1).
+
+Migrate and lint:
+
+```
+bench --site dermaone.localhost migrate    → clean; Page rows now derma-chart,
+                                             derma-body-template-editor, derma-config
+bench build --app do_derma                 → derma_config.bundle.js 258.86 Kb, .css 2.74 Kb
+pipx run ruff check <changed files>        → All checks passed
+pipx run ruff format --check               → 21 files already formatted
+```
+
+**Not yet run:** nothing for Phase 1. Phases 2-4 are unimplemented.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -251,12 +372,14 @@ shows the current enforcement mode read-only.
 | `public/js/config/derma_config.bundle.js` | *(new)* |
 | `public/js/config/derma_config.bundle.css` | *(new)* |
 | `public/js/config/App.vue` | *(new)* rail + panel switch |
-| `public/js/config/panels/*.vue` | *(new)* four panels |
-| `do_derma/api.py` | `get_derma_config_overview` + two private builders |
+| `public/js/config/panels/BodyTemplatesPanel.vue` | *(new)*; the other three panels land with their phases |
+| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; `_get_body_templates(include_disabled)` |
+| `do_derma/patches/helpers.py` | *(new)* `ensure_standard_page`, shared by the three page patches |
 | `do_derma/patches/ensure_derma_config_page.py` | *(new)* |
 | `do_derma/patches/ensure_derma_body_template_editor_page.py` | *(new)* — never existed |
+| `do_derma/patches/ensure_derma_chart_page.py` | refactored onto `ensure_standard_page` |
 | `do_derma/patches.txt` | two entries |
-| `public/js/derma_sidebar.js` | `do_derma.openConfig()` |
+| `public/js/derma_sidebar.js` | `do_derma.openConfig()` — Phase 4, not shipped yet |
 | `do_derma/tests/test_config_workspace.py` | *(new)* |
 | `e2e/tests/config-workspace.spec.ts` | *(new)*, on `demo_seed` fixtures |
 

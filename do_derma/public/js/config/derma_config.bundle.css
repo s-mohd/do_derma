@@ -1,0 +1,136 @@
+.derma-config-page {
+  display: flex;
+  gap: 16px;
+  min-height: calc(100vh - 96px);
+  padding: 12px 16px 24px;
+  background: #f3f7f9;
+  color: #172033;
+}
+
+.derma-config-page .config-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 220px;
+  flex: 0 0 220px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  height: fit-content;
+}
+
+.derma-config-page .config-rail-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+  padding: 4px 8px 8px;
+}
+
+.derma-config-page .config-rail-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.derma-config-page .config-rail-item:hover {
+  background: #eef2f7;
+  color: #0f172a;
+}
+
+.derma-config-page .config-rail-item.active {
+  background: #ecfdf5;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.derma-config-page .config-rail-separator {
+  margin: 8px 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.derma-config-page .config-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+}
+
+.derma-config-page .config-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.derma-config-page .config-section-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.derma-config-page .config-status {
+  padding: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.derma-config-page .config-status.error {
+  color: #b42318;
+}
+
+.derma-config-page .config-status.warning {
+  background: #fff7ed;
+  border-radius: 6px;
+  color: #92400e;
+}
+
+.derma-config-page .config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.derma-config-page .config-table th,
+.derma-config-page .config-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+
+.derma-config-page .config-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.derma-config-page .config-table .numeric {
+  text-align: right;
+  width: 80px;
+}
+
+.derma-config-page .config-table .actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.derma-config-page .config-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #eef2f7;
+  color: #64748b;
+  font-size: 11px;
+}
