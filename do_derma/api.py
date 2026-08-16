@@ -442,15 +442,18 @@ def _get_body_templates() -> list[dict[str, Any]]:
 	return rows
 
 
-def _attach_body_template_parts(rows: list[dict[str, Any]]) -> None:
+def _attach_body_template_parts(rows: list[dict[str, Any]], include_disabled: bool = False) -> None:
 	template_names = [row.get("name") for row in rows if row.get("name")]
 	parts_by_template: dict[str, list[dict[str, Any]]] = {}
 
 	if template_names and _has_doctype("Derma Body Template Part"):
+		filters: dict[str, Any] = {"body_template": ["in", template_names]}
+		if not include_disabled:
+			filters["disabled"] = 0
 		part_rows = frappe.get_all(
 			"Derma Body Template Part",
-			filters={"body_template": ["in", template_names], "disabled": 0},
-			fields=["name", "body_template", "part_name", "shape_json", "color", "opacity"],
+			filters=filters,
+			fields=["name", "body_template", "part_name", "shape_json", "color", "opacity", "disabled"],
 			order_by="creation asc",
 			limit=1000,
 		)
@@ -495,7 +498,7 @@ def _hydrate_template_parts(
 
 
 @frappe.whitelist()
-def get_derma_body_template_parts(body_template: str):
+def get_derma_body_template_parts(body_template: str, include_disabled: int | str = 0):
 	_ensure_clinical_access()
 	if not body_template:
 		frappe.throw(_("Derma Body Template is required."))
@@ -509,7 +512,7 @@ def get_derma_body_template_parts(body_template: str):
 			),
 		}
 	]
-	_attach_body_template_parts(rows)
+	_attach_body_template_parts(rows, include_disabled=bool(cint(include_disabled)))
 	return rows[0].get("parts", [])
 
 
@@ -526,20 +529,16 @@ def save_derma_body_template_parts(body_template: str, parts: str | list[dict[st
 
 	incoming_names = {part.get("name") for part in payload if part.get("name")}
 	existing = frappe.get_all(
-		"Derma Body Template Part", filters={"body_template": body_template}, fields=["name"]
+		"Derma Body Template Part",
+		filters={"body_template": body_template, "disabled": 0},
+		fields=["name"],
 	)
 	for row in existing:
 		if row.name not in incoming_names:
-			frappe.delete_doc("Derma Body Template Part", row.name, ignore_permissions=True)
+			frappe.db.set_value("Derma Body Template Part", row.name, "disabled", 1, update_modified=False)
 
-	saved = []
 	for index, part_data in enumerate(payload):
-		name = part_data.get("name")
-		doc = (
-			frappe.get_doc("Derma Body Template Part", name)
-			if name and frappe.db.exists("Derma Body Template Part", name)
-			else frappe.new_doc("Derma Body Template Part")
-		)
+		doc = _part_doc_for_save(body_template, part_data.get("name"))
 		doc.body_template = body_template
 		doc.part_name = part_data.get("part_name") or _("Region {0}").format(index + 1)
 		shape_json = part_data.get("shape_json")
@@ -547,22 +546,42 @@ def save_derma_body_template_parts(body_template: str, parts: str | list[dict[st
 		doc.color = part_data.get("color") or "#4dabf7"
 		doc.opacity = flt(part_data.get("opacity") if part_data.get("opacity") is not None else 0.2)
 		doc.disabled = cint(part_data.get("disabled") or 0)
-		doc.set("variables", [])
-		for variable in part_data.get("variables") or []:
-			if not variable.get("variable_name"):
-				continue
-			doc.append(
-				"variables",
-				{
-					"variable_name": variable.get("variable_name"),
-					"type": variable.get("type") or variable.get("fieldtype") or "Data",
-					"options": variable.get("options") or "",
-				},
-			)
+		_apply_part_variables(doc, part_data.get("variables"))
 		doc.save(ignore_permissions=True)
-		saved.append(doc.name)
 
-	return get_derma_body_template_parts(body_template)
+	return get_derma_body_template_parts(body_template, include_disabled=1)
+
+
+def _part_doc_for_save(body_template: str, name: str | None):
+	"""An area is only editable through the body template that owns it. A name from
+	another map starts a new area here rather than moving that one."""
+	owner = frappe.db.get_value("Derma Body Template Part", name, "body_template") if name else None
+	if owner == body_template:
+		return frappe.get_doc("Derma Body Template Part", name)
+	return frappe.new_doc("Derma Body Template Part")
+
+
+def _apply_part_variables(doc, rows: Any) -> None:
+	"""Rewrite the variable rows only when they differ, so untouched child rows keep
+	their name and idx."""
+	incoming = [
+		{
+			"variable_name": row.get("variable_name"),
+			"type": row.get("type") or row.get("fieldtype") or "Data",
+			"options": row.get("options") or "",
+		}
+		for row in rows or []
+		if isinstance(row, dict) and row.get("variable_name")
+	]
+	stored = [
+		{"variable_name": row.variable_name, "type": row.type, "options": row.options or ""}
+		for row in doc.get("variables") or []
+	]
+	if stored == incoming:
+		return
+	doc.set("variables", [])
+	for row in incoming:
+		doc.append("variables", row)
 
 
 def _get_template_sets() -> list[dict[str, Any]]:

@@ -154,6 +154,182 @@ class TestMarkAreaVariables(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(self._rows(mark["name"]), [])
 
 
+class TestBodyTemplatePartSave(DermaTestHelpers, IntegrationTestCase):
+	"""Saving a body map never destroys an area a mark may be standing on."""
+
+	def _payload_part(self, part_name, **extra):
+		return {
+			"part_name": part_name,
+			"shape_json": [[0, 0], [10, 0], [10, 10]],
+			"variables": [],
+			**extra,
+		}
+
+	def _variable_rows(self, part):
+		return frappe.get_all(
+			"Derma Template Part Variable",
+			filters={"parent": part, "parenttype": "Derma Body Template Part"},
+			fields=["name", "variable_name", "type", "idx"],
+			order_by="idx asc",
+		)
+
+	def test_a_removed_area_is_soft_disabled_not_deleted(self):
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+
+		api.save_derma_body_template_parts(template, json.dumps([self._payload_part("Right Cheek")]))
+
+		self.assertTrue(frappe.db.exists("Derma Body Template Part", part))
+		self.assertEqual(frappe.db.get_value("Derma Body Template Part", part, "disabled"), 1)
+
+	def test_an_empty_payload_deletes_nothing(self):
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+
+		api.save_derma_body_template_parts(template, json.dumps([]))
+
+		self.assertTrue(frappe.db.exists("Derma Body Template Part", part))
+
+	def test_a_mark_still_resolves_its_area_after_it_is_removed(self):
+		patient = self._make_patient()
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek")
+		self._save_mark(patient, body_template=template, body_template_part=part, region_label="Left Cheek")
+
+		api.save_derma_body_template_parts(template, json.dumps([]))
+
+		self.assertEqual(api._get_marks(patient)[0]["body_template_part"], part)
+
+	def test_saving_without_touching_variables_leaves_the_child_rows_alone(self):
+		template = self._make_body_template()
+		part = self._make_body_template_part(
+			template,
+			"Left Cheek",
+			variables=[
+				{"variable_name": "Plane", "type": "Select", "options": "Deep\nSubdermal"},
+				{"variable_name": "Units", "type": "Float"},
+			],
+		)
+		before = self._variable_rows(part)
+
+		api.save_derma_body_template_parts(
+			template,
+			json.dumps(
+				[
+					self._payload_part(
+						"Left Cheek",
+						name=part,
+						variables=[
+							{"variable_name": "Plane", "type": "Select", "options": "Deep\nSubdermal"},
+							{"variable_name": "Units", "type": "Float"},
+						],
+					)
+				]
+			),
+		)
+
+		self.assertEqual(
+			[(row.name, row.idx) for row in self._variable_rows(part)],
+			[(row.name, row.idx) for row in before],
+		)
+
+	def test_changed_variables_are_rewritten(self):
+		template = self._make_body_template()
+		part = self._make_body_template_part(
+			template, "Left Cheek", variables=[{"variable_name": "Plane", "type": "Data"}]
+		)
+
+		api.save_derma_body_template_parts(
+			template,
+			json.dumps(
+				[
+					self._payload_part(
+						"Left Cheek",
+						name=part,
+						variables=[
+							{"variable_name": "Plane", "type": "Data"},
+							{"variable_name": "Units", "type": "Float"},
+						],
+					)
+				]
+			),
+		)
+
+		self.assertEqual([row.variable_name for row in self._variable_rows(part)], ["Plane", "Units"])
+
+	def test_retired_areas_are_hidden_from_the_default_read(self):
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek", disabled=1)
+		self._make_body_template_part(template, "Right Cheek")
+
+		parts = api.get_derma_body_template_parts(template)
+
+		self.assertEqual([part["part_name"] for part in parts], ["Right Cheek"])
+
+	def test_retired_areas_are_returned_when_asked_for(self):
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek", disabled=1)
+		self._make_body_template_part(template, "Right Cheek")
+
+		parts = api.get_derma_body_template_parts(template, include_disabled=1)
+
+		self.assertEqual(
+			{part["part_name"]: part["disabled"] for part in parts},
+			{"Left Cheek": 1, "Right Cheek": 0},
+		)
+
+	def test_the_save_response_carries_the_areas_it_retired(self):
+		"""The designer merges the response by part_name and lists what it retired,
+		so the response must name both sets."""
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek")
+
+		saved = api.save_derma_body_template_parts(template, json.dumps([self._payload_part("Right Cheek")]))
+
+		self.assertEqual(
+			{part["part_name"]: part["disabled"] for part in saved},
+			{"Left Cheek": 1, "Right Cheek": 0},
+		)
+
+	def test_a_retired_area_is_restored_by_saving_it_again(self):
+		template = self._make_body_template()
+		part = self._make_body_template_part(template, "Left Cheek", disabled=1)
+
+		api.save_derma_body_template_parts(
+			template, json.dumps([self._payload_part("Left Cheek", name=part)])
+		)
+
+		self.assertEqual(frappe.db.get_value("Derma Body Template Part", part, "disabled"), 0)
+
+	def test_an_area_owned_by_another_body_template_is_never_re_parented(self):
+		"""The payload names the areas to keep. A name belonging to another body map
+		would otherwise move that area here and strip it from the map it was drawn on."""
+		template = self._make_body_template()
+		other_template = self._make_body_template()
+		foreign_part = self._make_body_template_part(other_template, "Left Cheek")
+
+		api.save_derma_body_template_parts(
+			template, json.dumps([self._payload_part("Left Cheek", name=foreign_part)])
+		)
+
+		stored = frappe.db.get_value(
+			"Derma Body Template Part", foreign_part, ["body_template", "disabled"], as_dict=True
+		)
+		self.assertEqual((stored.body_template, stored.disabled), (other_template, 0))
+		self.assertEqual(
+			[part["part_name"] for part in api.get_derma_body_template_parts(template)], ["Left Cheek"]
+		)
+
+	def test_retired_areas_never_reach_the_chart(self):
+		template = self._make_body_template()
+		self._make_body_template_part(template, "Left Cheek", disabled=1)
+		self._make_body_template_part(template, "Right Cheek")
+
+		charted = next(row for row in api._get_body_templates() if row["name"] == template)
+
+		self.assertEqual([part["part_name"] for part in charted["parts"]], ["Right Cheek"])
+
+
 class TestMarkTemplatePartLink(DermaTestHelpers, IntegrationTestCase):
 	"""The mark names the area it sits on by Link, while body_region keeps the coarse
 	15-value vocabulary every existing read depends on."""

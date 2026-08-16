@@ -1,7 +1,7 @@
 # Body Template Areas That Keep What You Type
 
 Date: 2026-08-16
-Status: **Phases 1-2 implemented & verified** (2026-08-16) — Phases 3-4 still **Draft**. Both
+Status: **Phases 1-3 implemented & verified** (2026-08-16) — Phase 4 still **Draft**. All three
 shipped phases deviated from the plan; see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
@@ -397,7 +397,7 @@ studio stops dropping `template_part`, `DERMA_MARK_FIELDS` entry, backfill patch
 *Exit:* a newly placed mark resolves to its `Derma Body Template Part` by Link, and the backfill
 links existing unambiguous marks on a migrated site without touching the rest.
 
-**Phase 3 — the body map stops destroying data.** Soft-disable, no child-table churn,
+**Phase 3 — the body map stops destroying data.** ✅ **Shipped 2026-08-16.** Soft-disable, no child-table churn,
 `include_disabled`, designer merges by `part_name`, retired-areas list with Restore.
 *Exit:* delete a region that has marks on it, save, and the marks still resolve; the region is
 restorable from the collapsed list.
@@ -421,6 +421,47 @@ selected areas in one action.
   *Default:* no hard cap; the hydration query's `limit=2000` mirrors `_hydrate_template_parts`.
 
 ## Reconciliation — what changed vs the plan
+
+### Phase 3 (2026-08-16)
+
+- **`save_derma_body_template_parts` returns the retired regions too**
+  (`get_derma_body_template_parts(..., include_disabled=1)`). The plan left the return value
+  alone, which would have forced the designer into a second round trip to refresh the
+  retired-areas list after every save. The designer is the endpoint's only caller, and it now
+  splits the response by `disabled` anyway.
+- **The soft-disable loop only scans regions that are still active**
+  (`filters={"body_template": ..., "disabled": 0}`). Re-disabling an already-retired row every
+  save is a pointless write; restoring one still works, because a restore arrives *in* the payload
+  with `disabled: 0` and rides the normal `doc.save`.
+- **`_apply_part_variables` is a named helper**, not an inline comparison. It normalises the
+  incoming rows to the same `(variable_name, type, options)` shape the doctype stores and returns
+  early when they match, so untouched child rows keep their `name` and `idx` (AC 7).
+- **`disabled` joins the fields `_attach_body_template_parts` selects.** The designer needs it to
+  split the response, and the chart's read (`_get_body_templates`) keeps its `disabled: 0` filter,
+  so retired areas still never reach the chart.
+- **The designer keeps `retiredParts` as separate state** rather than one list filtered on render.
+  `parts` is the canvas-backed set — every row in it has an Excalidraw element in
+  `partToElementRef` — and mixing retired rows into it would put shapes back on the canvas.
+  Restore is local until Save, like every other edit in this designer: it re-renders the polygon
+  through the extracted `renderPartElements`, and the next save persists `disabled: 0`.
+- **There is no `localId` fallback in the merge.** Design §5 promised the client would fall
+  "back to `localId` for rows that have not been named yet"; it cannot, because `localId` is
+  generated in the browser and never leaves it — the response carries `name`, `part_name`,
+  `shape_json`, `color`, `opacity`, `disabled` and nothing client-authored. An unnamed row is
+  matched on the `part_name` the client sent (the designer always sends one, defaulting to
+  `Region N`), and a row with no match keeps its local values untouched.
+- **`_part_doc_for_save` refuses to re-parent an area.** Not in the plan, and the one destructive
+  input left on this endpoint after the delete loop went: a payload row naming a
+  `Derma Body Template Part` that belongs to *another* body template would have moved it here,
+  stripping it from the map its marks were drawn on. Such a name now starts a new area instead.
+  Same shape as Phase 2's `_resolve_mark_template_part`.
+- **`mergeSavedParts` consumes matches by queue.** Two regions may legitimately carry the same
+  `part_name`, so the merge shifts each saved row off a per-name queue instead of reusing one
+  match for both. Same-named rows still resolve arbitrarily between themselves — both exist, both
+  keep their variables, so the cross-assignment AC 6 forbids cannot happen.
+- **Polygon validation and copy-to-areas were left in Phase 4**, as planned; the delete button is
+  relabelled (`title="Retire this area"`) so the panel does not promise a deletion it no longer
+  performs.
 
 ### Phase 2 (2026-08-16)
 
@@ -488,6 +529,42 @@ selected areas in one action.
 ## Verification
 
 Real runs, 2026-08-16, site `dermaone.localhost`.
+
+### Phase 3
+
+**Integration tests.** `bench --site dermaone.localhost run-tests --module
+do_derma.tests.test_body_template_areas` — **33 tests, OK** (22 from Phases 1-2, 11 new in
+`TestBodyTemplatePartSave`). The new ones cover: a removed area is soft-disabled and still
+exists (AC 5); an empty payload deletes nothing (AC 5); a mark on a removed area still resolves
+its part through `_get_marks` (AC 5, the *Exit* condition); an unchanged variable list keeps its
+child rows' `name` and `idx` (AC 7); a changed list is rewritten; the default read hides retired
+areas; `include_disabled=1` returns them with their flag; the save response carries both sets
+(AC 6, the data the designer merges on); a retired area is restored by saving it again
+(AC 9, server leg); an area owned by another body template is never re-parented; and retired
+areas never reach the chart through `_get_body_templates` (AC 11-12, read path).
+
+**Full suite.** `bench --site dermaone.localhost run-tests --app do_derma` — **123 tests, OK**
+(112 before this phase).
+
+**Code review.** Two-axis review (standards / spec fidelity) against `736dac7`. Fixed from it:
+the re-parenting hole, the untested chart read path, the `region`-over-`Area` naming in the new
+CSS classes and test names, and the untranslated retired-areas strings. The two spec gaps it
+found — the promised `localId` fallback and the ownership check — are reconciled above rather
+than left contradicting the code.
+
+**Lint.** `pipx run ruff check do_derma/` — all checks passed; `ruff format` applied to `api.py`
+and the test module.
+
+**Bundles.** `bench build --app do_derma` — done in 1.53s, 572ms build. Both the designer bundle
+and its CSS changed; no `*.bundle.*` filename changed, so the `frappe.require` contract holds.
+
+#### Not yet run (Phase 3)
+
+- **No manual browser pass.** AC 6 and AC 9's client leg are argued from the code path:
+  `mergeSavedParts` keys on `part_name`, and `restorePart` re-renders through the same
+  `createPartElement` the initial load uses. No migrate was needed — this phase changes no schema.
+- No Playwright coverage; still Phase 4.
+- `demo_seed.py` still seeds no retired region.
 
 ### Phase 2
 
@@ -578,7 +655,8 @@ new doctype folder — all pass. (Pre-existing findings elsewhere in the repo we
 | `do_derma/patches.txt` | two entries, `post_model_sync` |
 | `public/js/chart/annotation/DermaAnnotationStudio.jsx` | send `body_template_part` + `area_variables`; seed `partValues` on open |
 | `public/js/chart/excalidraw/EmbeddedExcalidraw.jsx` | drawn placements resolve their own area (`findTemplatePartAtPoint`) |
-| `public/js/body-template-editor/body-template-editor.bundle.jsx` | merge by `part_name`, polygon validation, retired-areas list, copy-to-areas |
+| `public/js/body-template-editor/body-template-editor.bundle.jsx` | merge by `part_name`, retired-areas list with Restore; polygon validation and copy-to-areas remain Phase 4 |
+| `public/js/body-template-editor/body_template_editor.bundle.css` | retired-areas list styles |
 | `do_derma/tests/test_body_template_areas.py` | *(new)* |
 | `do_derma/demo_seed.py` | area values + a retired region for the browser specs |
 | `e2e/tests/body-template-areas.spec.ts` | *(new)* |

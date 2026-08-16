@@ -192,6 +192,48 @@
   color: #9a3412;
 }
 
+.retired-areas {
+  border-top: 1px solid #dbe5ef;
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.retired-areas-toggle {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.retired-areas-list {
+  display: grid;
+  gap: 6px;
+}
+
+.retired-area {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.retired-area b {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.retired-area button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
 .editor-empty,
 .derma-map-editor-state {
   min-height: 180px;

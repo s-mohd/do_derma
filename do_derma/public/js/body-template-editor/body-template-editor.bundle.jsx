@@ -14,6 +14,35 @@ const hexToRgba = (hex = "#4dabf7", opacity = 0.2) => {
   return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, Number(opacity || 0)))})`
 }
 
+const toEditablePart = (part) => ({
+  ...part,
+  localId: generateId(),
+  opacity: Number(part.opacity || 0.2),
+  variables: part.variables || [],
+})
+
+/**
+ * Merge the save response into the local rows by part_name, never by array index:
+ * the response also carries retired regions, so index positions no longer line up.
+ * @param {Array<object>} current
+ * @param {Array<object>} saved
+ * @returns {Array<object>}
+ */
+const mergeSavedParts = (current, saved) => {
+  const pending = new Map()
+  for (const part of saved) {
+    if (part.disabled) continue
+    const queue = pending.get(part.part_name) || []
+    queue.push(part)
+    pending.set(part.part_name, queue)
+  }
+  return current.map((part) => {
+    const match = (pending.get(part.part_name) || []).shift()
+    if (!match) return part
+    return { ...part, name: match.name, variables: match.variables || part.variables }
+  })
+}
+
 const convertBlobToDataUrl = (blob) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -53,6 +82,8 @@ function DermaBodyTemplateEditor() {
   const [api, setApi] = useState(null)
   const [template, setTemplate] = useState(null)
   const [parts, setParts] = useState([])
+  const [retiredParts, setRetiredParts] = useState([])
+  const [retiredOpen, setRetiredOpen] = useState(false)
   const [selectedPartId, setSelectedPartId] = useState("")
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -78,18 +109,16 @@ function DermaBodyTemplateEditor() {
     }
     Promise.all([
       frappe.db.get_doc("Derma Body Template", templateName),
-      frappe.call({ method: "do_derma.api.get_derma_body_template_parts", args: { body_template: templateName } }),
+      frappe.call({
+        method: "do_derma.api.get_derma_body_template_parts",
+        args: { body_template: templateName, include_disabled: 1 },
+      }),
     ])
       .then(([doc, response]) => {
         setTemplate(doc)
-        setParts(
-          (response.message || []).map((part) => ({
-            ...part,
-            localId: generateId(),
-            opacity: Number(part.opacity || 0.2),
-            variables: part.variables || [],
-          }))
-        )
+        const loaded = response.message || []
+        setParts(loaded.filter((part) => !part.disabled).map(toEditablePart))
+        setRetiredParts(loaded.filter((part) => part.disabled))
       })
       .catch((err) => setError(err?.message || "Unable to load body template."))
       .finally(() => setLoading(false))
@@ -102,18 +131,26 @@ function DermaBodyTemplateEditor() {
     })
   }, [api, template?.name])
 
+  const renderPartElements = useCallback(
+    (rows) => {
+      const layout = imageLayoutRef.current
+      if (!api || !layout) return
+      const partElements = rows.map((part) => createPartElement(part, layout)).filter(Boolean)
+      for (const element of partElements) {
+        elementToPartRef.current[element.id] = element.customData.localId
+        partToElementRef.current[element.customData.localId] = element.id
+      }
+      initialPartsRenderedRef.current = true
+      if (!partElements.length) return
+      api.updateScene({ elements: [...api.getSceneElements(), ...partElements], commitToHistory: true })
+    },
+    [api]
+  )
+
   useEffect(() => {
     if (!api || !imageLayoutRef.current || initialPartsRenderedRef.current || !parts.length) return
-    const layout = imageLayoutRef.current
-    const existing = api.getSceneElements()
-    const partElements = parts.map((part) => createPartElement(part, layout)).filter(Boolean)
-    for (const element of partElements) {
-      elementToPartRef.current[element.id] = element.customData.localId
-      partToElementRef.current[element.customData.localId] = element.id
-    }
-    api.updateScene({ elements: [...existing, ...partElements], commitToHistory: true })
-    initialPartsRenderedRef.current = true
-  }, [api, parts.length])
+    renderPartElements(parts)
+  }, [api, parts.length, renderPartElements])
 
   useEffect(() => {
     if (!api || !selectedPart) return
@@ -181,6 +218,14 @@ function DermaBodyTemplateEditor() {
     if (selectedPartId === localId) setSelectedPartId("")
   }
 
+  const restorePart = (part) => {
+    const restored = toEditablePart({ ...part, disabled: 0 })
+    setRetiredParts((current) => current.filter((row) => row.name !== part.name))
+    setParts((current) => [...current, restored])
+    renderPartElements([restored])
+    setSelectedPartId(restored.localId)
+  }
+
   const addVariable = (localId) => {
     const part = parts.find((row) => row.localId === localId)
     updatePart(localId, {
@@ -224,13 +269,8 @@ function DermaBodyTemplateEditor() {
         args: { body_template: templateName, parts: JSON.stringify(payload) },
       })
       const saved = response.message || []
-      setParts((current) =>
-        current.map((part, index) => ({
-          ...part,
-          name: saved[index]?.name || part.name,
-          variables: saved[index]?.variables || part.variables,
-        }))
-      )
+      setParts((current) => mergeSavedParts(current, saved))
+      setRetiredParts(saved.filter((part) => part.disabled))
       frappe.show_alert({ message: __("Body map regions saved"), indicator: "green" })
     } catch (err) {
       frappe.msgprint({ title: __("Unable to save regions"), message: err?.message || String(err), indicator: "red" })
@@ -289,7 +329,7 @@ function DermaBodyTemplateEditor() {
               <div className="region-row">
                 <span style={{ background: hexToRgba(part.color, part.opacity), borderColor: part.color }} />
                 <b>{part.part_name || "Unnamed Region"}</b>
-                <button type="button" onClick={(event) => { event.stopPropagation(); deletePart(part.localId) }}>x</button>
+                <button type="button" title={__("Retire this area")} onClick={(event) => { event.stopPropagation(); deletePart(part.localId) }}>x</button>
               </div>
               {selectedPartId === part.localId && (
                 <div className="region-detail" onClick={(event) => event.stopPropagation()}>
@@ -334,6 +374,23 @@ function DermaBodyTemplateEditor() {
           ))}
           {!parts.length && <div className="editor-empty">No regions yet. Draw a closed polygon on the image.</div>}
         </div>
+        {retiredParts.length > 0 && (
+          <section className="retired-areas">
+            <button type="button" className="retired-areas-toggle" onClick={() => setRetiredOpen((open) => !open)}>
+              {retiredOpen ? "▾" : "▸"} {__("Retired areas")} ({retiredParts.length})
+            </button>
+            {retiredOpen && (
+              <div className="retired-areas-list">
+                {retiredParts.map((part) => (
+                  <div className="retired-area" key={part.name}>
+                    <b>{part.part_name || __("Unnamed Area")}</b>
+                    <button type="button" onClick={() => restorePart(part)}>{__("Restore")}</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
       </aside>
     </div>
   )
