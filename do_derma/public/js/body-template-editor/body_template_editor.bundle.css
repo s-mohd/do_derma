@@ -91,9 +91,14 @@
 
 .region-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: auto 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+}
+
+.region-row input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
 }
 
 .region-row span {
@@ -190,6 +195,34 @@
   border-color: #c2410c;
   background: #fff7ed;
   color: #9a3412;
+}
+
+.editor-refusal {
+  margin: 0;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  background: #fef2f2;
+  padding: 8px 10px;
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.copy-variables {
+  justify-self: start;
+  border: 1px solid #cfdce6;
+  border-radius: 7px;
+  background: #ffffff;
+  padding: 5px 8px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.copy-variables:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .retired-areas {

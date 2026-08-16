@@ -68,6 +68,12 @@ BODY_PARTS = (
 	("DEMO Chin", _rectangle_outline(0.38, 0.74, 0.24, 0.14)),
 )
 
+# An area someone removed from the map last week. It is soft-disabled, not deleted, so
+# the designer's "Retired areas" list has a row to restore.
+RETIRED_BODY_PART = ("DEMO Old Jawline", _rectangle_outline(0.24, 0.62, 0.52, 0.10))
+
+AREA_VARIABLE = {"variable_name": "Severity", "type": "Select", "options": "Mild\nModerate\nSevere"}
+
 TEMPLATE_VARIABLES = [
 	{"variable_name": "Product", "fieldname": "product", "label": "Product", "type": "Data"},
 	{"variable_name": "Units", "fieldname": "units", "label": "Units", "type": "Float"},
@@ -94,7 +100,9 @@ PROCEDURE_TEMPLATES = (
 )
 
 # Three visits: two in the past to give the timeline, the history strip and
-# "Copy marks from last visit" something to work with, and today's draft.
+# "Copy marks from last visit" something to work with, and today's draft. The last
+# element of a mark is the area it sits on and what was typed there, or None for a
+# mark placed off every area.
 VISITS = (
 	{
 		"key": "visit_1",
@@ -106,14 +114,22 @@ VISITS = (
 				50.0,
 				18.0,
 				{"product_name": "Botulinum A", "dose": 20, "dose_unit": "Units"},
+				("DEMO Forehead", {"Severity": "Moderate"}),
 			),
 			(
 				"DEMO Botox Glabella",
 				38.0,
 				22.0,
 				{"product_name": "Botulinum A", "dose": 12, "dose_unit": "Units"},
+				("DEMO Forehead", {"Severity": "Mild"}),
 			),
-			("DEMO Filler Cheek", 22.0, 46.0, {"product_name": "HA Filler", "dose": 1.0, "dose_unit": "ml"}),
+			(
+				"DEMO Filler Cheek",
+				22.0,
+				46.0,
+				{"product_name": "HA Filler", "dose": 1.0, "dose_unit": "ml"},
+				("DEMO Left Cheek", {"Severity": "Severe"}),
+			),
 		),
 	},
 	{
@@ -121,8 +137,14 @@ VISITS = (
 		"days_ago": 31,
 		"mode": "Structured",
 		"marks": (
-			("DEMO Peel Full Face", 50.0, 44.0, {"status": "Improving", "severity": "Mild"}),
-			("DEMO Punch Biopsy", 74.0, 40.0, {"status": "Biopsied", "diagnosis": "Seborrhoeic keratosis"}),
+			("DEMO Peel Full Face", 50.0, 44.0, {"status": "Improving", "severity": "Mild"}, None),
+			(
+				"DEMO Punch Biopsy",
+				74.0,
+				40.0,
+				{"status": "Biopsied", "diagnosis": "Seborrhoeic keratosis"},
+				("DEMO Right Cheek", {"Severity": "Moderate"}),
+			),
 		),
 	},
 	{
@@ -130,8 +152,16 @@ VISITS = (
 		"days_ago": 0,
 		"mode": None,
 		"marks": (
-			("DEMO Filler Cheek", 24.0, 47.0, {"product_name": "HA Filler", "dose": 0.5, "dose_unit": "ml"}),
-			("DEMO Laser Resurfacing", 62.0, 56.0, {"status": "Active", "severity": "Moderate"}),
+			(
+				"DEMO Filler Cheek",
+				24.0,
+				47.0,
+				{"product_name": "HA Filler", "dose": 0.5, "dose_unit": "ml"},
+				# Left blank on purpose: a declared variable with no value is documented
+				# as "looked at, nothing to record", not as missing.
+				("DEMO Left Cheek", {"Severity": ""}),
+			),
+			("DEMO Laser Resurfacing", 62.0, 56.0, {"status": "Active", "severity": "Moderate"}, None),
 		),
 	},
 )
@@ -348,35 +378,64 @@ def _ensure_body_template_parts(body_template: str | None, summary: dict[str, An
 
 	names: list[str] = []
 	for part_name, shape in BODY_PARTS:
-		existing = frappe.db.get_value(
-			"Derma Body Template Part", {"body_template": body_template, "part_name": part_name}, "name"
-		)
-		if existing:
-			# Converge the outline: rows planted before the polygon format was fixed hold a
-			# shape the chart cannot read, and the areas silently never draw.
-			frappe.db.set_value("Derma Body Template Part", existing, "shape_json", json.dumps(shape))
-			names.append(existing)
-			continue
-
-		doc = frappe.get_doc(
-			{
-				"doctype": "Derma Body Template Part",
-				"body_template": body_template,
-				"part_name": part_name,
-				"shape_json": json.dumps(shape),
-				"color": "#2980b9",
-				"opacity": 0.3,
-			}
-		)
-		if api._has_doctype("Derma Template Part Variable"):
-			doc.append(
-				"variables",
-				{"variable_name": "Severity", "type": "Select", "options": "Mild\nModerate\nSevere"},
-			)
-		doc.insert(ignore_permissions=True)
-		names.append(doc.name)
+		names.append(_ensure_body_template_part(body_template, part_name, shape, disabled=0))
+	retired_name, retired_shape = RETIRED_BODY_PART
+	names.append(_ensure_body_template_part(body_template, retired_name, retired_shape, disabled=1))
 
 	return names
+
+
+def _ensure_body_template_part(
+	body_template: str, part_name: str, shape: list[list[float]], disabled: int
+) -> str:
+	"""Converge one area's outline and its retired flag, so an area retired here is retired
+	again even if it was restored in the designer. Variables are left as the designer left
+	them - it owns them once the area exists."""
+
+	existing = frappe.db.get_value(
+		"Derma Body Template Part", {"body_template": body_template, "part_name": part_name}, "name"
+	)
+	if existing:
+		# Converge the outline: rows planted before the polygon format was fixed hold a
+		# shape the chart cannot read, and the areas silently never draw.
+		frappe.db.set_value(
+			"Derma Body Template Part", existing, {"shape_json": json.dumps(shape), "disabled": disabled}
+		)
+		_ensure_area_variable(existing)
+		return existing
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Derma Body Template Part",
+			"body_template": body_template,
+			"part_name": part_name,
+			"shape_json": json.dumps(shape),
+			"color": "#2980b9",
+			"opacity": 0.3,
+			"disabled": disabled,
+		}
+	)
+	if api._has_doctype("Derma Template Part Variable"):
+		doc.append("variables", dict(AREA_VARIABLE))
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+def _ensure_area_variable(part: str) -> None:
+	"""An area that declares nothing gets the demo variable back. An area that declares
+	something keeps it - the designer owns that list once the area exists, and the seeded
+	marks would otherwise carry values no area asked for."""
+
+	if not api._has_doctype("Derma Template Part Variable"):
+		return
+	if frappe.db.exists(
+		"Derma Template Part Variable", {"parent": part, "parenttype": "Derma Body Template Part"}
+	):
+		return
+
+	doc = frappe.get_doc("Derma Body Template Part", part)
+	doc.append("variables", dict(AREA_VARIABLE))
+	doc.save(ignore_permissions=True)
 
 
 def _ensure_procedure_templates(summary: dict[str, Any]) -> list[str]:
@@ -540,7 +599,7 @@ def _ensure_marks(summary: dict[str, Any], encounter: str, specs: tuple) -> list
 		return existing
 
 	names: list[str] = []
-	for template, x_percent, y_percent, detail in specs:
+	for template, x_percent, y_percent, detail, area in specs:
 		mark = api.save_chart_mark(
 			{
 				"patient": summary["patient"],
@@ -550,10 +609,36 @@ def _ensure_marks(summary: dict[str, Any], encounter: str, specs: tuple) -> list
 				"x_percent": x_percent,
 				"y_percent": y_percent,
 				**detail,
+				**_area_placement(summary["body_template"], area),
 			}
 		)
 		names.append(mark["name"])
 	return names
+
+
+def _area_placement(body_template: str | None, area: tuple[str, dict[str, str]] | None) -> dict[str, Any]:
+	"""Link a mark to the area it was drawn on and record what was typed there, the way
+	the annotation studio does. A mark placed off every area sends nothing."""
+
+	if not area or not body_template or not api._has_doctype("Derma Body Template Part"):
+		return {}
+
+	part_name, values = area
+	part = frappe.db.get_value(
+		"Derma Body Template Part", {"body_template": body_template, "part_name": part_name}, "name"
+	)
+	if not part:
+		return {}
+
+	return {
+		"body_template_part": part,
+		"body_region": part_name,
+		"region_label": part_name,
+		"area_variables": [
+			{"fieldname": api._variable_fieldname(name), "label": name, "value": value}
+			for name, value in values.items()
+		],
+	}
 
 
 def _ensure_clinical_procedures(summary: dict[str, Any]) -> list[str]:

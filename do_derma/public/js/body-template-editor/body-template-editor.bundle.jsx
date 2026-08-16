@@ -2,8 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { Excalidraw } from "@excalidraw/excalidraw"
 
+import { closeTolerance, validateAreaPolygon } from "./polygon"
+
 const __ = window.__ || ((text) => text)
 const generateId = () => `derma-part-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+
+/** Why a stroke was refused, in the words the practitioner needs to fix it. */
+const outlineRefusalMessage = (reason) => {
+  if (reason === "too_few_points") return __("Draw at least three points before closing the area.")
+  if (reason === "self_intersecting") return __("The outline crosses itself. Redraw it without crossing.")
+  return __("Finish the outline where it started. An open shape cannot become an area.")
+}
 
 const hexToRgba = (hex = "#4dabf7", opacity = 0.2) => {
   const clean = String(hex || "#4dabf7").replace("#", "")
@@ -85,6 +94,8 @@ function DermaBodyTemplateEditor() {
   const [retiredParts, setRetiredParts] = useState([])
   const [retiredOpen, setRetiredOpen] = useState(false)
   const [selectedPartId, setSelectedPartId] = useState("")
+  const [copyTargetIds, setCopyTargetIds] = useState([])
+  const [outlineRefusal, setOutlineRefusal] = useState("")
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -93,6 +104,9 @@ function DermaBodyTemplateEditor() {
   const imageLayoutRef = useRef(null)
   const partsRef = useRef(parts)
   const initialPartsRenderedRef = useRef(false)
+  // Element id -> the element version already refused, so an unchanged bad outline is
+  // judged once instead of on every onChange.
+  const refusedOutlinesRef = useRef({})
 
   const templateName = new URLSearchParams(window.location.search).get("template")
   const selectedPart = parts.find((part) => part.localId === selectedPartId)
@@ -174,10 +188,29 @@ function DermaBodyTemplateEditor() {
   }
 
   const handleChange = useCallback((elements, appState) => {
-    const lineElements = elements.filter((element) => element.type === "line" && !element.isDeleted && !elementToPartRef.current[element.id])
-    if (!lineElements.length || appState.editingLinearElement) return
+    const drawing = new Set(
+      [appState.multiElement?.id, appState.newElement?.id, appState.draggingElement?.id, appState.editingLinearElement?.elementId].filter(Boolean)
+    )
+    const lineElements = elements.filter(
+      (element) => element.type === "line" && !element.isDeleted && !elementToPartRef.current[element.id] && !drawing.has(element.id)
+    )
+    if (!lineElements.length) {
+      // Nothing left to judge: the refused stroke was deleted, or a new one is under way.
+      setOutlineRefusal("")
+      return
+    }
+    const tolerance = closeTolerance(imageLayoutRef.current)
     lineElements.forEach((element) => {
-      if (!element.points || element.points.length < 3) return
+      const verdict = validateAreaPolygon(element.points, tolerance)
+      if (!verdict.isValid) {
+        if (refusedOutlinesRef.current[element.id] !== element.version) {
+          refusedOutlinesRef.current[element.id] = element.version
+          setOutlineRefusal(outlineRefusalMessage(verdict.reason))
+        }
+        return
+      }
+      delete refusedOutlinesRef.current[element.id]
+      setOutlineRefusal("")
       const localId = generateId()
       elementToPartRef.current[element.id] = localId
       partToElementRef.current[localId] = element.id
@@ -215,7 +248,28 @@ function DermaBodyTemplateEditor() {
     delete elementToPartRef.current[elementId]
     delete partToElementRef.current[localId]
     setParts((current) => current.filter((part) => part.localId !== localId))
+    setCopyTargetIds((current) => current.filter((id) => id !== localId))
     if (selectedPartId === localId) setSelectedPartId("")
+  }
+
+  const toggleCopyTarget = (localId) => {
+    setCopyTargetIds((current) => (current.includes(localId) ? current.filter((id) => id !== localId) : [...current, localId]))
+  }
+
+  /** Give every ticked area its own copy of this area's variables. Local until Save. */
+  const copyVariablesToTargets = (source) => {
+    const targetIds = copyTargetIds.filter((localId) => localId !== source.localId)
+    if (!targetIds.length) return
+    const variables = source.variables || []
+    setParts((current) =>
+      current.map((part) =>
+        targetIds.includes(part.localId)
+          ? { ...part, variables: variables.map((variable) => ({ ...variable })) }
+          : part
+      )
+    )
+    setCopyTargetIds([])
+    frappe.show_alert({ message: __("Variables copied to {0} areas", [targetIds.length]), indicator: "green" })
   }
 
   const restorePart = (part) => {
@@ -283,7 +337,7 @@ function DermaBodyTemplateEditor() {
   if (error) return <div className="derma-map-editor-state error">{error}</div>
 
   return (
-    <div className="derma-map-editor">
+    <div className="derma-map-editor" data-test="body-map-designer">
       <main className="derma-map-editor-canvas">
         <Excalidraw
           excalidrawAPI={setApi}
@@ -318,24 +372,39 @@ function DermaBodyTemplateEditor() {
             <strong>{template?.title || template?.name}</strong>
             <small>{[template?.gender, template?.template_type].filter(Boolean).join(" · ")}</small>
           </div>
-          <button type="button" className="primary" disabled={saving} onClick={saveParts}>
+          <button type="button" className="primary" data-test="save-areas" disabled={saving} onClick={saveParts}>
             {saving ? "Saving..." : "Save Regions"}
           </button>
         </header>
         <p className="editor-hint">Use the line tool to draw closed polygons. Click a region to edit its name, color, opacity, and variables.</p>
+        {outlineRefusal && (
+          <p className="editor-refusal" data-test="area-outline-refusal" role="alert">
+            {outlineRefusal}
+          </p>
+        )}
         <div className="region-list">
-          {parts.map((part) => (
-            <article key={part.localId} className={selectedPartId === part.localId ? "active" : ""} onClick={() => setSelectedPartId(part.localId)}>
+          {parts.map((part) => {
+            const copyTargetCount = copyTargetIds.filter((localId) => localId !== part.localId).length
+            return (
+            <article key={part.localId} data-test="area-row" data-area-name={part.part_name || ""} className={selectedPartId === part.localId ? "active" : ""} onClick={() => setSelectedPartId(part.localId)}>
               <div className="region-row">
+                <input
+                  type="checkbox"
+                  data-test="area-copy-target"
+                  title={__("Include this area when copying variables")}
+                  checked={copyTargetIds.includes(part.localId)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => toggleCopyTarget(part.localId)}
+                />
                 <span style={{ background: hexToRgba(part.color, part.opacity), borderColor: part.color }} />
-                <b>{part.part_name || "Unnamed Region"}</b>
+                <b>{part.part_name || __("Unnamed Area")}</b>
                 <button type="button" title={__("Retire this area")} onClick={(event) => { event.stopPropagation(); deletePart(part.localId) }}>x</button>
               </div>
               {selectedPartId === part.localId && (
                 <div className="region-detail" onClick={(event) => event.stopPropagation()}>
                   <label>
                     <span>Region Name</span>
-                    <input value={part.part_name || ""} onChange={(event) => updatePart(part.localId, { part_name: event.target.value })} />
+                    <input data-test="area-name" value={part.part_name || ""} onChange={(event) => updatePart(part.localId, { part_name: event.target.value })} />
                   </label>
                   <div className="region-two-col">
                     <label>
@@ -349,11 +418,11 @@ function DermaBodyTemplateEditor() {
                   </div>
                   <div className="region-variables-head">
                     <strong>Variables</strong>
-                    <button type="button" onClick={() => addVariable(part.localId)}>Add</button>
+                    <button type="button" data-test="add-area-variable" onClick={() => addVariable(part.localId)}>Add</button>
                   </div>
                   {(part.variables || []).map((variable, index) => (
                     <div className="region-variable" key={`${part.localId}-${index}`}>
-                      <input placeholder="Variable name" value={variable.variable_name || ""} onChange={(event) => updateVariable(part.localId, index, "variable_name", event.target.value)} />
+                      <input data-test="area-variable-name" placeholder="Variable name" value={variable.variable_name || ""} onChange={(event) => updateVariable(part.localId, index, "variable_name", event.target.value)} />
                       <select value={variable.type || "Data"} onChange={(event) => updateVariable(part.localId, index, "type", event.target.value)}>
                         <option value="Data">Data</option>
                         <option value="Select">Select</option>
@@ -368,23 +437,33 @@ function DermaBodyTemplateEditor() {
                       <button type="button" onClick={() => removeVariable(part.localId, index)}>Remove</button>
                     </div>
                   ))}
+                  <button
+                    type="button"
+                    className="copy-variables"
+                    data-test="copy-area-variables"
+                    disabled={!copyTargetCount}
+                    onClick={() => copyVariablesToTargets(part)}
+                  >
+                    {__("Copy variables to {0} ticked areas", [copyTargetCount])}
+                  </button>
                 </div>
               )}
             </article>
-          ))}
+            )
+          })}
           {!parts.length && <div className="editor-empty">No regions yet. Draw a closed polygon on the image.</div>}
         </div>
         {retiredParts.length > 0 && (
           <section className="retired-areas">
-            <button type="button" className="retired-areas-toggle" onClick={() => setRetiredOpen((open) => !open)}>
+            <button type="button" className="retired-areas-toggle" data-test="retired-areas-toggle" onClick={() => setRetiredOpen((open) => !open)}>
               {retiredOpen ? "▾" : "▸"} {__("Retired areas")} ({retiredParts.length})
             </button>
             {retiredOpen && (
               <div className="retired-areas-list">
                 {retiredParts.map((part) => (
-                  <div className="retired-area" key={part.name}>
+                  <div className="retired-area" data-test="retired-area" data-area-name={part.part_name || ""} key={part.name}>
                     <b>{part.part_name || __("Unnamed Area")}</b>
-                    <button type="button" onClick={() => restorePart(part)}>{__("Restore")}</button>
+                    <button type="button" data-test="restore-area" onClick={() => restorePart(part)}>{__("Restore")}</button>
                   </div>
                 ))}
               </div>

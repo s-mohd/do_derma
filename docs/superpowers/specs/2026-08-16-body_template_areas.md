@@ -1,9 +1,9 @@
 # Body Template Areas That Keep What You Type
 
 Date: 2026-08-16
-Status: **Phases 1-3 implemented & verified** (2026-08-16) — Phase 4 still **Draft**. All three
-shipped phases deviated from the plan; see
-[Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
+Status: **Implemented & verified** (2026-08-16) — all four phases shipped. Every phase deviated
+from the plan; see [Reconciliation](#reconciliation--what-changed-vs-the-plan) and
+[Verification](#verification).
 
 ## Goal
 
@@ -402,8 +402,9 @@ links existing unambiguous marks on a migrated site without touching the rest.
 *Exit:* delete a region that has marks on it, save, and the marks still resolve; the region is
 restorable from the collapsed list.
 
-**Phase 4 — guardrails and bulk edit.** Polygon validation at draw time, copy-variables-to-areas,
-Playwright coverage on the extended `demo_seed`.
+**Phase 4 — guardrails and bulk edit.** ✅ **Shipped 2026-08-16.** Polygon validation at draw time,
+copy-variables-to-areas, Playwright coverage on the extended `demo_seed` (the browser specs plant
+their own fixtures instead — see Reconciliation).
 *Exit:* an open outline is refused with feedback; one area's variables can be applied to several
 selected areas in one action.
 
@@ -421,6 +422,58 @@ selected areas in one action.
   *Default:* no hard cap; the hydration query's `limit=2000` mirrors `_hydrate_template_parts`.
 
 ## Reconciliation — what changed vs the plan
+
+### Phase 4 (2026-08-16)
+
+- **The geometry moved out of the designer into a pure module**
+  (`public/js/body-template-editor/polygon.js`: `validateAreaPolygon`, `closeTolerance`). Design §6
+  put the three checks inline at `bundle.jsx:139-161`. The repo has no JS unit runner, but a module
+  with no React and no Excalidraw import can be exercised by a page-less Playwright spec — so the
+  rules that decide what becomes a `Derma Body Template Part` are pinned by 8 cases instead of by
+  clicking.
+- **A stroke is judged only once it is finished.** Not in the plan, and the single thing that makes
+  validation usable: the old code created a part the moment a line had three points, i.e. *while*
+  it was being drawn. Every polygon is open until its last click, so validating in-progress strokes
+  would refuse all of them. `handleChange` now skips whatever Excalidraw reports as in progress
+  (`multiElement`, `newElement`, `draggingElement`, `editingLinearElement`).
+- **A refusal is remembered per element version** (`refusedOutlinesRef`), so an unchanged bad
+  outline is judged once rather than on every `onChange`. Editing the shape bumps `element.version`
+  and it is judged again — which is how a refused stroke becomes an area once the practitioner
+  closes it, with no extra bookkeeping.
+- **Closing tolerance is the Open Question's default** — 2% of the smaller rendered side
+  (`CLOSE_TOLERANCE_RATIO`), with an 8px fallback for the window before the template image has laid
+  out. Touching counts as crossing in the self-intersection test: two edges that share a point they
+  should not is the same defect as two that cross.
+- **Copy-to-areas needed a second selection concept.** The plan said "take the selected part's
+  `variables` and assign it to the other selected parts", but the designer has exactly one
+  selection (`selectedPartId`) and it drives the detail panel. Targets are now a **tick box per
+  area row** (`copyTargetIds`); the button lives in the selected area's detail panel, counts only
+  ticked areas other than itself, and gives each target its own copy of each variable object.
+- **The designer gained 9 `data-test` hooks.** It had none — no browser spec could address it at
+  all. They are now part of the selector contract `CLAUDE.md` describes.
+- **The browser spec plants its own body template rather than reading `demo_seed`, so the extended
+  `demo_seed` has no automated consumer.** The phase line asked for "Playwright coverage on the
+  extended `demo_seed`"; the seeded area values, area links and retired region are verified by hand
+  (recorded under Verification) and are there for clicking around, not for assertions. These tests
+  retire and restore areas, which no shared fixture survives; and the demo seeder is not part of the
+  documented e2e setup (`e2e/README.md` plants `e2e_seed` only). The spec reads exactly one thing
+  from the seeded set — `E2E Face Map`'s image URL, because a template with no image never lays out
+  its canvas. Its own template is created **disabled**, so a fixture that outlives a failed cleanup
+  cannot reach the chart: `_get_body_templates` filters `disabled: 0`, and the designer opens a
+  template by name without reading the flag.
+- **`demo_seed` links its marks to areas as well as valuing them.** The Files table asked for "area
+  values + a retired region"; values alone would seed a state the studio cannot produce, because
+  every path that writes a value also writes `body_template_part`. A mark spec now carries the area
+  it sits on, one area value is seeded **blank** on purpose, and two marks sit off every area.
+- **`_ensure_body_template_part` is a named helper** and converges `disabled` too, so re-running the
+  seeder re-retires an area that was restored in the designer while clicking around. It converges
+  the *declaration* only when an area declares nothing (`_ensure_area_variable`) — seeded marks
+  carry `Severity` values, and an area that declares no variable would leave those values with
+  nothing to display them against. An area that declares something keeps it: past that point the
+  designer owns the list.
+
+- **The refusal banner clears when there is nothing left to judge** — the review found it would
+  otherwise sit there for the rest of the session after the offending stroke was deleted.
 
 ### Phase 3 (2026-08-16)
 
@@ -529,6 +582,59 @@ selected areas in one action.
 ## Verification
 
 Real runs, 2026-08-16, site `dermaone.localhost`.
+
+### Phase 4
+
+**Unit tests (geometry).** `npx playwright test area-polygon` — **8 tests, passed**, in Node with no
+page. They cover: a closed square; a triangle closed within the tolerance rather than exactly; an
+outline that never returns to its start; a bow tie; one- and two-point strokes; a there-and-back
+stroke that closes on two distinct corners; malformed input; and the tolerance scaling off the
+smaller rendered side.
+
+**Browser tests.** `npx playwright test body-template-areas` — **6 tests, passed** (the runner
+reports 7, one of which is the shared `auth.setup` project). They cover the two client legs Phase 3
+could only argue from the code path, plus this phase's two features: a retired area is listed,
+restored and persisted as `disabled: 0` (AC 9); retiring one area leaves every other area its own
+`name` and variables, in the panel and on the server (AC 6); one area's variables are copied onto
+two ticked areas and saved (Phase 4 *Exit*); an open outline is refused with inline feedback and
+creates no area, and so is a closed bow tie (AC 8, both legs); and an outline closed back on its
+first point does become an area — the guard rejects the right things, not everything.
+
+**Full browser suite.** `npx playwright test` — **71 passed** (1 `auth.setup` + 70 specs: 57 that
+predate this phase plus 13 new). That run predates the queue defect below reaching its cap; a later
+run of the same suite failed 2 `annotation-discard` specs, both on `QueueOverloaded` and neither on
+anything in this diff. The 14th new spec (the bow tie, added from the code review) was run on its
+own file afterwards, not in a full-suite pass.
+
+**Full Python suite.** `bench --site dermaone.localhost run-tests --app do_derma` — **123 tests,
+OK**. Unchanged from Phase 3: this phase touches no `api.py` code path.
+
+**Demo data.** `teardown_demo_data` then `setup_demo_data` — both clean, then `setup_demo_data`
+again to exercise the converge branch. Verified in the console: five areas on `DEMO Face Map` with
+`DEMO Old Jawline` at `disabled: 1` and every area declaring `Severity`; five marks carrying a
+`Derma Mark Variable` row (`severity`, one of them deliberately blank); those five marks linked to
+their `Derma Body Template Part`, with `body_region` normalised to `Face` and `region_label`
+holding the exact area name.
+
+**Lint.** `pipx run ruff check do_derma/` — all checks passed; `ruff format --check` on
+`demo_seed.py` — already formatted.
+
+**Bundles.** `bench build --app do_derma` — done in 1.48s. The designer bundle and its CSS changed;
+no `*.bundle.*` filename changed, so the `frappe.require` contract holds.
+
+#### Not yet run (Phase 4)
+
+- **No TypeScript typecheck.** The repo has no `typescript` dependency — Playwright strips types
+  with esbuild and never checks them. Nothing was added to change that.
+- No migrate: this phase changes no schema.
+- **Environment defect found, not fixed:** this bench has no live background worker (`logs/worker.
+  error.log` ends 2026-07-11 with `Error 61 connecting to 127.0.0.1:11002`), so the `default` queue
+  sits at its 600-job cap and every `delete_doc` now fails with `QueueOverloaded`. That is what
+  makes the browser spec's cleanup leave rows behind — hence the disabled fixture template — and it
+  fails unrelated specs that delete documents (`annotation-discard`) on any run after the cap is
+  reached. Drain with `bench worker --queue default --burst`; check depth first with
+  `redis-cli -p 11002 llen rq:queue:Users-hameed-Developer-bench-v16:default`. Not done here: those
+  600 jobs have been queued since 2026-07-11 and running them is the bench owner's call.
 
 ### Phase 3
 
@@ -655,11 +761,13 @@ new doctype folder — all pass. (Pre-existing findings elsewhere in the repo we
 | `do_derma/patches.txt` | two entries, `post_model_sync` |
 | `public/js/chart/annotation/DermaAnnotationStudio.jsx` | send `body_template_part` + `area_variables`; seed `partValues` on open |
 | `public/js/chart/excalidraw/EmbeddedExcalidraw.jsx` | drawn placements resolve their own area (`findTemplatePartAtPoint`) |
-| `public/js/body-template-editor/body-template-editor.bundle.jsx` | merge by `part_name`, retired-areas list with Restore; polygon validation and copy-to-areas remain Phase 4 |
-| `public/js/body-template-editor/body_template_editor.bundle.css` | retired-areas list styles |
+| `public/js/body-template-editor/body-template-editor.bundle.jsx` | merge by `part_name`, retired-areas list with Restore, outline validation, copy-to-ticked-areas, `data-test` hooks |
+| `public/js/body-template-editor/polygon.js` | *(new)* outline geometry, pure |
+| `public/js/body-template-editor/body_template_editor.bundle.css` | retired-areas list, refusal banner, copy button, tick box |
 | `do_derma/tests/test_body_template_areas.py` | *(new)* |
-| `do_derma/demo_seed.py` | area values + a retired region for the browser specs |
-| `e2e/tests/body-template-areas.spec.ts` | *(new)* |
+| `do_derma/demo_seed.py` | area values, area links and a retired region |
+| `e2e/tests/body-template-areas.spec.ts` | *(new)* browser coverage of the designer |
+| `e2e/tests/area-polygon.spec.ts` | *(new)* page-less unit spec for the geometry |
 
 `bench build --app do_derma` is **required** (two bundles change). No `*.bundle.js` filename
 changes, so the `frappe.require` contract holds.
