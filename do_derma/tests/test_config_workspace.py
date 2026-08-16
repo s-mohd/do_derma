@@ -113,8 +113,9 @@ class ConfigTemplateHelpers:
 
 
 class TestConfigProcedureTemplates(ConfigTemplateHelpers, IntegrationTestCase):
-	"""Required fields have four owners that disagree. The config list names the owner
-	of every field so a misconfiguration is visible without opening the desk form."""
+	"""The template owns its required fields, with the two safety flags appending theirs.
+	The config list names the owner of every field so a misconfiguration is visible
+	without opening the desk form."""
 
 	def test_lists_a_disabled_template(self):
 		template = self._make_derma_template(custom_derma_required_fields=json.dumps(["dose"]), disabled=1)
@@ -153,14 +154,16 @@ class TestConfigProcedureTemplates(ConfigTemplateHelpers, IntegrationTestCase):
 
 		self.assertEqual(sources, ["template"])
 
-	def test_warns_when_requirements_come_from_the_category_name(self):
+	def test_a_clinic_named_category_grants_no_requirements(self):
+		"""The category name owned a hard-coded set until the template became the sole
+		owner. A template in a category called Botox now requires exactly what it says."""
 		category = self._make_category("Botox")
 		template = self._make_derma_template(custom_derma_category=category)
 
 		row = self._procedure_row(api.get_derma_config_overview(), template)
 
-		self.assertIn("category_name_defaults", row["warnings"])
-		self.assertIn("dose", [field["fieldname"] for field in row["required_fields"]])
+		self.assertEqual(row["required_fields"], [])
+		self.assertIn("no_required_fields", row["warnings"])
 
 	def test_reports_a_required_field_the_chart_cannot_enforce(self):
 		template = self._make_derma_template(
@@ -172,6 +175,23 @@ class TestConfigProcedureTemplates(ConfigTemplateHelpers, IntegrationTestCase):
 		self.assertEqual(
 			[(field["fieldname"], field["enforced"]) for field in row["required_fields"]],
 			[("invented_field", False)],
+		)
+		self.assertIn("unenforced_required_fields", row["warnings"])
+
+	def test_reports_a_field_the_template_lists_and_its_own_json_opts_out_of(self):
+		"""One document disagreeing with itself: the required list names `dose`, the
+		variables row calls it optional. The row wins in the chart, so the list entry is
+		enforced nowhere - which is what the warning has always meant."""
+		template = self._make_derma_template(
+			custom_derma_required_fields=json.dumps(["dose"]),
+			custom_derma_variables_json=json.dumps([{"label": "Dose", "required": False}]),
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(
+			[(field["fieldname"], field["enforced"]) for field in row["required_fields"]],
+			[("dose", False)],
 		)
 		self.assertIn("unenforced_required_fields", row["warnings"])
 
@@ -234,8 +254,8 @@ class TestConfigProcedureTemplates(ConfigTemplateHelpers, IntegrationTestCase):
 
 
 class TestConfigCategories(ConfigTemplateHelpers, IntegrationTestCase):
-	"""Categories carry five requirement fields nothing reads. The list says so rather
-	than letting an administrator configure into a void."""
+	"""What a category is worth once its requirement fields are gone: marker behaviour,
+	defaults, and how many templates would break if it were deleted."""
 
 	def test_lists_a_disabled_category(self):
 		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}", disabled=1)
@@ -249,28 +269,14 @@ class TestConfigCategories(ConfigTemplateHelpers, IntegrationTestCase):
 
 		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["template_count"], 2)
 
-	def test_flags_requirement_fields_no_code_reads(self):
-		category = self._make_category(
-			f"Derma Cfg {frappe.generate_hash(length=6)}",
-			required_fields=json.dumps(["dose"]),
-			consent_required=1,
-		)
+	def test_carries_no_requirement_fields(self):
+		"""The five requirement fields nothing read are gone from the doctype, so the
+		payload cannot offer a place to configure into a void."""
+		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}")
 
 		row = self._category_row(api.get_derma_config_overview(), category)
 
-		self.assertEqual(sorted(row["unread_fields"]), ["consent_required", "required_fields"])
-
-	def test_an_empty_required_fields_list_is_not_a_value(self):
-		category = self._make_category(
-			f"Derma Cfg {frappe.generate_hash(length=6)}", required_fields=json.dumps([])
-		)
-
-		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["unread_fields"], [])
-
-	def test_a_plain_category_flags_nothing(self):
-		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}")
-
-		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["unread_fields"], [])
+		self.assertEqual([key for key in row if key.endswith("_required") or key == "required_fields"], [])
 
 
 class TestConfigReadiness(DermaTestHelpers, IntegrationTestCase):
@@ -336,20 +342,18 @@ class TestConfigHealth(ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestC
 		sections = {
 			"body_templates": [{"warnings": ["no_areas"]}, {"warnings": []}],
 			"procedure_templates": [{"warnings": ["no_required_fields"]}, {"warnings": []}],
-			"categories": [{"unread_fields": ["consent_required"]}, {"unread_fields": []}],
 			"readiness": {"warnings": ["completion_gate_is_client_side"]},
 		}
 
 		self.assertEqual(
 			api.get_config_health(sections),
-			{"body-templates": 1, "procedure-templates": 1, "categories": 1, "readiness": 1},
+			{"body-templates": 1, "procedure-templates": 1, "readiness": 1},
 		)
 
 	def test_a_degraded_section_counts_nothing(self):
 		sections = {
 			"body_templates": [],
 			"procedure_templates": [],
-			"categories": [],
 			"readiness": {},
 		}
 
@@ -393,19 +397,21 @@ class TestConfigHealth(ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestC
 
 		self.assertEqual(row["warnings"], [])
 
-	def test_the_overview_carries_one_count_per_rail_tool(self):
+	def test_the_overview_carries_one_count_per_tool_with_a_rule(self):
+		"""Categories have no rule of their own, so they carry no count at all rather than
+		one that can only ever be zero."""
 		health = api.get_derma_config_overview()["health"]
 
-		self.assertEqual(sorted(health), ["body-templates", "categories", "procedure-templates", "readiness"])
+		self.assertEqual(sorted(health), ["body-templates", "procedure-templates", "readiness"])
 		for count in health.values():
 			self.assertIsInstance(count, int)
 
 	def test_a_broken_section_reports_no_false_health(self):
-		with patch.object(api, "get_config_categories", side_effect=Exception("boom")):
+		with patch.object(api, "get_config_procedure_templates", side_effect=Exception("boom")):
 			overview = api.get_derma_config_overview()
 
-		self.assertEqual(overview["health"]["categories"], 0)
-		self.assertIn("categories", overview["errors"])
+		self.assertEqual(overview["health"]["procedure-templates"], 0)
+		self.assertIn("procedure templates", overview["errors"])
 
 
 class TestConfigSidebarItem(IntegrationTestCase):

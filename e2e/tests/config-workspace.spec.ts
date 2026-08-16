@@ -151,7 +151,6 @@ test.describe("Derma configuration lists", () => {
 			title,
 			workflow: "Aesthetic",
 			marker_behavior: "numbered_dot",
-			required_fields: JSON.stringify(["dose"]),
 		});
 		return created.name;
 	}
@@ -236,13 +235,10 @@ test.describe("Derma configuration lists", () => {
 		).toBeVisible();
 	});
 
-	test("flags the category fields no code reads, and counts its templates", async ({ page }) => {
+	test("counts the templates pointing at a category", async ({ page }) => {
 		await openTool(page, "categories");
 
 		const row = page.locator(`[data-test="config-category-row"][data-category="${category}"]`);
-		await expect(
-			row.locator('[data-test="config-category-unread-field"][data-field="required_fields"]'),
-		).toBeVisible();
 		await expect(row.locator('[data-test="config-category-template-count"]')).toHaveText("1");
 	});
 });

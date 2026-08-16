@@ -400,7 +400,10 @@ the server, a `no_areas` warning on body maps, plus the sidebar entry point.
   a value plus a footnote saying so. `required_fields` is a JSON field, so it is tested through
   `_parse_required_fields` — a stored `"[]"` is an honest empty, not a value — while the four Check
   fields are tested with `cint`. Spec 3 deletes all five; `_select_existing_fields` means this list
-  degrades to `[]` on the day it does, with no code change here.
+  degrades to `[]` on the day it does, with no code change here. **Superseded 2026-08-16:** spec 3
+  Phase 1 deleted the machinery outright rather than leaving a list that can only be empty, so
+  `unread_fields`, the panel column and the categories rail count are gone — see that spec's
+  Reconciliation.
 - **`template_count` includes retired templates**, which still point at the category and still break
   if it is deleted. Said in the function's docstring rather than left to the reader.
 - **`settings` is not in the payload.** The Design sketch listed `get_feature_toggles()`; the

@@ -87,14 +87,12 @@ const __ = window.__ || ((txt) => txt)
 
 const WARNING_LABELS = {
   no_required_fields: "Requires nothing",
-  category_name_defaults: "Requirements come from the category name",
   unenforced_required_fields: "A required field the chart cannot enforce",
   unreadable_variables: "Variables JSON cannot be read",
 }
 
 const SOURCE_LABELS = {
   template: "Template",
-  category_name: "Category name",
   product_tracking: "Product tracking",
   device_settings: "Device settings",
   variables_json: "Variables JSON",

@@ -1,7 +1,10 @@
 # One Owner For Procedure Template Variables
 
 Date: 2026-08-16
-Status: **Draft**
+Status: **Phase 1 implemented & verified** (2026-08-16), Phases 2-4 draft. Phase 1 deviated on
+where an explicit `"required": false` is believed, on how much of the category's unread machinery
+had to go with the five fields, and on shipping one patch rather than two — see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
 
@@ -288,9 +291,9 @@ behaviour, the throw at procedure creation, and every existing `data-test` attri
 
 ## Phases
 
-**Phase 1 — one owner.** Materialisation patch, deletion of the hard-coded table and the
-decorative category fields, honest `required: false`, plus the first tests these functions have
-ever had.
+**Phase 1 — one owner.** ✅ Shipped 2026-08-16. Materialisation patch, deletion of the hard-coded
+table and the decorative category fields, honest `required: false`, plus the first tests these
+functions have ever had.
 *Exit:* `_get_template_variables` reads one JSON field and two flags, and a clinic-named category
 behaves identically to before the change.
 
@@ -320,16 +323,137 @@ config workspace, locked flag-derived rows.
 - **Do we validate options for `Select` variables?**
   *Default:* only that a `Select` has at least one option; contents are free text.
 
+## Reconciliation — what changed vs the plan
+
+### Phase 1 (2026-08-16)
+
+- **An explicit `"required": false` is believed unless a safety flag owns the field.** Design §3
+  sketched `row_required = bool(declared) if declared is not None else fieldname in required`,
+  which lets a row call `lot_no` optional while product tracking is on. That contradicts this
+  spec's own second decision *and* the server: `_validate_marks_ready_for_procedure`
+  (`api.py:3241-3255`) re-checks `product_name` and `lot_no` from the flag itself, so such a
+  template would promise something Clinical Procedure creation refuses. `_get_template_variables`
+  now passes a `locked` set — the fieldnames owned by `product_tracking` / `device_settings`, named
+  by the new `SAFETY_FLAG_REQUIRED_SOURCES` — into `_parse_template_variable_schema`, and
+  `_variable_is_required` resolves the three cases in one place. A flag-derived field stays
+  required; every other row is believed.
+- **A template that contradicts itself now raises `unenforced_required_fields`.** Believing an
+  explicit `false` means a template listing `dose` in `custom_derma_required_fields` while its own
+  variables row calls `dose` optional no longer enforces it anywhere — and spec 2's warning, "a
+  required field the chart cannot enforce", is exactly that statement. Before this phase the OR at
+  `api.py:981` flipped the row back to true and the contradiction was silent. Covered by
+  `test_reports_a_field_the_template_lists_and_its_own_json_opts_out_of`. Fixing it is Phase 3's
+  builder, which owns both fields at once.
+- **The category's five unread fields took their whole reader chain with them.** Spec 2 Phase 2
+  predicted `_select_existing_fields` would degrade `unread_fields` to `[]` "with no code change
+  here". True, but a list that can only ever be empty is dead code, so `CATEGORY_UNREAD_FLAGS`,
+  `CATEGORY_UNREAD_FIELDS`, `_category_unread_fields`, the payload key, the panel's "Read by
+  nothing" column and its footnote are deleted instead. `config-category-unread-field` is the one
+  `data-test` hook this spec removes, and it named a badge that can no longer render.
+- **Categories no longer carry a rail count at all.** Spec 2 Phase 4 counted them by
+  `unread_fields`, which is gone, so `get_config_health` returns three keys rather than four.
+  `App.vue` renders the badge on `v-if="health[tool.key]"`, so a missing key is already "no badge";
+  a fourth key pinned at zero would have been a rule that cannot fire pretending to be one that can.
+- **`category_name_defaults` is deleted from the warning vocabulary**, with its two panel labels.
+  It named a defect that no longer exists — its integration test is now
+  `test_a_clinic_named_category_grants_no_requirements`, asserting the opposite.
+- **One patch, not two.** The plan listed `cleanup_derma_category_requirement_fields.py` beside the
+  materialisation patch. The five category fields are *standard* fields on a do_derma-owned
+  doctype, so deleting them from `derma_procedure_category.json` is the whole deletion — schema
+  sync does it, and there is no `Custom Field` row to remove. The cleanup patch the plan named is
+  still needed for `custom_derma_allowed_body_regions`, which **is** a Custom Field; it lands with
+  Phase 4, which is where that field's deletion belongs.
+- **The materialisation patch only reads templates that carry a category.** The plan walked every
+  `Clinical Procedure Template` through `_select_existing_fields`. A template with no category
+  cannot gain anything from the category-name table, so the query filters on
+  `custom_derma_category` being set and selects three columns.
+- **`_is_unreadable_variable_schema` became `_is_unreadable_json(raw, parsed)`**, shared by the
+  config panel and the patch. Both ask the same question — configured text that parses to nothing,
+  with `[]`, `{}` and `null` as honest empties — and the patch had grown its own copy, sentinel set
+  included. The two safety-flag source names are now `PRODUCT_TRACKING_SOURCE` /
+  `DEVICE_SETTINGS_SOURCE` for the same reason: `SAFETY_FLAG_REQUIRED_SOURCES` and
+  `_required_field_owners` must never drift, or a rename silently unlocks a safety field.
+- **The category-name table lives in the patch as `CATEGORY_NAME_REQUIRED_FIELDS`,** a dict rather
+  than the chain of `if`s `_category_required_fields` used. It is seed data for one migration, and
+  it dies with the patch.
+- **A `requirements_section` holding one note field became `note_section`.** Removing the five
+  fields left a Section Break labelled "Requirements" with only `note_sentence_template` under it.
+- **`_get_categories` (the chart's reader) lost the five fields too**, not just the config reader.
+  It fetched them into `context["categories"]`, where `categorySettings()`
+  (`DermaChart.vue:2211-2214`) reads only `default_body_template` — so they crossed the wire on
+  every chart load and were read by nothing at either end.
+
+## Verification
+
+### Phase 1
+
+Integration (Frappe's runner, real site with `healthcare` + `do_health`):
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_template_variables
+→ Ran 31 tests, OK
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_config_workspace
+→ Ran 36 tests, OK (skipped=1)
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 197 tests in 34.2s, OK (skipped=1)
+```
+
+`test_template_variables.py` is the first coverage these functions have ever had: the owner list
+(template, both flags, first-owner-wins, and a clinic-named category now granting nothing), the
+variables list (explicit `false` believed, a missing key inheriting the required set, a flag-derived
+field that cannot be declared optional, a required field with no row of its own, an unknown
+fieldname reaching nothing), every tolerated JSON shape including the unreadable one,
+`_parse_required_fields` in all four shapes, the creation gate's four throw paths, and the patch
+(materialising the table's set, keeping the declared fields first, a second run writing nothing,
+an unreadable value left untouched, a flag's fields staying out of what is written, and a
+clinic-named category as a no-op). Post-review, `test_config_workspace.py` gained the case where a
+template's required list and its own variables row disagree.
+
+Migrate:
+
+```
+bench --site dermaone.localhost migrate → clean; Derma Procedure Category fields are now
+                                          title … default_body_template, note_section,
+                                          note_sentence_template; the materialisation patch ran
+                                          and 9 templates on this site carry required fields
+```
+
+Browser:
+
+```
+npx playwright test e2e/tests/config-workspace.spec.ts                        → 12 passed (22.2s)
+npx playwright test e2e/tests/annotation-badges.spec.ts \
+                   e2e/tests/annotation-freehand.spec.ts                      → 11 passed (2.9m)
+```
+
+The two badge suites are acceptance criterion 11: they render `derma_variables` through the parser
+this phase changed, unchanged. The categories spec now asserts the template count only.
+
+Build and lint:
+
+```
+bench build --app do_derma          → derma_config.bundle.css 4.54 Kb
+pipx run ruff check do_derma/       → All checks passed
+pipx run ruff format do_derma/      → 3 files reformatted, then clean
+```
+
+**Not yet run:** the full Playwright suite — Phase 1 changes no chart code, and the one known
+failure (`annotation-anchoring.spec.ts:228`) predates it and is tracked by spec 1. Acceptance
+criteria 4-8 belong to Phases 2-4 and are unimplemented.
+
 ## Files to touch (summary)
 
 | File | Change |
 |---|---|
-| `do_derma/api.py` | delete `_category_required_fields`; honest `required`; `save_derma_template_variables`; `allowed_body_templates` check; `DERMA_TEMPLATE_FIELDS` entry removed |
-| `do_derma/do_derma/doctype/derma_procedure_category/derma_procedure_category.json` | drop five unread fields |
-| `do_derma/patches/materialize_derma_template_required_fields.py` | *(new)* |
-| `do_derma/patches/cleanup_derma_category_requirement_fields.py` | *(new)* |
-| `do_derma/patches.txt` | two entries, in that order |
-| `public/js/config/panels/ProcedureTemplatesPanel.vue` | the builder (file created by spec 2) |
+| `do_derma/api.py` | *(Phase 1)* delete `_category_required_fields` and the category's unread machinery; honest `required` via `_variable_is_required` + `SAFETY_FLAG_REQUIRED_SOURCES`; `get_config_health` drops the categories key. Later: `save_derma_template_variables`; `allowed_body_templates` check; `DERMA_TEMPLATE_FIELDS` entry removed |
+| `do_derma/do_derma/doctype/derma_procedure_category/derma_procedure_category.json` | *(Phase 1)* drop five unread fields; `requirements_section` becomes `note_section` |
+| `do_derma/patches/materialize_derma_template_required_fields.py` | *(new, Phase 1)* |
+| `do_derma/patches/cleanup_derma_category_requirement_fields.py` | *(new, Phase 4)* — only `custom_derma_allowed_body_regions` is left for it |
+| `do_derma/patches.txt` | one entry in Phase 1, one in Phase 4 |
+| `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(Phase 1)* the `category_name` labels go; later, the builder (file created by spec 2) |
+| `public/js/config/panels/CategoriesPanel.vue` | *(Phase 1)* the "Read by nothing" column and its footnote go |
+| `do_derma/tests/test_config_workspace.py` | *(Phase 1)* the category-name warning, unread-field and health cases follow the deletion |
+| `e2e/tests/config-workspace.spec.ts` | *(Phase 1)* the category spec drops the unread-field badge |
 | `public/js/chart/annotation/DermaAnnotationStudio.jsx` | asterisk + missing-count in `VariableEditor` |
 | `do_derma/tests/test_template_variables.py` | *(new)* |
 | `do_derma/demo_seed.py` | a template with required fields, for the browser specs |

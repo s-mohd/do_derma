@@ -142,9 +142,14 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_note_template",
 ]
 
-# Required fields the two safety flags append to whatever a template declares.
+# Required fields the two safety flags append to whatever a template declares. A
+# variables row cannot call one of these optional - the procedure-creation gate
+# re-checks them, so the template would promise what the server refuses.
+PRODUCT_TRACKING_SOURCE = "product_tracking"
+DEVICE_SETTINGS_SOURCE = "device_settings"
 PRODUCT_TRACKING_REQUIRED_FIELDS = ["product_name", "lot_no", "expiry_date"]
 DEVICE_SETTINGS_REQUIRED_FIELDS = ["device", "settings"]
+SAFETY_FLAG_REQUIRED_SOURCES = {PRODUCT_TRACKING_SOURCE, DEVICE_SETTINGS_SOURCE}
 
 CONFIG_CATEGORY_FIELDS = [
 	"name",
@@ -156,16 +161,6 @@ CONFIG_CATEGORY_FIELDS = [
 	"marker_color",
 	"default_body_template",
 ]
-
-# Category fields no code branches on - only the custom_derma_* twins on the
-# procedure template are ever read.
-CATEGORY_UNREAD_FLAGS = [
-	"consent_required",
-	"before_after_photo_required",
-	"product_tracking_required",
-	"device_settings_required",
-]
-CATEGORY_UNREAD_FIELDS = ["required_fields", *CATEGORY_UNREAD_FLAGS]
 
 
 # Roles trusted to view and chart clinical data through this API. Doctype-level
@@ -412,11 +407,6 @@ def _get_categories() -> list[dict[str, Any]]:
 			"marker_color",
 			"marker_label",
 			"default_body_template",
-			"required_fields",
-			"consent_required",
-			"before_after_photo_required",
-			"product_tracking_required",
-			"device_settings_required",
 			"note_sentence_template",
 		],
 		order_by="sequence asc, title asc",
@@ -592,11 +582,9 @@ def _config_procedure_template(row: dict[str, Any]) -> dict[str, Any]:
 	warnings: list[str] = []
 	if not required:
 		warnings.append("no_required_fields")
-	if any(field["source"] == "category_name" for field in required):
-		warnings.append("category_name_defaults")
 	if any(not field["enforced"] for field in required):
 		warnings.append("unenforced_required_fields")
-	if _is_unreadable_variable_schema(row.get("custom_derma_variables_json"), declared):
+	if _is_unreadable_json(row.get("custom_derma_variables_json"), declared):
 		warnings.append("unreadable_variables")
 
 	return {
@@ -635,19 +623,18 @@ def _required_fields_with_owners(
 
 
 def _required_field_owners(template_row: dict[str, Any]) -> list[dict[str, str]]:
-	"""The four owners of "required", in the order they win: whatever the template
-	declares, then the category-name table, then each safety flag."""
+	"""The owners of "required", in the order they win: whatever the template declares,
+	then each safety flag."""
 	groups = (
 		("template", _parse_required_fields(template_row.get("custom_derma_required_fields"))),
-		("category_name", _category_required_fields(template_row.get("custom_derma_category"))),
 		(
-			"product_tracking",
+			PRODUCT_TRACKING_SOURCE,
 			PRODUCT_TRACKING_REQUIRED_FIELDS
 			if template_row.get("custom_derma_product_tracking_required")
 			else [],
 		),
 		(
-			"device_settings",
+			DEVICE_SETTINGS_SOURCE,
 			DEVICE_SETTINGS_REQUIRED_FIELDS
 			if template_row.get("custom_derma_device_settings_required")
 			else [],
@@ -664,24 +651,22 @@ def _required_field_owners(template_row: dict[str, Any]) -> list[dict[str, str]]
 	return owners
 
 
-def _is_unreadable_variable_schema(raw: Any, declared: list[dict[str, Any]]) -> bool:
-	"""Configured JSON that parses to no variables. The chart renders nothing and says
-	nothing, so the config list is the only place this can surface."""
-	if declared:
+def _is_unreadable_json(raw: Any, parsed: Any) -> bool:
+	"""Configured JSON that parses to nothing, `[]`, `{}` and `null` being honest
+	empties. The chart renders nothing and says nothing when this happens, so whoever
+	asks is the only place it can surface."""
+	if parsed:
 		return False
 	text = str(raw or "").strip()
 	return bool(text) and text not in {"[]", "{}", "null"}
 
 
 def get_config_categories() -> list[dict[str, Any]]:
-	"""Every category with how many templates point at it, and which of its requirement
-	fields no code reads - configuring those changes nothing anywhere."""
+	"""Every category with how many templates point at it."""
 	if not _has_doctype("Derma Procedure Category"):
 		return []
 
-	fields = _select_existing_fields(
-		"Derma Procedure Category", [*CONFIG_CATEGORY_FIELDS, *CATEGORY_UNREAD_FIELDS]
-	)
+	fields = _select_existing_fields("Derma Procedure Category", CONFIG_CATEGORY_FIELDS)
 	rows = frappe.get_all(
 		"Derma Procedure Category",
 		fields=fields,
@@ -691,17 +676,7 @@ def get_config_categories() -> list[dict[str, Any]]:
 	counts = _count_templates_per_category()
 	for row in rows:
 		row["template_count"] = counts.get(row.get("name"), 0)
-		row["unread_fields"] = _category_unread_fields(row)
 	return rows
-
-
-def _category_unread_fields(row: dict[str, Any]) -> list[str]:
-	"""Requirement fields carrying a value nothing reads. `required_fields` is JSON, so
-	a stored empty list is not a value."""
-	fields = [field for field in CATEGORY_UNREAD_FLAGS if cint(row.get(field))]
-	if _parse_required_fields(row.get("required_fields")):
-		fields.insert(0, "required_fields")
-	return fields
 
 
 def _count_templates_per_category() -> dict[str, int]:
@@ -740,11 +715,13 @@ def get_config_readiness() -> dict[str, Any]:
 
 def get_config_health(sections: dict[str, Any]) -> dict[str, int]:
 	"""How many rows each tool has to fix, keyed by the config rail's tool keys. Counted
-	from the sections the panels render, so a badge and its panel cannot disagree."""
+	from the sections the panels render, so a badge and its panel cannot disagree.
+
+	Categories carry no rule of their own since their requirement fields were deleted, so
+	the rail shows no badge for them rather than a count that is always zero."""
 	return {
 		"body-templates": len([row for row in sections["body_templates"] if row.get("warnings")]),
 		"procedure-templates": len([row for row in sections["procedure_templates"] if row.get("warnings")]),
-		"categories": len([row for row in sections["categories"] if row.get("unread_fields")]),
 		"readiness": len(sections["readiness"].get("warnings", [])),
 	}
 
@@ -919,9 +896,11 @@ def _is_derma_template(row: dict[str, Any]) -> bool:
 def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]]:
 	"""Return derma detail fields configured by Clinical Procedure Template."""
 
-	required = [owner["fieldname"] for owner in _required_field_owners(template_row)]
+	owners = _required_field_owners(template_row)
+	required = [owner["fieldname"] for owner in owners]
+	locked = {owner["fieldname"] for owner in owners if owner["source"] in SAFETY_FLAG_REQUIRED_SOURCES}
 	variables, seen = _parse_template_variable_schema(
-		template_row.get("custom_derma_variables_json"), required
+		template_row.get("custom_derma_variables_json"), required, locked
 	)
 
 	for fieldname in required:
@@ -937,8 +916,10 @@ def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]
 
 
 def _parse_template_variable_schema(
-	value: str | list | dict | None, required: list[str]
+	value: str | list | dict | None, required: list[str], locked: set[str] | None = None
 ) -> tuple[list[dict[str, Any]], set[str]]:
+	"""Variables as the chart renders them. A row saying `"required": false` is believed
+	unless a safety flag owns the field, in which case the flag wins."""
 	rows = _parse_json(value, [])
 	if isinstance(rows, dict):
 		rows = rows.get("variables") or rows.get("fields") or []
@@ -949,7 +930,9 @@ def _parse_template_variable_schema(
 
 	variables: list[dict[str, Any]] = []
 	seen: set[str] = set()
+	locked = set(locked or [])
 	for row in rows:
+		declared = row.get("required") if isinstance(row, dict) else None
 		if isinstance(row, str):
 			fieldname = _variable_fieldname(row)
 			variable = _default_derma_variable(fieldname) or {
@@ -974,14 +957,22 @@ def _parse_template_variable_schema(
 				"options": row.get("options") or default.get("options") or "",
 				"source": "Clinical Procedure Template",
 			}
-			if "required" in row:
-				variable["required"] = bool(row.get("required"))
 		else:
 			continue
-		variable["required"] = bool(variable.get("required") or variable.get("fieldname") in required)
+		variable["required"] = _variable_is_required(variable["fieldname"], declared, required, locked)
 		variables.append(variable)
 		seen.add(variable["fieldname"])
 	return variables, seen
+
+
+def _variable_is_required(fieldname: str, declared: Any, required: list[str], locked: set[str]) -> bool:
+	"""A safety flag outranks the row, the row outranks the resolved set, and a row that
+	says nothing inherits it."""
+	if fieldname in locked:
+		return True
+	if declared is None:
+		return fieldname in required
+	return bool(declared)
 
 
 def _parse_required_fields(value: str | list | None) -> list[str]:
@@ -989,25 +980,6 @@ def _parse_required_fields(value: str | list | None) -> list[str]:
 	if isinstance(fields, str):
 		fields = [part.strip() for part in fields.split(",")]
 	return [_variable_fieldname(field) for field in fields if field]
-
-
-def _category_required_fields(category: str | None) -> list[str]:
-	"""Clinical safety defaults used when a template has not been fully configured."""
-
-	key = (category or "").strip().lower()
-	if key == "botox":
-		return ["product_name", "dose", "dose_unit", "lot_no", "expiry_date"]
-	if key == "filler":
-		return ["product_name", "dose", "dose_unit", "lot_no", "expiry_date", "plane", "technique"]
-	if key == "laser":
-		return ["device", "fluence", "spot_size", "pulse_duration", "repetition_rate", "no_of_pulses"]
-	if key == "biopsy":
-		return ["lesion_id", "diagnosis", "body_region"]
-	if key == "lesion":
-		return ["lesion_id", "diagnosis", "severity", "status"]
-	if key in {"acne", "scar", "pigmentation"}:
-		return ["diagnosis", "severity", "status"]
-	return []
 
 
 def _variable_fieldname(label: str | None) -> str:
