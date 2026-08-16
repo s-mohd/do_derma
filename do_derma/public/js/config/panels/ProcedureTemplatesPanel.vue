@@ -81,6 +81,7 @@
 
 <script setup>
 import { computed } from "vue"
+import { labelFor } from "../labels"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -108,11 +109,11 @@ const needingAttention = computed(
 )
 
 function warningLabel(warning) {
-  return __(WARNING_LABELS[warning] || warning)
+  return labelFor(WARNING_LABELS, warning)
 }
 
 function sourceLabel(source) {
-  return __(SOURCE_LABELS[source] || source)
+  return labelFor(SOURCE_LABELS, source)
 }
 
 function editTemplate(template) {

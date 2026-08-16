@@ -11,6 +11,7 @@ from do_derma.patches.ensure_derma_body_template_editor_page import (
 	execute as ensure_body_template_editor_page,
 )
 from do_derma.patches.ensure_derma_config_page import execute as ensure_config_page
+from do_derma.settings import FEATURE_TOGGLES
 from do_derma.tests.test_api import DermaTestHelpers
 
 
@@ -269,6 +270,61 @@ class TestConfigCategories(ConfigTemplateHelpers, IntegrationTestCase):
 		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}")
 
 		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["unread_fields"], [])
+
+
+class TestConfigReadiness(DermaTestHelpers, IntegrationTestCase):
+	"""Session completion is gated in the browser only. The panel reports the mode the
+	server would apply and says so while nothing on the server applies it."""
+
+	def test_reports_the_enforcement_mode(self):
+		readiness = api.get_derma_config_overview()["readiness"]
+
+		self.assertIn(readiness["enforcement"], ("Warn", "Block"))
+		self.assertIsInstance(readiness["todo_downgrades_blockers"], bool)
+
+	def test_warns_while_the_gate_is_client_side(self):
+		"""A site whose settings cannot express the mode has no server-side gate at all -
+		which is the one thing this panel has to say."""
+		unconfigurable = {
+			"enforcement": "Warn",
+			"todo_downgrades_blockers": True,
+			"is_configurable": False,
+		}
+		with patch.object(api, "get_readiness_settings", return_value=unconfigurable):
+			readiness = api.get_derma_config_overview()["readiness"]
+
+		self.assertIn("completion_gate_is_client_side", readiness["warnings"])
+
+	def test_a_configurable_site_stops_warning(self):
+		configured = {
+			"enforcement": "Block",
+			"todo_downgrades_blockers": False,
+			"is_configurable": True,
+		}
+		with patch.object(api, "get_readiness_settings", return_value=configured):
+			readiness = api.get_derma_config_overview()["readiness"]
+
+		self.assertEqual(readiness["enforcement"], "Block")
+		self.assertFalse(readiness["todo_downgrades_blockers"])
+		self.assertEqual(readiness["warnings"], [])
+
+	def test_reports_every_feature_toggle(self):
+		readiness = api.get_derma_config_overview()["readiness"]
+
+		reported = [toggle["fieldname"] for toggle in readiness["feature_toggles"]]
+		self.assertEqual(sorted(reported), sorted(FEATURE_TOGGLES))
+		for toggle in readiness["feature_toggles"]:
+			self.assertIsInstance(toggle["enabled"], bool)
+
+	def test_a_broken_readiness_read_leaves_the_lists_alone(self):
+		template = self._make_body_template()
+
+		with patch.object(api, "get_config_readiness", side_effect=Exception("boom")):
+			overview = api.get_derma_config_overview()
+
+		self.assertEqual(overview["readiness"], {})
+		self.assertIn("readiness", overview["errors"])
+		self.assertIn(template, [row["name"] for row in overview["body_templates"]])
 
 
 class TestPagePatches(IntegrationTestCase):

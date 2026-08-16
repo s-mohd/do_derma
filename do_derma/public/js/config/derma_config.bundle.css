@@ -151,6 +151,54 @@
   margin-left: 0;
 }
 
+.derma-config-page .config-facts {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.derma-config-page .config-facts > div {
+  display: flex;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.derma-config-page .config-facts dt {
+  flex: 0 0 260px;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.derma-config-page .config-facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.derma-config-page .config-subhead {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.derma-config-page .config-toggles {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.derma-config-page .config-toggles li {
+  padding: 6px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.derma-config-page .config-toggles .config-badge {
+  margin: 0 8px 0 0;
+}
+
 .derma-config-page .config-chip {
   display: inline-block;
   margin: 0 4px 4px 0;

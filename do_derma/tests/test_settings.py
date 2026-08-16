@@ -59,6 +59,71 @@ class TestFeatureToggles(SettingsTestBase):
 			)
 
 
+class FakeSettings:
+	"""A Derma Settings singleton carrying only the fields a site has."""
+
+	def __init__(self, values):
+		self._values = values
+		self.meta = self
+
+	def has_field(self, fieldname):
+		return fieldname in self._values
+
+	def get(self, fieldname):
+		return self._values.get(fieldname)
+
+
+class TestReadinessSettings(SettingsTestBase):
+	"""The defaults reproduce today's behaviour, so a site missing the fields is never
+	stricter than one that has them."""
+
+	def test_a_site_without_the_fields_warns_and_downgrades(self):
+		with patch.object(settings, "get_settings_doc", return_value=FakeSettings({})):
+			readiness = settings.get_readiness_settings()
+
+		self.assertEqual(readiness["enforcement"], "Warn")
+		self.assertTrue(readiness["todo_downgrades_blockers"])
+		self.assertFalse(readiness["is_configurable"])
+
+	def test_this_site_reports_a_mode_it_can_act_on(self):
+		"""Whatever schema the site has, the three keys are always answered."""
+		readiness = settings.get_readiness_settings()
+
+		self.assertIn(readiness["enforcement"], settings.ENFORCEMENT_MODES)
+		self.assertIsInstance(readiness["todo_downgrades_blockers"], bool)
+		self.assertIsInstance(readiness["is_configurable"], bool)
+
+	def test_an_unreadable_singleton_falls_back_to_warn(self):
+		with patch.object(settings, "get_settings_doc", return_value=None):
+			readiness = settings.get_readiness_settings()
+
+		self.assertEqual(readiness["enforcement"], "Warn")
+		self.assertTrue(readiness["todo_downgrades_blockers"])
+		self.assertFalse(readiness["is_configurable"])
+
+	def test_a_configured_site_reports_its_own_mode(self):
+		doc = FakeSettings({"blocker_enforcement": "Block", "todo_downgrades_blockers": 0})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			readiness = settings.get_readiness_settings()
+
+		self.assertEqual(readiness["enforcement"], "Block")
+		self.assertFalse(readiness["todo_downgrades_blockers"])
+		self.assertTrue(readiness["is_configurable"])
+
+	def test_an_unknown_mode_falls_back_to_warn(self):
+		doc = FakeSettings({"blocker_enforcement": "Nag", "todo_downgrades_blockers": 1})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			self.assertEqual(settings.get_readiness_settings()["enforcement"], "Warn")
+
+	def test_the_downgrade_defaults_on_without_its_field(self):
+		doc = FakeSettings({"blocker_enforcement": "Block"})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			readiness = settings.get_readiness_settings()
+
+		self.assertTrue(readiness["todo_downgrades_blockers"])
+		self.assertTrue(readiness["is_configurable"])
+
+
 class TestChartPayloadCarriesToggles(SettingsTestBase):
 	def test_chart_payload_carries_every_toggle(self):
 		patient = self._make_patient()

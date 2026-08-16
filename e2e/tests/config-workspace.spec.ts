@@ -70,7 +70,7 @@ test.describe("Derma configuration workspace", () => {
 		const panels: Record<string, string> = {
 			"procedure-templates": "config-procedure-templates",
 			categories: "config-categories",
-			readiness: "config-placeholder",
+			readiness: "config-readiness",
 		};
 		for (const [tool, panel] of Object.entries(panels)) {
 			await page.locator(`[data-test="config-rail-item-${tool}"]`).click();
@@ -209,5 +209,37 @@ test.describe("Derma configuration lists", () => {
 			row.locator('[data-test="config-category-unread-field"][data-field="required_fields"]'),
 		).toBeVisible();
 		await expect(row.locator('[data-test="config-category-template-count"]')).toHaveText("1");
+	});
+});
+
+/**
+ * The readiness panel. It needs no fixture: it reports the site's own Derma Settings,
+ * which on a site without the enforcement field is Warn plus the client-side-gate warning.
+ */
+test.describe("Derma configuration readiness", () => {
+	test("reports the enforcement mode and every feature toggle", async ({ page }) => {
+		await page.goto("/app/derma-config");
+		await expect(page.locator('[data-test="derma-config-root"]')).toBeVisible();
+		await page.locator('[data-test="config-rail-item-readiness"]').click();
+
+		const panel = page.locator('[data-test="config-readiness"]');
+		await expect(panel.locator('[data-test="config-readiness-enforcement"]')).toHaveAttribute(
+			"data-mode",
+			/Warn|Block/,
+		);
+		await expect(panel.locator('[data-test="config-readiness-todo-downgrade"]')).toBeVisible();
+		await expect(panel.locator('[data-test="config-feature-toggle"]')).toHaveCount(3);
+	});
+
+	test("says the completion gate lives in the browser", async ({ page }) => {
+		await page.goto("/app/derma-config");
+		await expect(page.locator('[data-test="derma-config-root"]')).toBeVisible();
+		await page.locator('[data-test="config-rail-item-readiness"]').click();
+
+		await expect(
+			page.locator(
+				'[data-test="config-readiness-warning"][data-warning="completion_gate_is_client_side"]',
+			),
+		).toBeVisible();
 	});
 });

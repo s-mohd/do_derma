@@ -1,9 +1,10 @@
 # A Place To Configure Derma
 
 Date: 2026-08-16
-Status: **Phases 1-2 implemented & verified** (2026-08-16); Phases 3-4 remain **Draft**. Phase 1
+Status: **Phases 1-3 implemented & verified** (2026-08-16); Phase 4 remains **Draft**. Phase 1
 deviated from the plan on how the designer is opened and on where the page-row patch logic lives;
-Phase 2 added a per-field owner and a warning vocabulary the plan did not name — see
+Phase 2 added a per-field owner and a warning vocabulary the plan did not name; Phase 3 reports the
+enforcement mode as read-only and names the client-side gate — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -142,7 +143,7 @@ def get_derma_config_overview():
 		"body_templates": get_config_body_templates(),
 		"procedure_templates": get_config_procedure_templates(),
 		"categories": _get_categories(),
-		"settings": get_feature_toggles(),
+		"readiness": get_config_readiness(),   # Phase 3; carries the feature toggles
 	}
 ```
 
@@ -209,6 +210,18 @@ Phase 2 adds, on the same rule (nothing renamed):
 | `config-category-disabled` / `config-category-template-count` | the retired badge and the usage count |
 | `config-category-unread-field` | one badge per field nothing reads, carrying `data-field="<fieldname>"` |
 
+Phase 3 adds these and **removes `config-placeholder`**, which named a state that no longer exists
+once every rail item has a panel:
+
+| Hook | On |
+|---|---|
+| `config-readiness` | the panel |
+| `config-readiness-enforcement` | the mode, carrying `data-mode="Warn\|Block"` |
+| `config-readiness-todo-downgrade` | the ToDo rule, carrying `data-enabled="0\|1"` |
+| `config-readiness-warning` | one badge per warning, carrying `data-warning="<code>"` |
+| `config-feature-toggle` / `config-feature-toggles-empty` | one row per toggle (`data-toggle`, `data-enabled`) and the degraded state |
+| `config-edit-derma-settings` | the desk-form link |
+
 ### 5. Discoverability
 
 `derma_sidebar.js` gains `do_derma.openConfig()` alongside the existing `openChart`, following the
@@ -258,8 +271,8 @@ fields.
 *Exit:* the four defects in the required-field story are visible on screen without opening a desk
 form.
 
-**Phase 3 — readiness panel mount point and settings surface.** The panel spec 4 fills; here it
-shows the current enforcement mode read-only.
+**Phase 3 — readiness panel mount point and settings surface.** ✅ Shipped 2026-08-16. The panel
+spec 4 fills; here it shows the current enforcement mode read-only, plus the feature toggles.
 *Exit:* every rail item leads somewhere real.
 
 **Phase 4 — health counts on the rail.** Per-tool warning badges, plus the sidebar entry point.
@@ -397,6 +410,46 @@ shows the current enforcement mode read-only.
   dev site — and deleting it afterwards could remove a real one. `test_warns_when_requirements_come_from_the_category_name`
   covers it in the integration suite, where the transaction rolls back.
 
+### Phase 3 (2026-08-16)
+
+- **The panel names the gate, not just the mode.** The plan asked only for "the current enforcement
+  mode read-only". On this site there *is* no enforcement: spec 4's `blocker_enforcement` field does
+  not exist yet and `complete_derma_session` (`api.py:3028`) consults no readiness engine, so the
+  only gate is `DermaChart.vue:2131`. Printing "Warn" alone would read as a server setting a clinic
+  had chosen. `get_config_readiness` therefore carries `is_configurable` and a
+  `completion_gate_is_client_side` warning, on Phase 2's warning-code convention — codes cross the
+  wire, the panel maps them through `__()`.
+- **`get_readiness_settings()` landed in `do_derma/settings.py` now, ahead of spec 4's Phase 2.**
+  Spec 4 assigns that function to `settings.py` as the singleton's single owner. Reading the
+  singleton from `api.py` instead would have created a second owner that spec 4 would then have to
+  delete. It is field-existence-defensive via `doc.meta.has_field`, the same shape as
+  `_has_field` — `settings.py` cannot import `api.py`, which imports it. Both defaults (`Warn`,
+  downgrade on) are today's behaviour, so the day spec 4 adds the fields nothing gets stricter.
+- **The feature toggles render here rather than in a fifth rail item.** Phase 2 deferred them
+  ("shipping an unread key now would be a field with no reader"); they are the other thing
+  `Derma Settings` holds, and a rail item for three checkboxes is a click for its own sake. They
+  ride inside the `readiness` payload as `feature_toggles`, so the panel takes one prop and one
+  `_safe_derma_context` wrapper covers the whole section.
+- **`config-placeholder` is deleted, not left dangling.** With four panels shipped no rail item is
+  unrouted, so the placeholder branch in `App.vue` is dead code. `config-workspace.spec.ts:73`
+  moved to `config-readiness` in the same commit — the one `data-test` hook this spec has ever
+  removed, and it named a state that can no longer occur.
+- **No `Derma Settings` field, no patch, no migration.** Editing the mode is spec 4's Phase 2; this
+  panel links to the desk form (`config-edit-derma-settings`), the same "navigate to the tool"
+  shape as Phase 1's "Design areas" and Phase 2's "Edit".
+- **`settings.py` pre-declares spec 4's fieldnames** (`blocker_enforcement`,
+  `todo_downgrades_blockers`) and, since no site has them, only the fallback branch runs. Spec 4's
+  Design §3 is the source of those names and now records the dependency; if it renames a field, this
+  reader silently reports "not configurable" forever, so the rename has to travel with
+  `settings.py`. `get_readiness_settings()` returns a **dict**, not the attribute-style object spec 4
+  sketched.
+- **Post-review changes.** `is_configurable` was dropped from the wire — the panel reads only
+  `warnings`, and Phase 2's own rule forbids shipping a key with no reader; `warningLabel` /
+  `sourceLabel` were collapsed into `config/labels.js::labelFor`, shared by both panels, at the
+  second copy; and a **degraded readiness section now renders `—` for the ToDo rule** rather than
+  "Still blocks", because `_safe_derma_context`'s `{}` fallback knows nothing and the old render
+  asserted the stricter answer.
+
 ## Verification
 
 ### Phase 1
@@ -484,6 +537,50 @@ pipx run ruff format                → clean
 **Not yet run:** `bench migrate` — Phase 2 ships no patch, no fixture and no schema change.
 Phases 3-4 are unimplemented.
 
+### Phase 3
+
+Integration:
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_config_workspace
+→ Ran 27 tests, OK (skipped=1)
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 157 tests in 24.2s, OK (skipped=1)
+```
+
+The 11 new cases cover: the enforcement mode and its types, the client-side-gate warning, a
+configured site reporting `Block` with no warning, every feature toggle reaching the payload, a
+broken readiness read leaving the lists intact, and — in `test_settings.py` — the four fallbacks
+(`get_readiness_settings` with the fields absent, with an unreadable singleton, with an unknown
+mode, and with the downgrade field absent), the configured path, and this site answering all three
+keys whatever its schema. Only that last one reads the real singleton; the rest fake it, so none
+of them changes meaning the day spec 4 adds the fields.
+
+Browser:
+
+```
+npx playwright test e2e/tests/config-workspace.spec.ts → 11 passed (19.6s)
+```
+
+The two new specs prove the readiness panel reports a mode, the ToDo rule and all three toggles,
+and that it names the client-side gate. The rail spec now expects `config-readiness` where it
+expected `config-placeholder`.
+
+Build and lint:
+
+```
+bench build --app do_derma          → derma_config.bundle.js 279.28 Kb, .css 4.24 Kb
+pipx run ruff check do_derma/       → All checks passed
+pipx run ruff format --check        → 76 files already formatted
+```
+
+**Not yet run:** `bench migrate` — Phase 3 ships no patch, no fixture and no schema change. The
+full Playwright suite was not re-run; Phase 3 touches only the config bundle, and the one known
+failure (`annotation-anchoring.spec.ts:228`) predates it. The panel's own degraded render (the
+`—` fallbacks when `readiness` comes back `{}`) is proven by reading the component, not by a
+browser spec — forcing a server-side section failure from Chromium would need a fixture that
+breaks the endpoint for every other spec in the run. Phase 4 is unimplemented.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -493,10 +590,13 @@ Phases 3-4 are unimplemented.
 | `public/js/config/derma_config.bundle.js` | *(new)* |
 | `public/js/config/derma_config.bundle.css` | *(new)* |
 | `public/js/config/App.vue` | *(new)* rail + panel switch |
-| `public/js/config/panels/BodyTemplatesPanel.vue` | *(new)*; the readiness panel lands with Phase 3 |
+| `public/js/config/panels/BodyTemplatesPanel.vue` | *(new)* |
+| `public/js/config/panels/ReadinessPanel.vue` | *(new, Phase 3)* enforcement mode, ToDo rule, feature toggles |
 | `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(new, Phase 2)* required-field owners and warnings |
 | `public/js/config/panels/CategoriesPanel.vue` | *(new, Phase 2)* usage counts and unread requirement fields |
-| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; Phase 2 adds `get_config_procedure_templates`, `get_config_categories`, `_required_field_owners`, `_is_derma_template` and the two safety-flag constants |
+| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; Phase 2 adds `get_config_procedure_templates`, `get_config_categories`, `_required_field_owners`, `_is_derma_template` and the two safety-flag constants; Phase 3 adds `get_config_readiness` |
+| `do_derma/settings.py` | *(Phase 3)* `get_readiness_settings` — the singleton's single owner, ahead of spec 4 |
+| `do_derma/tests/test_settings.py` | *(Phase 3)* the readiness-settings fallbacks |
 | `do_derma/patches/helpers.py` | *(new)* `ensure_standard_page`, shared by the three page patches |
 | `do_derma/patches/ensure_derma_config_page.py` | *(new)* |
 | `do_derma/patches/ensure_derma_body_template_editor_page.py` | *(new)* — never existed |

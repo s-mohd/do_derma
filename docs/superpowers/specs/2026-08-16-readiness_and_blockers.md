@@ -198,6 +198,14 @@ They are read through `do_derma/settings.py`, which stays the single owner and k
 degraded-read contract — if the singleton is unreadable, enforcement falls back to `Warn` and the
 ToDo downgrade to on, i.e. never stricter than today.
 
+**`get_readiness_settings()` already exists** — spec 2 Phase 3 landed it in `do_derma/settings.py`
+to feed the config workspace's read-only Readiness panel. It returns a **dict**
+(`{"enforcement", "todo_downgrades_blockers", "is_configurable"}`), not the attribute-style object
+sketched below, and it already assumes **these two fieldnames**. Renaming either field here means
+editing that reader in the same commit, because no site has the fields yet: every existing test
+exercises its fallback branch, so a rename fails nothing and silently reports "not configurable"
+forever. This spec adds the fields; it does not re-introduce the reader.
+
 ### 4. `complete_derma_session` consults it — `api.py:2686-2734`
 
 ```python
@@ -320,7 +328,7 @@ inventory, plus the readiness panel in the config workspace showing the current 
 | `do_derma/readiness/session.py` | *(new)* the single owner |
 | `do_derma/api.py` | wrappers become thin; `complete_derma_session` consults readiness; ~250 lines removed |
 | `do_derma/do_derma/doctype/derma_settings/derma_settings.json` | two fields |
-| `do_derma/settings.py` | `get_readiness_settings()` |
+| `do_derma/settings.py` | `get_readiness_settings()` — **already shipped** by spec 2 Phase 3; only its fieldname constants move if a field is renamed |
 | `do_derma/patches/add_derma_completion_override_field.py` | *(new)* |
 | `do_derma/patches/set_product_tracking_for_derma_categories.py` | *(new)* |
 | `do_derma/patches.txt` | two entries |

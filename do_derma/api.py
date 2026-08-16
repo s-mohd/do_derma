@@ -12,7 +12,7 @@ from frappe.utils.file_manager import save_file
 
 from do_derma import assessment
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
-from do_derma.settings import get_feature_toggles
+from do_derma.settings import FEATURE_TOGGLES, get_feature_toggles, get_readiness_settings
 
 DERMA_FINDING_FIELDS = [
 	"name",
@@ -713,6 +713,22 @@ def _count_templates_per_category() -> dict[str, int]:
 	return counts
 
 
+def get_config_readiness() -> dict[str, Any]:
+	"""How completion is gated today, plus the unfinished features. Read-only: the mode
+	is not editable until the settings fields exist, and until they do nothing on the
+	server refuses a blocked session - which is what the warning says."""
+	readiness = get_readiness_settings()
+	toggles = get_feature_toggles()
+	return {
+		"enforcement": readiness["enforcement"],
+		"todo_downgrades_blockers": readiness["todo_downgrades_blockers"],
+		"warnings": [] if readiness["is_configurable"] else ["completion_gate_is_client_side"],
+		"feature_toggles": [
+			{"fieldname": fieldname, "enabled": bool(toggles.get(fieldname))} for fieldname in FEATURE_TOGGLES
+		],
+	}
+
+
 @frappe.whitelist()
 def get_derma_config_overview():
 	"""Everything the config workspace lists, in one round trip."""
@@ -724,6 +740,7 @@ def get_derma_config_overview():
 			"procedure templates", [], get_config_procedure_templates, errors
 		),
 		"categories": _safe_derma_context("categories", [], get_config_categories, errors),
+		"readiness": _safe_derma_context("readiness", {}, get_config_readiness, errors),
 		"errors": errors,
 	}
 

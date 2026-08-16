@@ -32,9 +32,7 @@
           :templates="procedureTemplates"
         />
         <CategoriesPanel v-else-if="activeTool === 'categories'" :categories="categories" />
-        <div v-else class="config-status" data-test="config-placeholder">
-          {{ __("This tool arrives in a later pass.") }}
-        </div>
+        <ReadinessPanel v-else :readiness="readiness" />
       </template>
     </section>
   </div>
@@ -45,6 +43,7 @@ import { onMounted, ref } from "vue"
 import BodyTemplatesPanel from "./panels/BodyTemplatesPanel.vue"
 import CategoriesPanel from "./panels/CategoriesPanel.vue"
 import ProcedureTemplatesPanel from "./panels/ProcedureTemplatesPanel.vue"
+import ReadinessPanel from "./panels/ReadinessPanel.vue"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -60,6 +59,7 @@ const activeTool = ref(TOOLS[0].key)
 const bodyTemplates = ref([])
 const procedureTemplates = ref([])
 const categories = ref([])
+const readiness = ref({})
 const failedSections = ref([])
 const loading = ref(true)
 const loadError = ref("")
@@ -73,6 +73,7 @@ async function load() {
     bodyTemplates.value = payload.body_templates || []
     procedureTemplates.value = payload.procedure_templates || []
     categories.value = payload.categories || []
+    readiness.value = payload.readiness || {}
     failedSections.value = payload.errors || []
   } catch (error) {
     console.warn("[do_derma] Failed to load configuration", error)
