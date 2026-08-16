@@ -1,9 +1,10 @@
 # One Owner For Procedure Template Variables
 
 Date: 2026-08-16
-Status: **Phase 1 implemented & verified** (2026-08-16), Phases 2-4 draft. Phase 1 deviated on
+Status: **Phases 1-2 implemented & verified** (2026-08-16), Phases 3-4 draft. Phase 1 deviated on
 where an explicit `"required": false` is believed, on how much of the category's unread machinery
-had to go with the five fields, and on shipping one patch rather than two — see
+had to go with the five fields, and on shipping one patch rather than two; Phase 2 deviated on
+where the required list under test comes from — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -297,7 +298,8 @@ functions have ever had.
 *Exit:* `_get_template_variables` reads one JSON field and two flags, and a clinic-named category
 behaves identically to before the change.
 
-**Phase 2 — the clinician sees it.** Asterisks and the missing-count line in `VariableEditor`.
+**Phase 2 — the clinician sees it.** ✅ Shipped 2026-08-16. Asterisks and the missing-count line in
+`VariableEditor`.
 *Exit:* a required field is visible in the chart at the moment of charting, not at procedure
 creation.
 
@@ -383,6 +385,49 @@ config workspace, locked flag-derived rows.
   (`DermaChart.vue:2211-2214`) reads only `default_body_template` — so they crossed the wire on
   every chart load and were read by nothing at either end.
 
+### Phase 2 (2026-08-16)
+
+- **The spec under test owns the required list for its own run, instead of `demo_seed.py` growing a
+  template.** The Files table proposed a demo template with required fields "for the browser specs",
+  but the browser specs resolve fixtures by the `E2E ` prefix and never read demo data — a demo
+  template would have been unreachable from Playwright. `template-variables.spec.ts` instead writes
+  `custom_derma_required_fields: ["plane"]` onto `E2E Filler` in `beforeEach` and restores `[]` in
+  `afterEach`, which keeps `e2e_seed.py` untouched (a non-goal of this spec) and keeps the 40 specs
+  that assert exact counts against it seeing the fixture they expect. `workers: 1` /
+  `fullyParallel: false` is what makes the borrow safe against concurrency; a killed run leaves the
+  borrowed value behind, and re-running the seeder repairs it. `plane` is the variable under test
+  rather than the seeded `product` because it is one of the mark's own fieldnames, so what the
+  studio writes is what the creation gate reads.
+- **`variableKey(field)` is now one function, used by all four call sites.** The studio derived a
+  variable's storage key four times: `VariableEditor` with a `normalizeFieldname(label)` fallback,
+  and `updateProcedureValue`, `updatePartValue` and the value-seeding effect without it. A field
+  carrying neither `variable_name` nor `fieldname` was rendered under a real key and written under
+  `undefined`. The missing-count needs the same key the editor renders under, so the duplication had
+  to go before it could be counted at all.
+- **The note names the missing variables, not just how many.** The plan's line was "2 required
+  fields missing"; the rendered line is "2 required variable(s) missing: Plane, Lot No" — *variable*
+  because that is the word CONTEXT.md fixes and *field* is on its Avoid list. The count alone makes
+  the clinician scan the form for asterisks they have already scrolled past.
+- **The note renders only while something is missing, and never claims completeness.** A green "All
+  required fields filled." was written first and deleted: the studio's values are keyed by the
+  variable's own fieldname, while the creation gate resolves each required name through
+  `_mark_variable_value`'s alias map (`api.py:3275-3290`) onto the mark's fields — `product` reads
+  `product_name`, `lot` reads `lot_no`, `site` reads `body_region`. A template whose JSON names a
+  variable `product` therefore stores nothing the gate can see, so a success line would have
+  promised something Clinical Procedure creation refuses. The absence of a warning is the weakest
+  claim that is still true. **Naming a variable outside the mark's own fieldnames is a live defect
+  this phase does not fix** — the collision belongs to Phase 3's builder, which owns the fieldname
+  at authoring time; `missingRequiredVariables`' docstring names it at the seam.
+- **Three `data-test` hooks, not one.** Design §6 promised the asterisk "its own new hook". The row
+  needs one too (`annotation-variable-row`, carrying `data-fieldname` / `data-required`) or a spec
+  cannot say *which* variable is starred, and the note carries `data-missing-count` so the count is
+  assertable without parsing prose. No existing hook changed.
+- **The note is per editor, and the editor is per mark only while a mark is selected.** Values live
+  under `procedureValues[procedureName]`; selecting a saved mark replaces them with that mark's
+  (`handleMarkSelected`), and before any selection the count speaks for the values that the next
+  mark will be stamped with. The "Selected Area" editor renders no note at all —
+  `Derma Template Part Variable` has no `required` column.
+
 ## Verification
 
 ### Phase 1
@@ -441,6 +486,40 @@ pipx run ruff format do_derma/      → 3 files reformatted, then clean
 failure (`annotation-anchoring.spec.ts:228`) predates it and is tracked by spec 1. Acceptance
 criteria 4-8 belong to Phases 2-4 and are unimplemented.
 
+### Phase 2
+
+Browser (the only layer this phase changes):
+
+```
+npx playwright test e2e/tests/template-variables.spec.ts                       → 3 passed (27.2s)
+npx playwright test e2e/tests/annotation-badges.spec.ts \
+                   e2e/tests/annotation-freehand.spec.ts                       → 11 passed (2.8m)
+```
+
+`template-variables.spec.ts` covers acceptance criterion 6 in both halves: the asterisk on `plane`
+with `product` carrying `data-required="0"` and no asterisk, the note counting 1 missing and
+disappearing once the variable is filled, and — the *and saved* half — two marks placed either side
+of filling it, read back from `Derma Chart Mark` as `["", "Subdermal"]`. The badge and freehand
+suites are criterion 11 — they drive the same `VariableEditor` unchanged.
+
+Python and lint (unchanged this phase, run to prove no regression):
+
+```
+bench --site dermaone.localhost run-tests --app do_derma  → Ran 197 tests in 36.7s, OK (skipped=1)
+```
+
+Build:
+
+```
+bench build --app do_derma → derma_chart.bundle.H6Y4DNQS.css 33.98 Kb; no bundle filename changed
+```
+
+Post-run, `E2E Filler.custom_derma_required_fields` reads `[]` again, confirming the spec restored
+the fixture.
+
+**Not yet run:** the full Playwright suite. Acceptance criteria 4, 5, 7 and 8 belong to Phases 3-4
+and are unimplemented.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -454,10 +533,10 @@ criteria 4-8 belong to Phases 2-4 and are unimplemented.
 | `public/js/config/panels/CategoriesPanel.vue` | *(Phase 1)* the "Read by nothing" column and its footnote go |
 | `do_derma/tests/test_config_workspace.py` | *(Phase 1)* the category-name warning, unread-field and health cases follow the deletion |
 | `e2e/tests/config-workspace.spec.ts` | *(Phase 1)* the category spec drops the unread-field badge |
-| `public/js/chart/annotation/DermaAnnotationStudio.jsx` | asterisk + missing-count in `VariableEditor` |
+| `public/js/chart/annotation/DermaAnnotationStudio.jsx` | *(Phase 2)* asterisk + missing-count in `VariableEditor`; one `variableKey()` for all four call sites |
+| `public/js/chart/derma_chart.bundle.css` | *(Phase 2)* `.derma-variable-required` and `.derma-variable-required-note` |
 | `do_derma/tests/test_template_variables.py` | *(new)* |
-| `do_derma/demo_seed.py` | a template with required fields, for the browser specs |
-| `e2e/tests/template-variables.spec.ts` | *(new)* |
+| `e2e/tests/template-variables.spec.ts` | *(new, Phase 2)* — borrows `E2E Filler`'s required list and restores it, rather than seeding demo data the browser specs cannot reach |
 
 `bench build --app do_derma` is **required** (studio and config bundles change). No bundle
 filename changes.

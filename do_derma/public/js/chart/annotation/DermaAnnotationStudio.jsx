@@ -46,6 +46,28 @@ function normalizeFieldname(label) {
     .replace(/^_+|_+$/g, "")
 }
 
+/** The key a variable's value is stored under - the studio, the mark and the badge all use it. */
+function variableKey(field = {}) {
+  return field.variable_name || field.fieldname || normalizeFieldname(field.label)
+}
+
+function variableLabel(field = {}) {
+  return field.variable_name || field.label || variableKey(field)
+}
+
+/**
+ * Empty is what the creation gate calls empty: unset or blank. The count speaks for the values
+ * typed here, so a variable named outside the mark's own fieldnames (`product` for `product_name`)
+ * can read filled while the gate still refuses it - the builder owns that collision.
+ */
+function missingRequiredVariables(variables, values = {}) {
+  return (variables || []).filter((variable) => {
+    if (!variable.required) return false
+    const value = values[variableKey(variable)]
+    return value === undefined || value === null || value === ""
+  })
+}
+
 function groupedTemplates(templates = []) {
   const groups = new Map()
   for (const template of templates.filter((row) => row.image)) {
@@ -461,7 +483,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       if (current[activeProcedure]) return current
       return {
         ...current,
-        [activeProcedure]: Object.fromEntries(procedureVariables(procedure).map((field) => [field.variable_name || field.fieldname, ""])),
+        [activeProcedure]: Object.fromEntries(procedureVariables(procedure).map((field) => [variableKey(field), ""])),
       }
     })
   }, [activeProcedure, procedures])
@@ -626,7 +648,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   }
 
   function updateProcedureValue(procedureName, field, value) {
-    const key = field.variable_name || field.fieldname
+    const key = variableKey(field)
     setProcedureValues((current) => {
       const next = { ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }
       if (editingMark?.procedure === procedureName) persistMarkVariables(next[procedureName])
@@ -692,7 +714,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       ...current,
       [partName]: {
         ...(current[partName] || {}),
-        [field.variable_name || field.fieldname]: value,
+        [variableKey(field)]: value,
       },
     }))
   }
@@ -1063,17 +1085,33 @@ function TemplateThumbnail({ template, broken, onBroken }) {
   )
 }
 
+/** Required is shown, never enforced: placing a mark mid-procedure must not be refused. */
 function VariableEditor({ title, fields, values, onChange }) {
+  const missing = missingRequiredVariables(fields, values)
   return (
     <div className="derma-variable-editor">
       <strong>{title}</strong>
+      {missing.length ? (
+        <p
+          className="derma-variable-required-note"
+          data-test="annotation-variable-required-note"
+          data-missing-count={missing.length}
+        >
+          {__("{0} required variable(s) missing: {1}", [missing.length, missing.map(variableLabel).join(", ")])}
+        </p>
+      ) : null}
       {(fields || []).map((field) => {
-        const key = field.variable_name || field.fieldname || normalizeFieldname(field.label)
+        const key = variableKey(field)
         const options = normalizeOptions(field.options)
         const type = field.type || field.fieldtype || "Data"
         return (
-          <label key={key}>
-            <span>{field.variable_name || field.label || key}</span>
+          <label key={key} data-test="annotation-variable-row" data-fieldname={key} data-required={field.required ? "1" : "0"}>
+            <span>
+              {variableLabel(field)}
+              {field.required ? (
+                <abbr className="derma-variable-required" title={__("Required")} data-test="annotation-variable-required">*</abbr>
+              ) : null}
+            </span>
             {type === "Select" ? (
               <select value={values[key] || ""} onChange={(event) => onChange(field, event.target.value)}>
                 <option value="">{__("Select")}</option>

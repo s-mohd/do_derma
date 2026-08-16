@@ -4559,6 +4559,23 @@ body.derma-annotation-open .modal-backdrop {
   font-weight: 800;
 }
 
+.derma-variable-required {
+  margin-left: 3px;
+  border: 0;
+  color: var(--derma-danger);
+  text-decoration: none;
+}
+
+.derma-variable-required-note {
+  margin: 0;
+  border-radius: 8px;
+  background: var(--derma-warning-bg-subtle);
+  padding: 5px 8px;
+  color: var(--derma-danger);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .derma-variable-editor input:not([type="checkbox"]),
 .derma-variable-editor select {
   width: 100%;
