@@ -358,8 +358,11 @@ def _parse_json(value: str | None, fallback: Any) -> Any:
 
 
 def _normalize_position(payload: dict[str, Any]) -> None:
-	payload["x_percent"] = max(0, min(100, flt(payload.get("x_percent"))))
-	payload["y_percent"] = max(0, min(100, flt(payload.get("y_percent"))))
+	"""Clamp a placement to the template. Absent keys are left absent - a partial save
+	(variables only) must not drag the mark back to the top-left corner."""
+	for field in ("x_percent", "y_percent"):
+		if field in payload:
+			payload[field] = max(0, min(100, flt(payload.get(field))))
 
 
 def _set_patient_name(doc) -> None:
@@ -749,6 +752,72 @@ def _normalize_variable_type(fieldtype: str | None) -> str:
 		if fieldtype in {"Data", "Select", "Float", "Int", "Small Text", "Date", "Check"}
 		else "Data"
 	)
+
+
+def _stringify_variable_value(value: Any) -> str:
+	if value is None:
+		return ""
+	if isinstance(value, bool):
+		return "1" if value else "0"
+	return str(value)
+
+
+def _apply_mark_area_variables(doc, raw: Any) -> None:
+	"""Replace the mark's area variable rows. An absent key leaves the rows alone.
+
+	save_chart_mark is called from several places that know nothing about areas, so
+	only an explicit list - including an empty one, which clears - may touch them.
+	"""
+	if raw is None or not (
+		_has_doctype("Derma Mark Variable") and _has_field("Derma Chart Mark", "area_variables")
+	):
+		return
+	rows = raw if isinstance(raw, list) else _parse_json(raw, None)
+	if not isinstance(rows, list):
+		return
+	doc.set("area_variables", [])
+	for row in rows:
+		if not isinstance(row, dict):
+			continue
+		fieldname = _variable_fieldname(row.get("fieldname") or row.get("label"))
+		if not fieldname:
+			continue
+		doc.append(
+			"area_variables",
+			{
+				"fieldname": fieldname,
+				"label": row.get("label") or row.get("variable_name") or fieldname,
+				"value": _stringify_variable_value(row.get("value")),
+				"source": "Area",
+			},
+		)
+
+
+def _hydrate_mark_area_variables(mark_rows: list[dict[str, Any]]) -> None:
+	if not mark_rows or not _has_doctype("Derma Mark Variable"):
+		return
+	names = [row.get("name") for row in mark_rows if row.get("name")]
+	rows = frappe.get_all(
+		"Derma Mark Variable",
+		filters={"parent": ["in", names], "parenttype": "Derma Chart Mark"},
+		fields=["parent", "fieldname", "label", "value", "source"],
+		order_by="parent asc, idx asc",
+		# Unpaged on purpose: the caller already caps the parents, and a truncated read would
+		# show a mark as missing values it actually has.
+		limit=0,
+	)
+	by_parent: dict[str, list[dict[str, Any]]] = {}
+	for row in rows:
+		by_parent.setdefault(row.parent, []).append(
+			{
+				"fieldname": row.fieldname,
+				"label": row.label,
+				"value": row.value,
+				"source": row.source,
+			}
+		)
+	for mark in mark_rows:
+		mark["area_variables"] = by_parent.get(mark.get("name"), [])
 
 
 def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
@@ -1333,13 +1402,15 @@ def _get_marks(
 		return []
 
 	filters = _base_filters(patient, appointment=appointment, encounter=encounter)
-	return frappe.get_all(
+	marks = frappe.get_all(
 		"Derma Chart Mark",
 		filters=filters,
 		fields=_select_existing_fields("Derma Chart Mark", DERMA_MARK_FIELDS),
 		order_by="modified desc",
 		limit=500,
 	)
+	_hydrate_mark_area_variables(marks)
+	return marks
 
 
 @frappe.whitelist()
@@ -2776,6 +2847,7 @@ def save_chart_mark(values: str | dict[str, Any]):
 			continue
 		if field in payload:
 			doc.set(field, payload[field])
+	_apply_mark_area_variables(doc, payload.get("area_variables"))
 	_set_patient_name(doc)
 	if not doc.sequence:
 		doc.sequence = _next_mark_sequence(doc.patient, doc.encounter, doc.category)

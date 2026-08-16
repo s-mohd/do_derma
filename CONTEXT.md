@@ -20,6 +20,18 @@ _Avoid_: body map, image template, chart template
 One placed point on a Body Template, recording what was done at that anatomical location.
 _Avoid_: marker, dot, pin, annotation point
 
+**Area**:
+A named region of a Body Template that can be selected and filled in — the `Derma Body Template
+Part` doctype, and what the studio's "Selected Area" editor edits. Older field names call the
+same thing a part or a region (`part_name`, `region_label`, `body_region`); prefer Area in new
+code and UI copy.
+_Avoid_: zone, hotspot, segment, sector
+
+**Area Variable**:
+One clinical value typed on an Area (Plane, Units, …). Declared per Area as a
+`Derma Template Part Variable`, recorded per Mark as a `Derma Mark Variable` row.
+_Avoid_: attribute, property, field, parameter
+
 **Annotation**:
 A saved drawing scene over a Body Template. Stored as a do_health `Health Annotation`, not as
 a do_derma doctype.

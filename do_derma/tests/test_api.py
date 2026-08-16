@@ -194,6 +194,13 @@ class TestClinicalAccessGate(DermaTestHelpers, IntegrationTestCase):
 		result = api.save_chart_mark(json.dumps({"patient": patient, "x_percent": 10, "y_percent": 20}))
 		self.assertEqual(result["patient"], patient)
 
+	def test_body_template_parts_are_gated(self):
+		"""Area definitions are read before anything is drawn, so this is the first
+		endpoint an unroled user reaches on the way into the studio."""
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			api.get_derma_body_template_parts("does-not-matter")
+
 	def test_annotation_summary_is_gated(self):
 		"""It reads another patient's drawings if it is not, and it is reachable from any desk
 		form, so it is the easiest of these to call unnoticed."""

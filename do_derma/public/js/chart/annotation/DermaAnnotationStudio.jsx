@@ -165,6 +165,46 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
   return items.map((item, index) => ({ ...item, badgeNum: index + 1 }))
 }
 
+function findTemplatePart(parts, partName) {
+  if (!partName) return null
+  return (parts || []).find((part) => (part.part_name || part.partName) === partName) || null
+}
+
+/**
+ * One row per variable declared on the area, blanks included: dropping the empties would make
+ * "measured and found normal" indistinguishable from "never looked". Null means the area
+ * declares no variables, which leaves the mark's existing rows alone.
+ */
+function buildAreaVariableRows(part, values = {}) {
+  if (!part?.variables?.length) return null
+  return part.variables.map((variable) => ({
+    fieldname: variable.fieldname || variable.variable_name,
+    label: variable.variable_name || variable.fieldname,
+    value: values[variable.variable_name] ?? values[variable.fieldname] ?? "",
+  }))
+}
+
+/** What the marks on this drawing already carry, so reopening shows what was typed. */
+function seedPartValues(marks) {
+  const seeded = {}
+  for (const mark of marks || []) {
+    if (!mark?.region_label || !mark.area_variables?.length) continue
+    const values = { ...(seeded[mark.region_label] || {}) }
+    for (const row of mark.area_variables) values[row.label || row.fieldname] = row.value
+    seeded[mark.region_label] = values
+  }
+  return seeded
+}
+
+function seedAreaMarks(marks) {
+  const byPart = new Map()
+  for (const mark of marks || []) {
+    if (!mark?.name || !mark.region_label) continue
+    byPart.set(mark.region_label, new Set(byPart.get(mark.region_label) || []).add(mark.name))
+  }
+  return byPart
+}
+
 function sanitizeMarkVariables(values = {}) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== ""))
 }
@@ -328,7 +368,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [selectedProcedures, setSelectedProcedures] = useState([])
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
-  const [partValues, setPartValues] = useState({})
+  const [partValues, setPartValues] = useState(() => seedPartValues(marks))
   const [selectedPart, setSelectedPart] = useState(null)
   const [saving, setSaving] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
@@ -345,6 +385,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // Marks this session wrote to the server before any annotation was saved. Discarding the
   // drawing has to take them with it, or the chart keeps a record nobody meant to make.
   const sessionMarks = useRef(new Set())
+  // Which marks sit on which area, so values typed after a mark was placed still reach it,
+  // and which areas were edited this session - the untouched ones are already stored.
+  const areaMarks = useRef(seedAreaMarks(marks))
+  const touchedAreas = useRef(new Set())
   // Templates whose image failed to load this session, and the last one that did.
   const [unavailableTemplates, setUnavailableTemplates] = useState(() => new Set())
   const lastLoadedTemplateName = useRef("")
@@ -608,7 +652,42 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
   }
 
+  function rememberAreaMark(partName, markName) {
+    if (!partName || !markName) return
+    const next = new Map(areaMarks.current)
+    next.set(partName, new Set(next.get(partName) || []).add(markName))
+    areaMarks.current = next
+  }
+
+  /**
+   * Area values are stored on the marks placed on that area, so a value typed after the mark
+   * was placed has to be written back before the drawing is saved.
+   */
+  async function persistAreaVariables() {
+    for (const partName of touchedAreas.current) {
+      const rows = buildAreaVariableRows(findTemplatePart(selectedParts, partName), partValues[partName])
+      if (!rows) continue
+      try {
+        for (const markName of areaMarks.current.get(partName) || []) {
+          await window.frappe.call({
+            method: "do_derma.api.save_chart_mark",
+            args: { values: { name: markName, patient: context.patient, area_variables: rows } },
+          })
+        }
+      } catch (error) {
+        // The drawing still saves below - losing it over an area value would cost more.
+        window.frappe?.msgprint?.({
+          title: __("Unable to save the area values for {0}").replace("{0}", partName),
+          message: error.message || String(error),
+          indicator: "orange",
+        })
+      }
+    }
+    touchedAreas.current = new Set()
+  }
+
   function updatePartValue(partName, field, value) {
+    touchedAreas.current = new Set(touchedAreas.current).add(partName)
     setPartValues((current) => ({
       ...current,
       [partName]: {
@@ -623,6 +702,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       window.frappe?.msgprint?.(__("A Patient Encounter is required before placing a mark."))
       return
     }
+    const areaRows = buildAreaVariableRows(
+      findTemplatePart(selectedParts, payload.region_label),
+      partValues[payload.region_label]
+    )
     try {
       const response = await window.frappe.call({
         method: "do_derma.api.save_chart_mark",
@@ -646,11 +729,17 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             // fan-out matches elements to marks by.
             annotation_json: payload.annotation_json || null,
             ...(payload.procedure_variables || {}),
+            // Omitted, not emptied, when the area declares nothing - an absent key leaves
+            // whatever rows the mark already carries alone.
+            ...(areaRows ? { area_variables: areaRows } : {}),
           },
         },
       })
       const mark = response.message
-      if (mark?.name) sessionMarks.current = new Set(sessionMarks.current).add(mark.name)
+      if (mark?.name) {
+        sessionMarks.current = new Set(sessionMarks.current).add(mark.name)
+        rememberAreaMark(payload.region_label, mark.name)
+      }
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
       window.frappe.show_alert?.({ message: __("Mark saved"), indicator: "green" })
     } catch (error) {
@@ -697,6 +786,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         window.frappe?.msgprint?.(__("The drawing surface is still loading."))
         return
       }
+      await persistAreaVariables()
       const response = await window.frappe.call({
         method: "do_derma.api.save_derma_annotation",
         args: {

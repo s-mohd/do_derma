@@ -1,7 +1,9 @@
 # Body Template Areas That Keep What You Type
 
 Date: 2026-08-16
-Status: **Draft**
+Status: **Phase 1 implemented & verified** (2026-08-16) — Phases 2-4 still **Draft**. Phase 1
+deviated from the plan on how the schema ships; see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
 
@@ -381,8 +383,9 @@ Ambiguous or unmatched marks keep a null link — no guessing.
 
 ## Phases
 
-**Phase 1 — values become data.** New doctype, the `area_variables` field, `_apply_mark_area_variables`,
-`_hydrate_mark_area_variables`, studio send + reload. Ship with a Python test module.
+**Phase 1 — values become data.** ✅ **Shipped 2026-08-16.** New doctype, the `area_variables` field,
+`_apply_mark_area_variables`, `_hydrate_mark_area_variables`, studio send + reload. Ship with a
+Python test module.
 *Exit:* type *Plane: Subdermal* on an area, save, reload the page, reopen the annotation, and the
 value is there — and `frappe.get_all("Derma Mark Variable", …)` returns it.
 
@@ -414,6 +417,90 @@ selected areas in one action.
 - **Do we cap `area_variables` rows per mark?**
   *Default:* no hard cap; the hydration query's `limit=2000` mirrors `_hydrate_template_parts`.
 
+## Reconciliation — what changed vs the plan
+
+Phase 1 only. Phases 2-4 are untouched plan.
+
+- **No `add_derma_mark_area_variables.py` patch.** The plan shipped `area_variables` through a
+  `post_model_sync` patch modelled on `add_derma_annotation_title_field.py`. That idiom exists for
+  custom fields on *other apps'* doctypes; `Derma Chart Mark` is do_derma's own, so the field is a
+  normal entry in `derma_chart_mark.json` and `bench migrate` creates the column and the child
+  table. A patch would have been a second owner of the same schema.
+- **Area rows are also written at annotation-save time**, not only when a mark is placed. The plan
+  had `handleMarkPlaced` carry the rows, which only covers *type-then-place*. Clinicians place the
+  mark and then fill the editor at least as often, so `persistAreaVariables()` walks the marks
+  known to sit on each area (`areaMarks` ref — seeded from the loaded marks, extended on every
+  placement) and writes the current values back before `save_derma_annotation` runs. A failed area
+  write reports once for that area and lets the drawing save; losing the drawing over one value
+  would cost more. The cost is one `save_chart_mark` round trip per mark on an area **the
+  practitioner edited this session** — a `touchedAreas` ref gates it, so a drawing whose areas
+  were only read writes nothing.
+- **`_normalize_position` now leaves absent keys absent** (`api.py:360`). It clamped
+  `payload.get("x_percent")` unconditionally, so `flt(None) → 0.0`, and any partial
+  `save_chart_mark` — the new area write-back, and the pre-existing `persistMarkVariables` —
+  moved the mark to the top-left corner. This was the one real defect the code review found;
+  `test_a_variables_only_save_leaves_the_mark_where_it_was_placed` pins it, and
+  `test_a_position_outside_the_template_is_clamped` keeps the clamp honest.
+- **`_apply_mark_area_variables` guards `_has_doctype("Derma Mark Variable")` too**, not only
+  `_has_field`, so a site with the field but not the child doctype degrades instead of throwing.
+- **`CONTEXT.md` gained `Area` and `Area Variable` entries.** The feature made "Area" a
+  first-class term standing over three older field names (`part_name`, `region_label`,
+  `body_region`); leaving it undefined would have been a second vocabulary.
+- **`buildAreaVariableRows` returns `null`, not `[]`, when the area declares no variables**, so the
+  key is omitted rather than sent empty — otherwise placing a mark on a variable-less area would
+  clear rows under the §2 absent-key rule.
+- **`_hydrate_mark_area_variables` orders `parent asc, idx asc`** (the plan wrote `idx asc`), which
+  is what `_hydrate_template_parts` does and what a multi-parent fetch needs. It is also
+  **unpaged** rather than the planned `limit=2000`: `_get_marks` already caps the parents at 500,
+  and a truncated read would show a mark as missing values it actually has — the exact
+  "never looked" ambiguity this spec exists to remove. (Supersedes the Open Question's default.)
+- Everything else landed as specified: the child doctype's four fields, the absent-key /
+  empty-list contract, `_has_field` and `_has_doctype` guards, and `_get_marks` as the single
+  hydration point.
+
+## Verification
+
+Real runs, 2026-08-16, site `dermaone.localhost`.
+
+**Migrate.** `bench --site dermaone.localhost migrate` — clean; created `Derma Mark Variable` and
+the `area_variables` table field on `Derma Chart Mark`.
+
+**Integration tests.** `bench --site dermaone.localhost run-tests --module
+do_derma.tests.test_body_template_areas` — **12 tests, OK**. They cover: one row per declared
+variable including blanks; `Check` stored as `"0"`/`"1"`; omitting the key leaves rows; `[]` clears
+them; a JSON-encoded string payload; unnamed rows skipped; `_get_marks` hydration both with and
+without rows; a site without `Derma Mark Variable` (marks still read, no key); a site without the
+`area_variables` field (key ignored, nothing written); a variables-only save leaving `x_percent` /
+`y_percent` where they were (AC 12); an out-of-range placement still clamped to 0-100.
+
+**Security.** `TestClinicalAccessGate.test_body_template_parts_are_gated` (`test_api.py`) asserts a
+user with no clinical role gets `frappe.PermissionError` from `get_derma_body_template_parts`, as
+the Security section requires. No new whitelisted endpoint was added by this phase.
+
+**Full suite.** `bench --site dermaone.localhost run-tests --app do_derma` — **102 tests, OK**. No
+regression in the 89 that predate this phase.
+
+**Code review.** Two-axis review (standards / spec fidelity) against `dee7544`. Everything it
+raised is either fixed above (position clamp, unpaged hydration, `_has_doctype` guard, `CONTEXT.md`
+vocabulary, pretty-printed doctype JSON, per-save write amplification) or recorded here.
+
+**Lint.** `pipx run ruff check` and `ruff format --check` on `api.py`, the new test module and the
+new doctype folder — all pass. (Pre-existing findings elsewhere in the repo were left alone.)
+
+**Bundles.** `bench build --app do_derma` — done in 1.55s. No bundle filename changed, so the
+`frappe.require` contract holds.
+
+### Not yet run
+
+- No Playwright coverage. `e2e/tests/body-template-areas.spec.ts` is Phase 4 in this spec.
+- No manual browser pass through the annotation studio (type a value, save, reopen), so **AC 2 is
+  argued from the code path, not observed**: `_get_marks` hydrates → `DermaChart.vue` passes
+  `marks` → `seedPartValues` keys by the row's `label`, which is what `VariableEditor` binds on.
+- `demo_seed.py` still seeds no area values.
+- Known limit, not a defect: `buildAreaVariableRows` resolves the area against the *currently
+  selected* template's parts, so values seeded from a mark drawn on a different body template are
+  displayed but not re-written. Only areas edited this session are written at all.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -421,7 +508,7 @@ selected areas in one action.
 | `do_derma/do_derma/doctype/derma_mark_variable/` | *(new)* child doctype |
 | `do_derma/do_derma/doctype/derma_chart_mark/derma_chart_mark.json` | `area_variables` Table, `body_template_part` Link |
 | `do_derma/api.py` | `_apply_mark_area_variables`, `_hydrate_mark_area_variables`, `DERMA_MARK_FIELDS` entry, `include_disabled`, soft-disable + no-churn in `save_derma_body_template_parts` |
-| `do_derma/patches/add_derma_mark_area_variables.py` | *(new)* field + table |
+| ~~`do_derma/patches/add_derma_mark_area_variables.py`~~ | dropped — the field ships in the doctype JSON, see Reconciliation |
 | `do_derma/patches/backfill_derma_mark_template_part.py` | *(new)* idempotent link backfill |
 | `do_derma/patches.txt` | two entries, `post_model_sync` |
 | `public/js/chart/annotation/DermaAnnotationStudio.jsx` | send `body_template_part` + `area_variables`; seed `partValues` on open |

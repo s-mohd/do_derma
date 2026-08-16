@@ -48,7 +48,8 @@
   "photo_set",
   "annotation",
   "annotation_json",
-  "note"
+  "note",
+  "area_variables"
  ],
  "fields": [
   {"fieldname": "visit_section", "fieldtype": "Section Break", "label": "Visit Context"},
@@ -93,7 +94,8 @@
   {"fieldname": "photo_set", "fieldtype": "Link", "label": "Photo Set", "options": "Derma Photo Set"},
   {"fieldname": "annotation", "fieldtype": "Link", "label": "Annotation", "options": "Health Annotation"},
   {"fieldname": "annotation_json", "fieldtype": "Code", "label": "Embedded Annotation JSON", "options": "JSON"},
-  {"fieldname": "note", "fieldtype": "Small Text", "label": "Note"}
+  {"fieldname": "note", "fieldtype": "Small Text", "label": "Note"},
+  {"fieldname": "area_variables", "fieldtype": "Table", "label": "Area Variables", "options": "Derma Mark Variable"}
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
