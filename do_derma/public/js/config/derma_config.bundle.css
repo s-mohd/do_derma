@@ -236,3 +236,35 @@
 .derma-config-page .config-chip em::before {
   content: " · ";
 }
+
+.derma-config-page .config-builder .config-section-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.derma-config-page .config-builder-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.derma-config-page .config-builder .config-table td {
+  vertical-align: top;
+}
+
+.derma-config-page .config-builder .config-table code {
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.derma-config-page .config-builder .form-control {
+  font-size: 12px;
+}
+
+.derma-config-page .config-builder .config-badge {
+  display: inline-block;
+  margin: 4px 0 0;
+}

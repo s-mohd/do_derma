@@ -39,6 +39,7 @@
         <ProcedureTemplatesPanel
           v-else-if="activeTool === 'procedure-templates'"
           :templates="procedureTemplates"
+          @changed="load"
         />
         <CategoriesPanel v-else-if="activeTool === 'categories'" :categories="categories" />
         <ReadinessPanel v-else :readiness="readiness" />
@@ -74,8 +75,9 @@ const failedSections = ref([])
 const loading = ref(true)
 const loadError = ref("")
 
+// `loading` covers the first read only. A refresh keeps the panel mounted, so an editor
+// that saved and asked for fresh counts survives its own request.
 async function load() {
-  loading.value = true
   loadError.value = ""
   try {
     const response = await frappe.call({ method: "do_derma.api.get_derma_config_overview" })

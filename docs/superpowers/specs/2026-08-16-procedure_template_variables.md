@@ -1,10 +1,11 @@
 # One Owner For Procedure Template Variables
 
 Date: 2026-08-16
-Status: **Phases 1-2 implemented & verified** (2026-08-16), Phases 3-4 draft. Phase 1 deviated on
+Status: **Phases 1-3 implemented & verified** (2026-08-16), Phase 4 draft. Phase 1 deviated on
 where an explicit `"required": false` is believed, on how much of the category's unread machinery
 had to go with the five fields, and on shipping one patch rather than two; Phase 2 deviated on
-where the required list under test comes from — see
+where the required list under test comes from; Phase 3 deviated on who owns `required` in the
+save payload and on where the builder lives — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -257,9 +258,10 @@ behaviour, the throw at procedure creation, and every existing `data-test` attri
 
 ## Security
 
-- `save_derma_template_variables` is a new whitelisted endpoint and **calls
-  `_ensure_clinical_access()` first**. `TestClinicalAccessGate` gains a case proving a user without
-  a clinical role gets `frappe.PermissionError`.
+- `save_derma_template_variables` and `get_derma_template_variables` are new whitelisted endpoints
+  and **each calls `_ensure_clinical_access()` first**. `TestClinicalAccessGate` gains a case per
+  endpoint (`test_template_variable_writes_are_gated`, `test_template_variable_reads_are_gated`)
+  proving a user without a clinical role gets `frappe.PermissionError`.
 - It writes configuration, not patient data, and saves through `frappe.get_doc(...).save()` so the
   target doctype's own permissions apply on top of the role gate.
 - `template` is validated to exist before any write; `variables` is parsed and validated
@@ -303,8 +305,9 @@ behaves identically to before the change.
 *Exit:* a required field is visible in the chart at the moment of charting, not at procedure
 creation.
 
-**Phase 3 — the builder.** `save_derma_template_variables`, collision validation, the panel in the
-config workspace, locked flag-derived rows.
+**Phase 3 — the builder.** ✅ Shipped 2026-08-16. `get_derma_template_variables` /
+`save_derma_template_variables`, collision validation, the builder in the config workspace, locked
+flag-derived rows.
 *Exit:* a variable set can be authored end to end without typing JSON.
 
 **Phase 4 — scope enforcement and cleanup.** `allowed_body_templates` enforced in
@@ -428,6 +431,72 @@ config workspace, locked flag-derived rows.
   mark will be stamped with. The "Selected Area" editor renders no note at all —
   `Derma Template Part Variable` has no `required` column.
 
+### Phase 3 (2026-08-16)
+
+- **`required_fields` is not a parameter of the save endpoint.** Design §4 sketched
+  `save_derma_template_variables(template, variables, required_fields=None)`, which is two owners of
+  "required" inside one payload — a row could say `required: true` while the list left it out, and
+  the endpoint would have had to pick a winner. The signature is `(template, variables)`: the rows
+  are the only place a clinician marks a variable required, and the server derives
+  `custom_derma_required_fields` from them. The two fields on the document therefore converge on
+  every save, which is what closes the `unenforced_required_fields` warning Phase 1 introduced.
+- **A locked row stores no `required` key at all.** Forcing `required: true` into the JSON for a
+  field a safety flag owns would keep it required after the flag was switched off — the flag's
+  answer frozen into the row, which is the defect Phase 1 removed from the category table. Omitting
+  the key means the row makes no claim, so `_variable_is_required` falls through to the owners:
+  required while the flag is on, optional the moment it is off. The endpoint still forces `required`
+  **true in the payload it returns**, because that is what the chart renders.
+- **A deleted flag-owned row is not re-appended on write, only on read.** `_get_template_variables`
+  already appends any required fieldname `_default_derma_variable` knows, so a builder that drops
+  `device` writes JSON without it and reads it straight back. Adding a second re-append inside the
+  write would have been a second owner of the same rule.
+- **`_locked_required_sources(template_row)` is the one place a lock is derived.** Phase 1 computed
+  the locked set inline in `_get_template_variables`; the payload needs the flag's *name* per
+  fieldname for the badge, and two copies of "which flag owns this field" would drift.
+- **The builder is its own component, not a section of `ProcedureTemplatesPanel.vue`.** The panel is
+  a list; the builder is a form with its own load, validation and save state. `TemplateVariableBuilder.vue`
+  replaces the table while it is open and the panel keeps only `editing` — the template name.
+- **`variableFieldname()` moved to `public/js/shared/variable_fieldname.js`.** The builder previews
+  the fieldname a label collapses to, and the studio already had `normalizeFieldname` doing exactly
+  that. Copying it into the config bundle would have put three implementations of one rule (the
+  third being `_variable_fieldname` in `api.py`) in the repo; the studio now imports the shared one.
+  It stays a preview: **the server re-derives every fieldname through `_variable_fieldname` and is
+  the only gate.**
+- **`App.vue` no longer flips `loading` on a refresh.** Saving emits `changed`, the workspace
+  re-reads the overview so the row's counts and warnings update — and the old `loading.value = true`
+  swapped the whole panel for the loading status, unmounting the builder that asked for the refresh.
+  The initial `ref(true)` still covers the first load. This was found by the e2e spec, not by review.
+- **The endpoint that reads is new too.** Design §5 described only the writer, but the builder needs
+  the resolved set — including the required fields that have no row of their own and the lock
+  sources — which no existing payload carries. `get_derma_template_variables` returns exactly what
+  the builder renders, `VARIABLE_FIELDTYPES` included, so the type dropdown cannot offer a type
+  `_normalize_variable_type` would silently rewrite.
+- **A `Select` with no options is refused** (Open Question default), and the options box only renders
+  for `Select`. Contents stay free text.
+- **The fieldname preview reads the stored fieldname first, exactly as the server does.**
+  `_validated_variable_rows` resolves `_variable_fieldname(row.get("fieldname") or label)`, so a
+  relabelled row keeps the key the chart already stores values under — re-keying `product_name` to
+  `product_device` because its label reads "Product / Device" would orphan every value recorded so
+  far. `fieldnameOf(row)` mirrors that precedence, so the preview, `data-fieldname`, the client's
+  collision check and the write all name the same field. Covered by
+  `test_relabelling_a_variable_keeps_its_fieldname` and the browser's relabel case.
+- **A locked row keeps its label and type editable.** Only the required checkbox and the Remove
+  button are locked, which is what the safety flag actually owns; a clinic that calls `lot_no`
+  "Batch Number" is still requiring `lot_no`.
+- **An unreadable `variables` payload is refused, not treated as empty.** The first draft passed
+  `_parse_json(value, [])`, whose fallback would have silently cleared a template's whole variable
+  set and its required list. Covered by
+  `test_an_unreadable_payload_is_refused_rather_than_clearing_the_set`.
+- **Saving drops a required fieldname that has no row and that `_default_derma_variable` does not
+  know.** Such a name was reported by Phase 1 as `unenforced_required_fields` — required by the
+  document, enforced nowhere — so the builder resolving the contradiction by removal is the point
+  of the phase, not a loss.
+- **Still open after this phase:** a variable named outside the mark's own fieldnames can be marked
+  required, and the creation gate resolves required names through `_mark_variable_value`'s alias map
+  onto the mark's fields — so `custom_field_of_my_own` can be required and never fillable. The
+  builder now owns the fieldname at authoring time, which is where that check belongs; it is not
+  written here because it needs the mark's field list, which is spec 1's territory.
+
 ## Verification
 
 ### Phase 1
@@ -520,16 +589,75 @@ the fixture.
 **Not yet run:** the full Playwright suite. Acceptance criteria 4, 5, 7 and 8 belong to Phases 3-4
 and are unimplemented.
 
+### Phase 3
+
+Integration (Frappe's runner):
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_template_variables
+→ Ran 47 tests, OK
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_api
+→ Ran 45 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 215 tests in 29.9s, OK (skipped=1)
+```
+
+`TestTemplateVariableBuilder` (16 cases) covers the reader (a template's rows, the flag named on a
+locked row, an unknown template refused), the writer (the chart reading back what the builder wrote,
+a JSON-encoded payload, an empty set clearing the field, a relabel keeping its fieldname, a
+fieldname outside the 22 known ones) and every refusal (collision naming both labels, a variable
+with no label, a `Select` with no options, an unreadable payload refused rather than clearing the
+set). Acceptance criterion 5 is two cases: a flag-owned variable saved optional comes back required,
+and a deleted one comes back at all. Criterion 8 is `TestClinicalAccessGate`'s two cases, one per
+new endpoint.
+
+Browser:
+
+```
+npx playwright test e2e/tests/config-variable-builder.spec.ts \
+                   e2e/tests/config-workspace.spec.ts           → 16 passed (24.0s)
+npx playwright test e2e/tests/template-variables.spec.ts        → 3 passed (27.2s)
+npx playwright test e2e/tests/annotation-badges.spec.ts \
+                   e2e/tests/annotation-freehand.spec.ts        → 11 passed (2.9m)
+```
+
+`config-variable-builder.spec.ts` is criteria 4, 5 and "authored end to end": a variable added and
+marked required in the browser, read back from `Clinical Procedure Template` as
+`["product", "plane", "needle_gauge"]` with `custom_derma_required_fields` `["needle_gauge"]`; a new
+row colliding with an existing one, naming both and disabling Save; a relabelled row saved under the
+fieldname it already had; and `lot_no` rendered locked under *Product tracking* with no Remove
+button while the flag is on. It borrows `E2E Filler` and restores its seeded JSON, required list and
+flag in `afterEach`, the same borrow-and-restore Phase 2 used.
+The two studio suites are criterion 11 — they exercise `variableKey`, which now imports the shared
+`variableFieldname`.
+
+Build and lint:
+
+```
+bench build --app do_derma        → derma_config.bundle.GXJFOM4T.css 5.13 Kb; no bundle filename changed
+pipx run ruff check do_derma/     → All checks passed
+pipx run ruff format do_derma/    → 1 file reformatted, then clean
+```
+
+**Not yet run:** the full Playwright suite. Acceptance criterion 7 belongs to Phase 4 and is
+unimplemented.
+
 ## Files to touch (summary)
 
 | File | Change |
 |---|---|
-| `do_derma/api.py` | *(Phase 1)* delete `_category_required_fields` and the category's unread machinery; honest `required` via `_variable_is_required` + `SAFETY_FLAG_REQUIRED_SOURCES`; `get_config_health` drops the categories key. Later: `save_derma_template_variables`; `allowed_body_templates` check; `DERMA_TEMPLATE_FIELDS` entry removed |
+| `do_derma/api.py` | *(Phase 1)* delete `_category_required_fields` and the category's unread machinery; honest `required` via `_variable_is_required` + `SAFETY_FLAG_REQUIRED_SOURCES`; `get_config_health` drops the categories key. *(Phase 3)* `get_derma_template_variables` / `save_derma_template_variables`, `_validated_variable_rows`, `_locked_required_sources`, `VARIABLE_FIELDTYPES`. Later: `allowed_body_templates` check; `DERMA_TEMPLATE_FIELDS` entry removed |
 | `do_derma/do_derma/doctype/derma_procedure_category/derma_procedure_category.json` | *(Phase 1)* drop five unread fields; `requirements_section` becomes `note_section` |
 | `do_derma/patches/materialize_derma_template_required_fields.py` | *(new, Phase 1)* |
 | `do_derma/patches/cleanup_derma_category_requirement_fields.py` | *(new, Phase 4)* — only `custom_derma_allowed_body_regions` is left for it |
 | `do_derma/patches.txt` | one entry in Phase 1, one in Phase 4 |
-| `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(Phase 1)* the `category_name` labels go; later, the builder (file created by spec 2) |
+| `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(Phase 1)* the `category_name` labels go; *(Phase 3)* a Variables button per row opens the builder, and a save emits `changed` |
+| `public/js/config/panels/TemplateVariableBuilder.vue` | *(new, Phase 3)* the row grid: label / fieldname preview / type / options / required, locked rows badged with their flag |
+| `public/js/shared/variable_fieldname.js` | *(new, Phase 3)* one `variableFieldname()` for the builder and the studio, mirroring `_variable_fieldname` |
+| `public/js/config/App.vue` | *(Phase 3)* a refresh no longer unmounts the panel that asked for it |
+| `public/js/config/derma_config.bundle.css` | *(Phase 3)* `.config-builder` |
+| `e2e/tests/config-variable-builder.spec.ts` | *(new, Phase 3)* borrows `E2E Filler` and restores it |
+| `do_derma/tests/test_api.py` | *(Phase 3)* the access-gate case for the new write |
 | `public/js/config/panels/CategoriesPanel.vue` | *(Phase 1)* the "Read by nothing" column and its footnote go |
 | `do_derma/tests/test_config_workspace.py` | *(Phase 1)* the category-name warning, unread-field and health cases follow the deletion |
 | `e2e/tests/config-workspace.spec.ts` | *(Phase 1)* the category spec drops the unread-field badge |

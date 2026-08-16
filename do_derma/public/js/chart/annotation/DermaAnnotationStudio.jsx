@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+import { variableFieldname } from "../../shared/variable_fieldname.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
@@ -38,17 +39,9 @@ function normalizeOptions(options) {
     .filter(Boolean)
 }
 
-function normalizeFieldname(label) {
-  return String(label || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-}
-
 /** The key a variable's value is stored under - the studio, the mark and the badge all use it. */
 function variableKey(field = {}) {
-  return field.variable_name || field.fieldname || normalizeFieldname(field.label)
+  return field.variable_name || field.fieldname || variableFieldname(field.label)
 }
 
 function variableLabel(field = {}) {

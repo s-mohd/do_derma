@@ -244,6 +244,19 @@ class TestClinicalAccessGate(DermaTestHelpers, IntegrationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			api.get_derma_config_overview()
 
+	def test_template_variable_writes_are_gated(self):
+		"""It rewrites what every clinician is asked to record for a procedure, and the
+		config page keeps roles: [], so this check is the only thing in front of it."""
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			api.save_derma_template_variables("does-not-matter", [])
+
+	def test_template_variable_reads_are_gated(self):
+		"""The builder's reader returns how the clinic is configured, one template at a time."""
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			api.get_derma_template_variables("does-not-matter")
+
 	def test_annotation_summary_is_gated(self):
 		"""It reads another patient's drawings if it is not, and it is reachable from any desk
 		form, so it is the easiest of these to call unnoticed."""

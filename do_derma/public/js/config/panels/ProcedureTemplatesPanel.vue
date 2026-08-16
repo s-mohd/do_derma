@@ -7,7 +7,18 @@
       </span>
     </header>
 
-    <p v-if="!templates.length" class="config-status" data-test="config-procedure-templates-empty">
+    <TemplateVariableBuilder
+      v-if="editing"
+      :template="editing"
+      @close="editing = ''"
+      @saved="emit('changed')"
+    />
+
+    <p
+      v-else-if="!templates.length"
+      class="config-status"
+      data-test="config-procedure-templates-empty"
+    >
       {{ __("No procedure template is configured for derma yet.") }}
     </p>
 
@@ -67,6 +78,14 @@
             <button
               type="button"
               class="btn btn-default btn-xs"
+              data-test="config-edit-variables"
+              @click="editing = template.name"
+            >
+              {{ __("Variables") }} →
+            </button>
+            <button
+              type="button"
+              class="btn btn-default btn-xs"
               data-test="config-edit-procedure-template"
               @click="editTemplate(template)"
             >
@@ -80,8 +99,9 @@
 </template>
 
 <script setup>
-import { computed } from "vue"
-import { labelFor } from "../labels"
+import { computed, ref } from "vue"
+import TemplateVariableBuilder from "./TemplateVariableBuilder.vue"
+import { REQUIRED_FIELD_SOURCE_LABELS, labelFor } from "../labels"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -91,16 +111,12 @@ const WARNING_LABELS = {
   unreadable_variables: "Variables JSON cannot be read",
 }
 
-const SOURCE_LABELS = {
-  template: "Template",
-  product_tracking: "Product tracking",
-  device_settings: "Device settings",
-  variables_json: "Variables JSON",
-}
-
 const props = defineProps({
   templates: { type: Array, default: () => [] },
 })
+const emit = defineEmits(["changed"])
+
+const editing = ref("")
 
 const needingAttention = computed(
   () => props.templates.filter((template) => template.warnings.length).length
@@ -111,7 +127,7 @@ function warningLabel(warning) {
 }
 
 function sourceLabel(source) {
-  return labelFor(SOURCE_LABELS, source)
+  return labelFor(REQUIRED_FIELD_SOURCE_LABELS, source)
 }
 
 function editTemplate(template) {

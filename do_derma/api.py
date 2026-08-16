@@ -151,6 +151,8 @@ PRODUCT_TRACKING_REQUIRED_FIELDS = ["product_name", "lot_no", "expiry_date"]
 DEVICE_SETTINGS_REQUIRED_FIELDS = ["device", "settings"]
 SAFETY_FLAG_REQUIRED_SOURCES = {PRODUCT_TRACKING_SOURCE, DEVICE_SETTINGS_SOURCE}
 
+VARIABLE_FIELDTYPES = ["Data", "Select", "Float", "Int", "Small Text", "Date", "Check"]
+
 CONFIG_CATEGORY_FIELDS = [
 	"name",
 	"title",
@@ -651,6 +653,16 @@ def _required_field_owners(template_row: dict[str, Any]) -> list[dict[str, str]]
 	return owners
 
 
+def _locked_required_sources(template_row: dict[str, Any]) -> dict[str, str]:
+	"""Fieldname -> the safety flag that owns it. A row cannot call one of these optional,
+	and the builder renders them locked under the flag's name."""
+	return {
+		owner["fieldname"]: owner["source"]
+		for owner in _required_field_owners(template_row)
+		if owner["source"] in SAFETY_FLAG_REQUIRED_SOURCES
+	}
+
+
 def _is_unreadable_json(raw: Any, parsed: Any) -> bool:
 	"""Configured JSON that parses to nothing, `[]`, `{}` and `null` being honest
 	empties. The chart renders nothing and says nothing when this happens, so whoever
@@ -829,6 +841,112 @@ def _apply_part_variables(doc, rows: Any) -> None:
 		doc.append("variables", row)
 
 
+@frappe.whitelist()
+def get_derma_template_variables(template: str):
+	"""One procedure template's variable set, as the builder edits it."""
+	_ensure_clinical_access()
+	return _template_variable_payload(_derma_template_row(template))
+
+
+@frappe.whitelist()
+def save_derma_template_variables(template: str, variables: str | list[dict[str, Any]]):
+	"""Rewrite a template's variable set, validated the way the chart reads it.
+
+	No ignore_permissions: unlike the Health Annotation writes elsewhere in this module,
+	Clinical Procedure Template's own DocPerms are consistent, so they run on top of the
+	role gate.
+	"""
+	_ensure_clinical_access()
+	row = _derma_template_row(template)
+	if not _has_field("Clinical Procedure Template", "custom_derma_variables_json"):
+		frappe.throw(_("This site has no derma template fields yet. Run bench migrate first."))
+
+	locked = _locked_required_sources(row)
+	rows = _validated_variable_rows(variables, set(locked))
+	doc = frappe.get_doc("Clinical Procedure Template", row["name"])
+	doc.custom_derma_variables_json = json.dumps(rows, indent=2)
+	if _has_field("Clinical Procedure Template", "custom_derma_required_fields"):
+		doc.custom_derma_required_fields = json.dumps(
+			[field["fieldname"] for field in rows if field.get("required")]
+		)
+	doc.save()
+	return _template_variable_payload(_derma_template_row(row["name"]))
+
+
+def _derma_template_row(template: str) -> dict[str, Any]:
+	if not template or not frappe.db.exists("Clinical Procedure Template", template):
+		frappe.throw(_("Clinical Procedure Template {0} does not exist.").format(template))
+	fields = _select_existing_fields("Clinical Procedure Template", DERMA_TEMPLATE_FIELDS)
+	return frappe.db.get_value("Clinical Procedure Template", template, fields, as_dict=True) or {}
+
+
+def _template_variable_payload(template_row: dict[str, Any]) -> dict[str, Any]:
+	locked = _locked_required_sources(template_row)
+	return {
+		"template": template_row.get("name"),
+		"title": template_row.get("template") or template_row.get("name"),
+		"fieldtypes": VARIABLE_FIELDTYPES,
+		"variables": [
+			{
+				"fieldname": variable["fieldname"],
+				"label": variable["label"],
+				"fieldtype": variable["fieldtype"],
+				"options": variable["options"],
+				"required": bool(variable["required"]),
+				"locked_by": locked.get(variable["fieldname"], ""),
+			}
+			for variable in _get_template_variables(template_row)
+		],
+	}
+
+
+def _validated_variable_rows(value: Any, locked: set[str]) -> list[dict[str, Any]]:
+	"""The rows as they will be stored. Every fieldname is resolved by the runtime's own
+	`_variable_fieldname`, so a set the builder accepts is a set the chart can render.
+
+	A locked row stores no `required` key: the safety flag owns it, and freezing its
+	answer here would keep the field required after the flag is switched off.
+	"""
+	# No silent fallback: an unreadable payload here would wipe the template's variables
+	# and its required list, which is the one write in this module that cannot be undone
+	# from the builder.
+	rows = value if isinstance(value, list) else _parse_json(value, None)
+	if not isinstance(rows, list):
+		frappe.throw(_("Variables must be a list."))
+
+	validated: list[dict[str, Any]] = []
+	labels: dict[str, str] = {}
+	for row in rows:
+		if not isinstance(row, dict):
+			frappe.throw(_("Every variable must be a row with a label."))
+		label = str(row.get("label") or row.get("variable_name") or row.get("fieldname") or "").strip()
+		fieldname = _variable_fieldname(row.get("fieldname") or label)
+		if not fieldname:
+			frappe.throw(_("Every variable needs a label."))
+		if fieldname in labels:
+			frappe.throw(
+				_("{0} and {1} both resolve to the fieldname {2}.").format(
+					labels[fieldname], label, fieldname
+				)
+			)
+		fieldtype = _normalize_variable_type(row.get("fieldtype") or row.get("type"))
+		options = str(row.get("options") or "").strip()
+		if fieldtype == "Select" and not options:
+			frappe.throw(_("{0} is a Select variable and needs at least one option.").format(label))
+
+		labels[fieldname] = label
+		variable = {
+			"fieldname": fieldname,
+			"label": label or fieldname.replace("_", " ").title(),
+			"fieldtype": fieldtype,
+			"options": options,
+		}
+		if fieldname not in locked:
+			variable["required"] = bool(row.get("required"))
+		validated.append(variable)
+	return validated
+
+
 def _get_template_sets() -> list[dict[str, Any]]:
 	if not _has_doctype("Derma Template Set"):
 		return []
@@ -896,11 +1014,11 @@ def _is_derma_template(row: dict[str, Any]) -> bool:
 def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]]:
 	"""Return derma detail fields configured by Clinical Procedure Template."""
 
-	owners = _required_field_owners(template_row)
-	required = [owner["fieldname"] for owner in owners]
-	locked = {owner["fieldname"] for owner in owners if owner["source"] in SAFETY_FLAG_REQUIRED_SOURCES}
+	required = [owner["fieldname"] for owner in _required_field_owners(template_row)]
 	variables, seen = _parse_template_variable_schema(
-		template_row.get("custom_derma_variables_json"), required, locked
+		template_row.get("custom_derma_variables_json"),
+		required,
+		set(_locked_required_sources(template_row)),
 	)
 
 	for fieldname in required:
@@ -991,11 +1109,7 @@ def _variable_fieldname(label: str | None) -> str:
 
 def _normalize_variable_type(fieldtype: str | None) -> str:
 	fieldtype = (fieldtype or "Data").strip()
-	return (
-		fieldtype
-		if fieldtype in {"Data", "Select", "Float", "Int", "Small Text", "Date", "Check"}
-		else "Data"
-	)
+	return fieldtype if fieldtype in VARIABLE_FIELDTYPES else "Data"
 
 
 def _stringify_variable_value(value: Any) -> str:

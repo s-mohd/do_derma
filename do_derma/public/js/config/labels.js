@@ -4,3 +4,12 @@ const __ = window.__ || ((txt) => txt)
 export function labelFor(labels, code) {
   return __(labels[code] || code)
 }
+
+/** Who owns a required field - `_required_field_owners` in api.py. Read by the list and
+ * by the builder, which names the flag on a locked row. */
+export const REQUIRED_FIELD_SOURCE_LABELS = {
+  template: "Template",
+  product_tracking: "Product tracking",
+  device_settings: "Device settings",
+  variables_json: "Variables JSON",
+}
