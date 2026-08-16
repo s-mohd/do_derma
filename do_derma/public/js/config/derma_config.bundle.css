@@ -134,3 +134,42 @@
   color: #64748b;
   font-size: 11px;
 }
+
+.derma-config-page .config-badge.warn {
+  background: #fff7ed;
+  color: #92400e;
+}
+
+.derma-config-page .config-warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.derma-config-page .config-warnings .config-badge {
+  margin-left: 0;
+}
+
+.derma-config-page .config-chip {
+  display: inline-block;
+  margin: 0 4px 4px 0;
+  padding: 1px 6px;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.derma-config-page .config-chip.unenforced {
+  border-color: #f2c58c;
+  background: #fff7ed;
+}
+
+.derma-config-page .config-chip em {
+  color: #64748b;
+  font-style: normal;
+}
+
+.derma-config-page .config-chip em::before {
+  content: " · ";
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import frappe
@@ -51,6 +52,223 @@ class TestConfigOverview(DermaTestHelpers, IntegrationTestCase):
 
 		self.assertEqual(overview["body_templates"], [])
 		self.assertIn("body templates", overview["errors"])
+
+	def test_one_broken_section_leaves_the_others_readable(self):
+		template = self._make_body_template()
+
+		with patch.object(api, "get_config_procedure_templates", side_effect=Exception("boom")):
+			overview = api.get_derma_config_overview()
+
+		self.assertEqual(overview["procedure_templates"], [])
+		self.assertIn("procedure templates", overview["errors"])
+		self.assertTrue(self._template_row(overview, template))
+		self.assertIsInstance(overview["categories"], list)
+
+
+class ConfigTemplateHelpers:
+	def _make_derma_template(self, **custom):
+		"""A Clinical Procedure Template carrying whichever custom_derma_* fields the
+		test cares about, skipping the ones this site has not created."""
+		token = frappe.generate_hash(length=8)
+		doc = frappe.get_doc(
+			{
+				"doctype": "Clinical Procedure Template",
+				"template": f"Derma{token}",
+				"item_code": f"Derma{token}",
+				"description": f"Derma{token} - config fixture.",
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+			}
+		)
+		doc.set("is_billable", 0)
+		for fieldname, value in custom.items():
+			if api._has_field("Clinical Procedure Template", fieldname):
+				doc.set(fieldname, value)
+		doc.insert(ignore_permissions=True)
+		return doc.name
+
+	def _make_category(self, title, **extra):
+		if frappe.db.exists("Derma Procedure Category", title):
+			return title
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Derma Procedure Category",
+					"title": title,
+					"workflow": "Aesthetic",
+					"marker_behavior": "numbered_dot",
+					**extra,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _procedure_row(self, overview, template):
+		return next(row for row in overview["procedure_templates"] if row["name"] == template)
+
+	def _category_row(self, overview, category):
+		return next(row for row in overview["categories"] if row["name"] == category)
+
+
+class TestConfigProcedureTemplates(ConfigTemplateHelpers, IntegrationTestCase):
+	"""Required fields have four owners that disagree. The config list names the owner
+	of every field so a misconfiguration is visible without opening the desk form."""
+
+	def test_lists_a_disabled_template(self):
+		template = self._make_derma_template(custom_derma_required_fields=json.dumps(["dose"]), disabled=1)
+
+		self.assertEqual(self._procedure_row(api.get_derma_config_overview(), template)["disabled"], 1)
+
+	def test_names_the_owner_of_every_required_field(self):
+		template = self._make_derma_template(
+			custom_derma_required_fields=json.dumps(["dose"]),
+			custom_derma_product_tracking_required=1,
+			custom_derma_device_settings_required=1,
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(
+			{field["fieldname"]: field["source"] for field in row["required_fields"]},
+			{
+				"dose": "template",
+				"product_name": "product_tracking",
+				"lot_no": "product_tracking",
+				"expiry_date": "product_tracking",
+				"device": "device_settings",
+				"settings": "device_settings",
+			},
+		)
+
+	def test_the_first_owner_of_a_field_wins(self):
+		template = self._make_derma_template(
+			custom_derma_required_fields=json.dumps(["lot_no"]),
+			custom_derma_product_tracking_required=1,
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+		sources = [field["source"] for field in row["required_fields"] if field["fieldname"] == "lot_no"]
+
+		self.assertEqual(sources, ["template"])
+
+	def test_warns_when_requirements_come_from_the_category_name(self):
+		category = self._make_category("Botox")
+		template = self._make_derma_template(custom_derma_category=category)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertIn("category_name_defaults", row["warnings"])
+		self.assertIn("dose", [field["fieldname"] for field in row["required_fields"]])
+
+	def test_reports_a_required_field_the_chart_cannot_enforce(self):
+		template = self._make_derma_template(
+			custom_derma_required_fields=json.dumps(["invented_field"]),
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(
+			[(field["fieldname"], field["enforced"]) for field in row["required_fields"]],
+			[("invented_field", False)],
+		)
+		self.assertIn("unenforced_required_fields", row["warnings"])
+
+	def test_reports_a_field_the_variables_json_marks_required(self):
+		template = self._make_derma_template(
+			custom_derma_marker_behavior="numbered_dot",
+			custom_derma_variables_json=json.dumps([{"label": "Dose", "required": True}]),
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(
+			row["required_fields"], [{"fieldname": "dose", "source": "variables_json", "enforced": True}]
+		)
+		self.assertNotIn("no_required_fields", row["warnings"])
+
+	def test_warns_when_a_template_requires_nothing(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(row["required_fields"], [])
+		self.assertIn("no_required_fields", row["warnings"])
+
+	def test_warns_when_the_variables_json_cannot_be_read(self):
+		template = self._make_derma_template(
+			custom_derma_marker_behavior="numbered_dot",
+			custom_derma_variables_json="{not json",
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertIn("unreadable_variables", row["warnings"])
+		self.assertEqual(row["variable_count"], 0)
+
+	def test_counts_the_variables_the_chart_renders(self):
+		"""A required field with no row of its own still reaches the clinician, so the
+		count is the chart's list rather than the JSON's length."""
+		template = self._make_derma_template(
+			custom_derma_variables_json=json.dumps([{"label": "Plane"}]),
+			custom_derma_device_settings_required=1,
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(row["variable_count"], 3)
+
+	def test_counts_the_variables_a_readable_template_declares(self):
+		template = self._make_derma_template(
+			custom_derma_marker_behavior="numbered_dot",
+			custom_derma_variables_json=json.dumps(
+				[{"label": "Dose", "fieldtype": "Float"}, {"label": "Plane"}]
+			),
+		)
+
+		row = self._procedure_row(api.get_derma_config_overview(), template)
+
+		self.assertEqual(row["variable_count"], 2)
+		self.assertNotIn("unreadable_variables", row["warnings"])
+
+
+class TestConfigCategories(ConfigTemplateHelpers, IntegrationTestCase):
+	"""Categories carry five requirement fields nothing reads. The list says so rather
+	than letting an administrator configure into a void."""
+
+	def test_lists_a_disabled_category(self):
+		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}", disabled=1)
+
+		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["disabled"], 1)
+
+	def test_counts_the_templates_pointing_at_a_category(self):
+		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}")
+		self._make_derma_template(custom_derma_category=category)
+		self._make_derma_template(custom_derma_category=category)
+
+		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["template_count"], 2)
+
+	def test_flags_requirement_fields_no_code_reads(self):
+		category = self._make_category(
+			f"Derma Cfg {frappe.generate_hash(length=6)}",
+			required_fields=json.dumps(["dose"]),
+			consent_required=1,
+		)
+
+		row = self._category_row(api.get_derma_config_overview(), category)
+
+		self.assertEqual(sorted(row["unread_fields"]), ["consent_required", "required_fields"])
+
+	def test_an_empty_required_fields_list_is_not_a_value(self):
+		category = self._make_category(
+			f"Derma Cfg {frappe.generate_hash(length=6)}", required_fields=json.dumps([])
+		)
+
+		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["unread_fields"], [])
+
+	def test_a_plain_category_flags_nothing(self):
+		category = self._make_category(f"Derma Cfg {frappe.generate_hash(length=6)}")
+
+		self.assertEqual(self._category_row(api.get_derma_config_overview(), category)["unread_fields"], [])
 
 
 class TestPagePatches(IntegrationTestCase):

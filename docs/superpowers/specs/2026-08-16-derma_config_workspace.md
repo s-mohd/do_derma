@@ -1,9 +1,10 @@
 # A Place To Configure Derma
 
 Date: 2026-08-16
-Status: **Phase 1 implemented & verified** (2026-08-16); Phases 2-4 remain **Draft**. Phase 1
-deviated from the plan on how the designer is opened and on where the page-row patch logic lives —
-see [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
+Status: **Phases 1-2 implemented & verified** (2026-08-16); Phases 3-4 remain **Draft**. Phase 1
+deviated from the plan on how the designer is opened and on where the page-row patch logic lives;
+Phase 2 added a per-field owner and a warning vocabulary the plan did not name — see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
 
@@ -139,7 +140,7 @@ def get_derma_config_overview():
 	_ensure_clinical_access()
 	return {
 		"body_templates": get_config_body_templates(),
-		"procedure_templates": _config_procedure_templates(),
+		"procedure_templates": get_config_procedure_templates(),
 		"categories": _get_categories(),
 		"settings": get_feature_toggles(),
 	}
@@ -149,7 +150,7 @@ def get_derma_config_overview():
 `area_count` plus a `retired_area_count` per template (see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) — it does *not* reuse
 `_get_body_templates`, whose `limit=100` / `limit=1000` would silently under-count).
-`_config_procedure_templates()` reuses `_select_existing_fields` over `DERMA_TEMPLATE_FIELDS` so a
+`get_config_procedure_templates()` reuses `_select_existing_fields` over `DERMA_TEMPLATE_FIELDS` so a
 site missing any `custom_derma_*` field degrades instead of throwing.
 
 Each section is wrapped in `_safe_derma_context(label, fallback, getter)` so one broken sub-query
@@ -191,6 +192,22 @@ New `data-test` hooks, designed up front because the Playwright specs select on 
 | `config-area-count` / `config-retired-area-count` | the two counts |
 | `config-design-areas` / `config-new-body-template` | the row action and the header action |
 | `config-placeholder` | a rail item whose panel has not shipped yet |
+
+Phase 2 adds, on the same rule (nothing renamed):
+
+| Hook | On |
+|---|---|
+| `config-procedure-templates` / `config-procedure-templates-empty` | the panel and its empty state |
+| `config-procedure-template-row` | one per template, carrying `data-template="<name>"` |
+| `config-procedure-template-disabled` | the retired badge |
+| `config-required-field` | one chip per required field, carrying `data-source="<owner>"` and `data-enforced="0|1"` |
+| `config-template-warning` | one badge per warning, carrying `data-warning="<code>"` |
+| `config-template-warning-count` | the header roll-up |
+| `config-variable-count` / `config-edit-procedure-template` | the count and the desk-form link |
+| `config-categories` / `config-categories-empty` / `config-categories-note` | the panel, its empty state, the footnote |
+| `config-category-row` | one per category, carrying `data-category="<name>"` |
+| `config-category-disabled` / `config-category-template-count` | the retired badge and the usage count |
+| `config-category-unread-field` | one badge per field nothing reads, carrying `data-field="<fieldname>"` |
 
 ### 5. Discoverability
 
@@ -235,8 +252,9 @@ rail, `get_derma_config_overview` returning body templates only, and the working
 button. Also ships `ensure_derma_body_template_editor_page`.
 *Exit:* an administrator reaches any body map's designer in two clicks, having typed no URL.
 
-**Phase 2 — procedure templates and categories panels (read-only).** Lists with the config each
-row actually carries, including a warning count for templates with no required fields.
+**Phase 2 — procedure templates and categories panels (read-only).** ✅ Shipped 2026-08-16. Lists
+with the config each row actually carries, including a warning count for templates with no required
+fields.
 *Exit:* the four defects in the required-field story are visible on screen without opening a desk
 form.
 
@@ -318,6 +336,67 @@ shows the current enforcement mode read-only.
 - **`do_derma.openConfig()` is not shipped.** It is Phase 4's, together with the sidebar item that
   calls it; adding it now would have been an exported function with no caller.
 
+### Phase 2 (2026-08-16)
+
+- **Required fields are returned per field with their owner, not as a flat set.** The plan asked
+  only for "a warning count for templates with no required fields". A count says a template is
+  under-configured but not *which of the four owners* put a field there, which is the thing spec 3
+  is about to collapse into one owner. `_required_field_owners` is now the **single** definition of
+  that order — `_get_template_variables` was refactored onto it (`required = [owner["fieldname"]
+  for owner in _required_field_owners(row)]`), which deleted the now-unused `_merge_required_fields`
+  and removed the risk of the panel and the chart drifting apart.
+- **Each field also carries `enforced`, because owning a field is not the same as enforcing it.**
+  `_get_template_variables:863-870` appends a required fieldname only when `_default_derma_variable`
+  recognises it, and `_validate_marks_ready_for_procedure:3220` throws on that resolved list — so an
+  invented fieldname in `custom_derma_required_fields` is required *nowhere*. Conversely
+  `_parse_template_variable_schema` honours a row-level `"required": true`, which the chart does
+  enforce though none of the four owners claims it; that field is reported with the source
+  `variables_json`. `_required_fields_with_owners` reconciles the two lists and a new
+  `unenforced_required_fields` warning names the first case. Both were silent before this panel.
+- **`variable_count` is the chart's list, not the JSON's length.** A required field with no row of
+  its own still reaches the clinician as a default variable, so counting the raw JSON would print a
+  number nobody sees. The `unreadable_variables` check still reads the raw JSON, so an unreadable
+  schema and a non-zero count can (correctly) appear on the same row.
+- **Warnings are codes, not sentences.** `no_required_fields`, `category_name_defaults`,
+  `unenforced_required_fields`, `unreadable_variables` cross the wire; the panel maps them
+  through `__()`. Server-side English in
+  a payload cannot be translated, and the Playwright specs select on `data-warning="<code>"`, which
+  a copy edit would otherwise break.
+- **`unreadable_variables` is inferred, not reported by the parser.** `_parse_template_variable_schema`
+  swallows every malformed shape and returns `[]`, and changing that is spec 3's business (its
+  Non-Goals keep the tolerated shapes). `_is_unreadable_variable_schema` therefore compares a
+  non-empty raw value against a zero-length parse, excluding `[]`, `{}` and `null` as honest empties.
+- **The derma-template predicate was extracted rather than duplicated.** `_get_derma_procedure_templates`
+  and `get_config_procedure_templates` now share `_is_derma_template`, so the config list can never
+  drift from the chart's definition of "a derma template". The predicate is unchanged: a category,
+  a marker behaviour, or a required-fields value.
+- **The two safety flags' field lists became `PRODUCT_TRACKING_REQUIRED_FIELDS` /
+  `DEVICE_SETTINGS_REQUIRED_FIELDS`.** They were literals inside `_get_template_variables`; the
+  owner walk needs the same lists, and two copies of `["device", "settings"]` is one owner too many.
+- **Categories report `unread_fields`, a list, rather than a boolean.** `CATEGORY_UNREAD_FIELDS`
+  names the five requirement fields nothing branches on, and the panel badges each one that carries
+  a value plus a footnote saying so. `required_fields` is a JSON field, so it is tested through
+  `_parse_required_fields` — a stored `"[]"` is an honest empty, not a value — while the four Check
+  fields are tested with `cint`. Spec 3 deletes all five; `_select_existing_fields` means this list
+  degrades to `[]` on the day it does, with no code change here.
+- **`template_count` includes retired templates**, which still point at the category and still break
+  if it is deleted. Said in the function's docstring rather than left to the reader.
+- **`settings` is not in the payload.** The Design sketch listed `get_feature_toggles()`; the
+  readiness panel that would render it is Phase 3, and shipping an unread key now would be a field
+  with no reader.
+- **The procedure row links to the desk form (`config-edit-procedure-template`).** Phase 2 is
+  read-only, and until spec 3's builder lands the desk form is the only place to *fix* what this
+  panel exposes — the same "navigate to the tool" shape as Phase 1's "Design areas".
+- **Acceptance criterion 5 is now fully proven.** `test_one_broken_section_leaves_the_others_readable`
+  breaks the procedure-template query and asserts both other sections still render, which Phase 1's
+  single-section payload could not express.
+- **The e2e fixture creates a `Clinical Procedure Template` and deletes its generated `Item`.**
+  healthcare's `after_insert` builds an Item from `item_code`, so the spec cleans up both. The
+  category-name defect is *not* covered in the browser: `Derma Procedure Category` autonames from
+  its title, so proving it would mean creating a row literally named `Botox` on a production-clone
+  dev site — and deleting it afterwards could remove a real one. `test_warns_when_requirements_come_from_the_category_name`
+  covers it in the integration suite, where the transaction rolls back.
+
 ## Verification
 
 ### Phase 1
@@ -361,7 +440,49 @@ pipx run ruff check <changed files>        → All checks passed
 pipx run ruff format --check               → 21 files already formatted
 ```
 
-**Not yet run:** nothing for Phase 1. Phases 2-4 are unimplemented.
+**Not yet run:** nothing for Phase 1.
+
+### Phase 2
+
+Integration:
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_config_workspace
+→ Ran 22 tests, OK (skipped=1)
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 146 tests in 41.7s, OK (skipped=1)
+```
+
+The 16 new cases cover: the owner of every required field across all four groups, first-owner-wins
+on a field two owners claim, a required field the chart cannot enforce, a field the variables JSON
+alone marks required, the category-name warning, the requires-nothing warning, the unreadable-JSON
+warning and its readable counterpart, the variable count matching the chart's list, a disabled
+template and a disabled category being listed, the per-category template count, the unread-field
+flags with an empty `required_fields` excluded, and one broken section leaving the other two
+readable.
+
+Browser:
+
+```
+npx playwright test e2e/tests/config-workspace.spec.ts → 9 passed
+npx playwright test                                    → 79 passed, 1 failed (10.3m)
+```
+
+The one failure is `annotation-anchoring.spec.ts:228` ("keeps a dragged treatment area at its drawn
+size across resume"), which fails on `render_chart_marks` where it expects no console error. It is
+**not** this phase's: re-running it with the whole change stashed reproduces it on `a72a0ae`. Phase
+2 touches no chart code.
+
+Build and lint:
+
+```
+bench build --app do_derma          → derma_config.bundle.css 3.32 Kb (JS unchanged in name)
+pipx run ruff check do_derma/       → All checks passed
+pipx run ruff format                → clean
+```
+
+**Not yet run:** `bench migrate` — Phase 2 ships no patch, no fixture and no schema change.
+Phases 3-4 are unimplemented.
 
 ## Files to touch (summary)
 
@@ -372,16 +493,20 @@ pipx run ruff format --check               → 21 files already formatted
 | `public/js/config/derma_config.bundle.js` | *(new)* |
 | `public/js/config/derma_config.bundle.css` | *(new)* |
 | `public/js/config/App.vue` | *(new)* rail + panel switch |
-| `public/js/config/panels/BodyTemplatesPanel.vue` | *(new)*; the other three panels land with their phases |
-| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; `_get_body_templates(include_disabled)` |
+| `public/js/config/panels/BodyTemplatesPanel.vue` | *(new)*; the readiness panel lands with Phase 3 |
+| `public/js/config/panels/ProcedureTemplatesPanel.vue` | *(new, Phase 2)* required-field owners and warnings |
+| `public/js/config/panels/CategoriesPanel.vue` | *(new, Phase 2)* usage counts and unread requirement fields |
+| `do_derma/api.py` | `get_derma_config_overview` + `_config_body_templates`; Phase 2 adds `get_config_procedure_templates`, `get_config_categories`, `_required_field_owners`, `_is_derma_template` and the two safety-flag constants |
 | `do_derma/patches/helpers.py` | *(new)* `ensure_standard_page`, shared by the three page patches |
 | `do_derma/patches/ensure_derma_config_page.py` | *(new)* |
 | `do_derma/patches/ensure_derma_body_template_editor_page.py` | *(new)* — never existed |
 | `do_derma/patches/ensure_derma_chart_page.py` | refactored onto `ensure_standard_page` |
 | `do_derma/patches.txt` | two entries |
 | `public/js/derma_sidebar.js` | `do_derma.openConfig()` — Phase 4, not shipped yet |
-| `do_derma/tests/test_config_workspace.py` | *(new)* |
-| `e2e/tests/config-workspace.spec.ts` | *(new)*, on `demo_seed` fixtures |
+| `do_derma/tests/test_config_workspace.py` | *(new)*; Phase 2 adds the procedure-template and category classes |
+| `e2e/tests/config-workspace.spec.ts` | *(new)*; Phase 2 adds the configuration-lists describe block |
+| `e2e/helpers/derma.ts` | Phase 2 adds `SEED.itemGroup`, so no spec hardcodes the seeded item group |
+| `public/js/config/derma_config.bundle.css` | Phase 2 adds the chip and warning-badge styles |
 
 `bench build --app do_derma` is **required** — a new bundle name,
 `derma_config.bundle.js`, joins the `frappe.require` contract. No existing bundle filename changes.

@@ -78,6 +78,7 @@ export const SEED = {
 	patientFirstName: "E2E Derma Patient",
 	practitionerFirstName: "E2E Derma Practitioner",
 	appointmentType: "E2E Derma Visit",
+	itemGroup: "E2E Derma",
 	procedureCategory: "E2E Injectables",
 	pointTemplate: "E2E Filler",
 	areaTemplate: "E2E Area Peel",

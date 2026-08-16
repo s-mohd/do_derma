@@ -1,4 +1,5 @@
 import { APIRequestContext, expect, test } from "@playwright/test";
+import { SEED } from "../helpers/derma";
 import { createDoc, deleteDoc } from "../helpers/frappe";
 
 /**
@@ -66,9 +67,14 @@ test.describe("Derma configuration workspace", () => {
 		await expect(page.locator('[data-test="derma-config-root"]')).toBeVisible();
 		await expect(page.locator('[data-test="config-body-templates"]')).toBeVisible();
 
-		for (const tool of ["procedure-templates", "categories", "readiness"]) {
+		const panels: Record<string, string> = {
+			"procedure-templates": "config-procedure-templates",
+			categories: "config-categories",
+			readiness: "config-placeholder",
+		};
+		for (const [tool, panel] of Object.entries(panels)) {
 			await page.locator(`[data-test="config-rail-item-${tool}"]`).click();
-			await expect(page.locator('[data-test="config-placeholder"]')).toBeVisible();
+			await expect(page.locator(`[data-test="${panel}"]`)).toBeVisible();
 			await expect(page.locator('[data-test="config-body-templates"]')).toBeHidden();
 		}
 
@@ -78,5 +84,130 @@ test.describe("Derma configuration workspace", () => {
 			"href",
 			"/app/annotation-template",
 		);
+	});
+});
+
+/**
+ * The procedure template and category lists. Their fixtures are created by the spec: the
+ * required-field owners only differ on a template configured to disagree with itself, and
+ * the seeded templates deliberately require nothing.
+ */
+test.describe("Derma configuration lists", () => {
+	let category = "";
+	let template = "";
+	let itemCode = "";
+
+	test.beforeEach(async ({ request }) => {
+		const stamp = Date.now();
+		category = await plantCategory(request, `E2E Config Category ${stamp}`);
+		itemCode = `E2EConfig${stamp}`;
+		template = await plantProcedureTemplate(request, itemCode, category);
+	});
+
+	test.afterEach(async ({ request }) => {
+		if (template) await deleteDoc(request, "Clinical Procedure Template", template);
+		if (itemCode) await deleteDoc(request, "Item", itemCode);
+		if (category) await deleteDoc(request, "Derma Procedure Category", category);
+		template = itemCode = category = "";
+	});
+
+	async function plantCategory(request: APIRequestContext, title: string): Promise<string> {
+		const created = await createDoc<{ name: string }>(request, "Derma Procedure Category", {
+			title,
+			workflow: "Aesthetic",
+			marker_behavior: "numbered_dot",
+			required_fields: JSON.stringify(["dose"]),
+		});
+		return created.name;
+	}
+
+	async function plantProcedureTemplate(
+		request: APIRequestContext,
+		code: string,
+		procedureCategory: string,
+	): Promise<string> {
+		// healthcare's after_insert builds an Item from item_code, so both it and the
+		// item group have to be supplied here.
+		const created = await createDoc<{ name: string }>(request, "Clinical Procedure Template", {
+			template: code,
+			item_code: code,
+			item_group: SEED.itemGroup,
+			description: `${code} - fixture for the do_derma config workspace spec.`,
+			is_billable: 0,
+			custom_derma_category: procedureCategory,
+			custom_derma_required_fields: JSON.stringify(["dose", "invented_field"]),
+			custom_derma_product_tracking_required: 1,
+			custom_derma_variables_json: "{not json",
+		});
+		return created.name;
+	}
+
+	async function openTool(page: import("@playwright/test").Page, tool: string) {
+		await page.goto("/app/derma-config");
+		await expect(page.locator('[data-test="derma-config-root"]')).toBeVisible();
+		await page.locator(`[data-test="config-rail-item-${tool}"]`).click();
+	}
+
+	test("names the owner of every required field", async ({ page }) => {
+		await openTool(page, "procedure-templates");
+
+		const row = page.locator(
+			`[data-test="config-procedure-template-row"][data-template="${template}"]`,
+		);
+		await expect(
+			row.locator('[data-test="config-required-field"][data-source="template"]'),
+		).toHaveCount(2);
+		await expect(
+			row.locator('[data-test="config-required-field"][data-source="product_tracking"]'),
+		).toHaveCount(3);
+	});
+
+	test("marks a required field the chart cannot enforce", async ({ page }) => {
+		await openTool(page, "procedure-templates");
+
+		const row = page.locator(
+			`[data-test="config-procedure-template-row"][data-template="${template}"]`,
+		);
+		await expect(row.locator('[data-test="config-required-field"][data-enforced="0"]')).toHaveText(
+			/invented_field/,
+		);
+		await expect(
+			row.locator('[data-test="config-template-warning"][data-warning="unenforced_required_fields"]'),
+		).toBeVisible();
+	});
+
+	test("warns that the variables JSON cannot be read", async ({ page }) => {
+		await openTool(page, "procedure-templates");
+
+		const row = page.locator(
+			`[data-test="config-procedure-template-row"][data-template="${template}"]`,
+		);
+		await expect(
+			row.locator('[data-test="config-template-warning"][data-warning="unreadable_variables"]'),
+		).toBeVisible();
+		// dose plus the three product-tracking fields still reach the chart as defaults.
+		await expect(row.locator('[data-test="config-variable-count"]')).toHaveText("4");
+		await expect(page.locator('[data-test="config-template-warning-count"]')).toBeVisible();
+	});
+
+	test("shows a seeded template that requires nothing", async ({ page }) => {
+		await openTool(page, "procedure-templates");
+
+		const row = page.locator(
+			`[data-test="config-procedure-template-row"][data-template="${SEED.pointTemplate}"]`,
+		);
+		await expect(
+			row.locator('[data-test="config-template-warning"][data-warning="no_required_fields"]'),
+		).toBeVisible();
+	});
+
+	test("flags the category fields no code reads, and counts its templates", async ({ page }) => {
+		await openTool(page, "categories");
+
+		const row = page.locator(`[data-test="config-category-row"][data-category="${category}"]`);
+		await expect(
+			row.locator('[data-test="config-category-unread-field"][data-field="required_fields"]'),
+		).toBeVisible();
+		await expect(row.locator('[data-test="config-category-template-count"]')).toHaveText("1");
 	});
 });

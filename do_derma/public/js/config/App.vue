@@ -27,6 +27,11 @@
           {{ __("Some configuration could not be read: {0}", [failedSections.join(", ")]) }}
         </div>
         <BodyTemplatesPanel v-if="activeTool === 'body-templates'" :templates="bodyTemplates" />
+        <ProcedureTemplatesPanel
+          v-else-if="activeTool === 'procedure-templates'"
+          :templates="procedureTemplates"
+        />
+        <CategoriesPanel v-else-if="activeTool === 'categories'" :categories="categories" />
         <div v-else class="config-status" data-test="config-placeholder">
           {{ __("This tool arrives in a later pass.") }}
         </div>
@@ -38,6 +43,8 @@
 <script setup>
 import { onMounted, ref } from "vue"
 import BodyTemplatesPanel from "./panels/BodyTemplatesPanel.vue"
+import CategoriesPanel from "./panels/CategoriesPanel.vue"
+import ProcedureTemplatesPanel from "./panels/ProcedureTemplatesPanel.vue"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -51,6 +58,8 @@ const ANNOTATION_TEMPLATE_LIST = "/app/annotation-template"
 
 const activeTool = ref(TOOLS[0].key)
 const bodyTemplates = ref([])
+const procedureTemplates = ref([])
+const categories = ref([])
 const failedSections = ref([])
 const loading = ref(true)
 const loadError = ref("")
@@ -62,6 +71,8 @@ async function load() {
     const response = await frappe.call({ method: "do_derma.api.get_derma_config_overview" })
     const payload = response.message || {}
     bodyTemplates.value = payload.body_templates || []
+    procedureTemplates.value = payload.procedure_templates || []
+    categories.value = payload.categories || []
     failedSections.value = payload.errors || []
   } catch (error) {
     console.warn("[do_derma] Failed to load configuration", error)

@@ -45,8 +45,9 @@ no `fixtures/` directory in this app, and `hooks.py:30-33` is an *export* select
 
 ### The four owners of "required"
 
-`_get_template_variables` (`api.py:626-652`) resolves them in this order, unioned by
-`_merge_required_fields` (`api.py:710-716`):
+`_get_template_variables` (`api.py:626-652`) resolves them in this order (since the config
+workspace's Phase 2 it delegates the order to `_required_field_owners`, and the old
+`_merge_required_fields` helper is gone — the migration patch sketched below must dedupe itself):
 
 1. `custom_derma_required_fields` JSON on the template (`api.py:636`)
 2. `_category_required_fields(custom_derma_category)` (`api.py:630`)

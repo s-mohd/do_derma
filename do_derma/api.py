@@ -142,6 +142,31 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_note_template",
 ]
 
+# Required fields the two safety flags append to whatever a template declares.
+PRODUCT_TRACKING_REQUIRED_FIELDS = ["product_name", "lot_no", "expiry_date"]
+DEVICE_SETTINGS_REQUIRED_FIELDS = ["device", "settings"]
+
+CONFIG_CATEGORY_FIELDS = [
+	"name",
+	"title",
+	"workflow",
+	"sequence",
+	"disabled",
+	"marker_behavior",
+	"marker_color",
+	"default_body_template",
+]
+
+# Category fields no code branches on - only the custom_derma_* twins on the
+# procedure template are ever read.
+CATEGORY_UNREAD_FLAGS = [
+	"consent_required",
+	"before_after_photo_required",
+	"product_tracking_required",
+	"device_settings_required",
+]
+CATEGORY_UNREAD_FIELDS = ["required_fields", *CATEGORY_UNREAD_FLAGS]
+
 
 # Roles trusted to view and chart clinical data through this API. Doctype-level
 # DocPerms across healthcare/do_health/do_derma are inconsistent (e.g. Clinical
@@ -535,6 +560,159 @@ def _count_template_areas(template_names: list[str]) -> dict[str, tuple[int, int
 	return counts
 
 
+def get_config_procedure_templates() -> list[dict[str, Any]]:
+	"""Every derma procedure template with the owner of each required field. Retired
+	templates are listed too - the config workspace exists to show what the chart hides."""
+	if not _has_doctype("Clinical Procedure Template"):
+		return []
+
+	fields = _select_existing_fields("Clinical Procedure Template", [*DERMA_TEMPLATE_FIELDS, "disabled"])
+	rows = frappe.get_all(
+		"Clinical Procedure Template",
+		fields=fields,
+		order_by="template asc",
+		limit_page_length=0,
+	)
+	return [_config_procedure_template(row) for row in rows if _is_derma_template(row)]
+
+
+def _config_procedure_template(row: dict[str, Any]) -> dict[str, Any]:
+	variables = _get_template_variables(row)
+	required = _required_fields_with_owners(row, variables)
+	declared, _seen = _parse_template_variable_schema(row.get("custom_derma_variables_json"), [])
+	warnings: list[str] = []
+	if not required:
+		warnings.append("no_required_fields")
+	if any(field["source"] == "category_name" for field in required):
+		warnings.append("category_name_defaults")
+	if any(not field["enforced"] for field in required):
+		warnings.append("unenforced_required_fields")
+	if _is_unreadable_variable_schema(row.get("custom_derma_variables_json"), declared):
+		warnings.append("unreadable_variables")
+
+	return {
+		"name": row.get("name"),
+		"template": row.get("template") or row.get("name"),
+		"category": row.get("custom_derma_category") or "",
+		"marker_behavior": row.get("custom_derma_marker_behavior") or "",
+		"disabled": cint(row.get("disabled")),
+		"variable_count": len(variables),
+		"required_fields": required,
+		"warnings": warnings,
+	}
+
+
+def _required_fields_with_owners(
+	template_row: dict[str, Any], variables: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+	"""Required fields with their owner and whether the chart actually enforces them.
+
+	A fieldname no `_default_derma_variable` knows never reaches the variable list, so
+	nothing enforces it; a variables row marked `required` is enforced while no owner
+	claims it. Both are silent today, so both are reported here.
+	"""
+	enforced = [variable.get("fieldname") for variable in variables if variable.get("required")]
+	fields = [
+		{**owner, "enforced": owner["fieldname"] in enforced}
+		for owner in _required_field_owners(template_row)
+	]
+	claimed = {field["fieldname"] for field in fields}
+	fields.extend(
+		{"fieldname": fieldname, "source": "variables_json", "enforced": True}
+		for fieldname in enforced
+		if fieldname and fieldname not in claimed
+	)
+	return fields
+
+
+def _required_field_owners(template_row: dict[str, Any]) -> list[dict[str, str]]:
+	"""The four owners of "required", in the order they win: whatever the template
+	declares, then the category-name table, then each safety flag."""
+	groups = (
+		("template", _parse_required_fields(template_row.get("custom_derma_required_fields"))),
+		("category_name", _category_required_fields(template_row.get("custom_derma_category"))),
+		(
+			"product_tracking",
+			PRODUCT_TRACKING_REQUIRED_FIELDS
+			if template_row.get("custom_derma_product_tracking_required")
+			else [],
+		),
+		(
+			"device_settings",
+			DEVICE_SETTINGS_REQUIRED_FIELDS
+			if template_row.get("custom_derma_device_settings_required")
+			else [],
+		),
+	)
+	owners: list[dict[str, str]] = []
+	seen: set[str] = set()
+	for source, fieldnames in groups:
+		for fieldname in fieldnames:
+			if not fieldname or fieldname in seen:
+				continue
+			seen.add(fieldname)
+			owners.append({"fieldname": fieldname, "source": source})
+	return owners
+
+
+def _is_unreadable_variable_schema(raw: Any, declared: list[dict[str, Any]]) -> bool:
+	"""Configured JSON that parses to no variables. The chart renders nothing and says
+	nothing, so the config list is the only place this can surface."""
+	if declared:
+		return False
+	text = str(raw or "").strip()
+	return bool(text) and text not in {"[]", "{}", "null"}
+
+
+def get_config_categories() -> list[dict[str, Any]]:
+	"""Every category with how many templates point at it, and which of its requirement
+	fields no code reads - configuring those changes nothing anywhere."""
+	if not _has_doctype("Derma Procedure Category"):
+		return []
+
+	fields = _select_existing_fields(
+		"Derma Procedure Category", [*CONFIG_CATEGORY_FIELDS, *CATEGORY_UNREAD_FIELDS]
+	)
+	rows = frappe.get_all(
+		"Derma Procedure Category",
+		fields=fields,
+		order_by="sequence asc, title asc",
+		limit_page_length=0,
+	)
+	counts = _count_templates_per_category()
+	for row in rows:
+		row["template_count"] = counts.get(row.get("name"), 0)
+		row["unread_fields"] = _category_unread_fields(row)
+	return rows
+
+
+def _category_unread_fields(row: dict[str, Any]) -> list[str]:
+	"""Requirement fields carrying a value nothing reads. `required_fields` is JSON, so
+	a stored empty list is not a value."""
+	fields = [field for field in CATEGORY_UNREAD_FLAGS if cint(row.get(field))]
+	if _parse_required_fields(row.get("required_fields")):
+		fields.insert(0, "required_fields")
+	return fields
+
+
+def _count_templates_per_category() -> dict[str, int]:
+	"""Retired templates are counted too - they still point at the category."""
+	if not _has_field("Clinical Procedure Template", "custom_derma_category"):
+		return {}
+
+	rows = frappe.get_all(
+		"Clinical Procedure Template",
+		filters={"custom_derma_category": ["is", "set"]},
+		fields=["custom_derma_category"],
+		limit_page_length=0,
+	)
+	counts: dict[str, int] = {}
+	for row in rows:
+		category = row.get("custom_derma_category")
+		counts[category] = counts.get(category, 0) + 1
+	return counts
+
+
 @frappe.whitelist()
 def get_derma_config_overview():
 	"""Everything the config workspace lists, in one round trip."""
@@ -542,6 +720,10 @@ def get_derma_config_overview():
 	errors: list[str] = []
 	return {
 		"body_templates": _safe_derma_context("body templates", [], get_config_body_templates, errors),
+		"procedure_templates": _safe_derma_context(
+			"procedure templates", [], get_config_procedure_templates, errors
+		),
+		"categories": _safe_derma_context("categories", [], get_config_categories, errors),
 		"errors": errors,
 	}
 
@@ -672,13 +854,7 @@ def _get_derma_procedure_templates() -> list[dict[str, Any]]:
 		order_by="template asc",
 		limit=300,
 	)
-	derma_rows = [
-		row
-		for row in rows
-		if row.get("custom_derma_category")
-		or row.get("custom_derma_marker_behavior")
-		or row.get("custom_derma_required_fields")
-	]
+	derma_rows = [row for row in rows if _is_derma_template(row)]
 	for row in derma_rows:
 		row["derma_variables"] = _get_template_variables(row)
 		category_defaults = _category_defaults(row.get("custom_derma_category"))
@@ -695,19 +871,18 @@ def _get_derma_procedure_templates() -> list[dict[str, Any]]:
 	return derma_rows
 
 
+def _is_derma_template(row: dict[str, Any]) -> bool:
+	return bool(
+		row.get("custom_derma_category")
+		or row.get("custom_derma_marker_behavior")
+		or row.get("custom_derma_required_fields")
+	)
+
+
 def _get_template_variables(template_row: dict[str, Any]) -> list[dict[str, Any]]:
 	"""Return derma detail fields configured by Clinical Procedure Template."""
 
-	category = template_row.get("custom_derma_category")
-	safety_required = _category_required_fields(category)
-	if template_row.get("custom_derma_product_tracking_required"):
-		safety_required = _merge_required_fields(safety_required, ["product_name", "lot_no", "expiry_date"])
-	if template_row.get("custom_derma_device_settings_required"):
-		safety_required = _merge_required_fields(safety_required, ["device", "settings"])
-	required = _merge_required_fields(
-		_parse_required_fields(template_row.get("custom_derma_required_fields")),
-		safety_required,
-	)
+	required = [owner["fieldname"] for owner in _required_field_owners(template_row)]
 	variables, seen = _parse_template_variable_schema(
 		template_row.get("custom_derma_variables_json"), required
 	)
@@ -777,15 +952,6 @@ def _parse_required_fields(value: str | list | None) -> list[str]:
 	if isinstance(fields, str):
 		fields = [part.strip() for part in fields.split(",")]
 	return [_variable_fieldname(field) for field in fields if field]
-
-
-def _merge_required_fields(*groups: list[str]) -> list[str]:
-	merged: list[str] = []
-	for group in groups:
-		for fieldname in group or []:
-			if fieldname and fieldname not in merged:
-				merged.append(fieldname)
-	return merged
 
 
 def _category_required_fields(category: str | None) -> list[str]:
