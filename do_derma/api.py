@@ -1201,6 +1201,51 @@ def _hydrate_mark_area_variables(mark_rows: list[dict[str, Any]]) -> None:
 		mark["area_variables"] = by_parent.get(mark.get("name"), [])
 
 
+def _hydrate_mark_consumables(mark_rows: list[dict[str, Any]]) -> None:
+	"""Each mark's live consumables, already judged against its frozen template list."""
+	from do_derma.consumables import snapshot
+	from do_derma.consumables.defaults import CONSUMABLE_FIELDS
+
+	if not mark_rows or not _has_doctype("Clinical Procedure Item"):
+		return
+	if not _has_field("Derma Chart Mark", "consumables"):
+		return
+	names = [row.get("name") for row in mark_rows if row.get("name")]
+	rows = frappe.get_all(
+		"Clinical Procedure Item",
+		filters={"parent": ["in", names], "parenttype": "Derma Chart Mark"},
+		fields=["parent", *CONSUMABLE_FIELDS],
+		order_by="parent asc, idx asc",
+		# Unpaged for the same reason area variables are: the caller caps the parents.
+		limit=0,
+	)
+	by_parent: dict[str, list[dict[str, Any]]] = {}
+	for row in rows:
+		by_parent.setdefault(row.get("parent"), []).append(
+			{field: row.get(field) for field in CONSUMABLE_FIELDS}
+		)
+	frozen = _frozen_mark_consumables(names)
+	for mark in mark_rows:
+		name = mark.get("name")
+		defaults = frozen.get(name, [])
+		compared = snapshot.compare(by_parent.get(name, []), defaults)
+		mark["consumables"] = compared["consumables"]
+		mark["removed_consumables"] = compared["removed"]
+		mark["default_consumables"] = defaults
+
+
+def _frozen_mark_consumables(names: list[str]) -> dict[str, list[dict[str, Any]]]:
+	from do_derma.consumables import snapshot
+
+	rows = frappe.get_all(
+		"Derma Chart Mark",
+		filters={"name": ["in", names]},
+		fields=["name", "default_consumables_json"],
+		limit=0,
+	)
+	return {row.name: snapshot.load(row.default_consumables_json) for row in rows}
+
+
 def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
 	labels = {
 		"product_item": ("Product Item", "Data", ""),
@@ -1351,6 +1396,7 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 			order_by="sequence asc, modified asc",
 			limit=1000,
 		)
+		_hydrate_mark_consumables(mark_rows)
 		for mark in mark_rows:
 			marks_by_procedure.setdefault(mark.get("clinical_procedure"), []).append(mark)
 
@@ -1791,6 +1837,7 @@ def _get_marks(
 		limit=500,
 	)
 	_hydrate_mark_area_variables(marks)
+	_hydrate_mark_consumables(marks)
 	return marks
 
 
@@ -1823,7 +1870,9 @@ def _get_previous_marks(patient: str, current_encounter: str | None = None) -> l
 		order_by="modified desc",
 		limit=500,
 	)
-	return [row for row in rows if row.get("status") != "Archived"]
+	visible = [row for row in rows if row.get("status") != "Archived"]
+	_hydrate_mark_consumables(visible)
+	return visible
 
 
 def _category_defaults(category: str | None) -> dict[str, Any]:
@@ -2105,6 +2154,9 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 		procedure.notes = procedure_notes
 	if _has_field("Clinical Procedure", "custom_derma_notes") and procedure_notes:
 		procedure.custom_derma_notes = procedure_notes
+	source_mark = values.get("mark")
+	if source_mark and frappe.db.exists("Derma Chart Mark", source_mark):
+		_apply_mark_consumables(procedure, frappe.get_doc("Derma Chart Mark", source_mark))
 	procedure.insert(ignore_permissions=True)
 
 	treatment = None
@@ -2146,6 +2198,34 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 		"clinical_procedure": procedure.as_dict(),
 		"treatment_entry": treatment.as_dict() if treatment else None,
 	}
+
+
+def _apply_mark_consumables(procedure, mark_doc) -> None:
+	"""The mark's consumables replace the procedure's outright.
+
+	The clinician's list is the more recent statement about the same procedure. A mark that
+	recorded none leaves the document exactly as healthcare wrote it.
+	"""
+	from do_derma.consumables.defaults import CONSUMABLE_FIELDS
+
+	if not mark_doc or not _has_doctype("Clinical Procedure Item"):
+		return
+	if not _has_field("Clinical Procedure", "items") or not _has_field("Derma Chart Mark", "consumables"):
+		return
+	rows = [{field: row.get(field) for field in CONSUMABLE_FIELDS} for row in mark_doc.get("consumables")]
+	if not rows:
+		return
+	for row in rows:
+		# Stock would move at zero without one, so this is refused rather than posted wrong.
+		if not flt(row.get("conversion_factor")):
+			frappe.throw(
+				_("{0} is recorded in {1}, which does not convert to its stock unit.").format(
+					row.get("item_code"), row.get("uom")
+				)
+			)
+	procedure.set("items", rows)
+	if _has_field("Clinical Procedure", "consume_stock"):
+		procedure.consume_stock = 1
 
 
 def _treatment_procedure_type(category: str | None) -> str:
@@ -3162,6 +3242,50 @@ def save_chart_mark(values: str | dict[str, Any]):
 	return doc.as_dict()
 
 
+@frappe.whitelist()
+def save_mark_consumables(mark: str, rows: str | list[dict[str, Any]] | None = None) -> dict[str, Any]:
+	"""Replace one mark's consumables outright and answer what the chart should now show."""
+	_ensure_clinical_access()
+	from do_derma.consumables import rows as consumable_rows
+
+	if not mark:
+		frappe.throw(_("Chart mark is required."))
+	if not _has_doctype("Clinical Procedure Item") or not _has_field("Derma Chart Mark", "consumables"):
+		frappe.throw(_("Consumables are not available on this site."))
+
+	mark_doc = frappe.get_doc("Derma Chart Mark", mark)
+	_ensure_encounter_open(mark_doc.encounter)
+	# Every row is validated before the first write, so a bad third row cannot leave the
+	# first two stored against a list the clinician never confirmed.
+	mark_doc.set("consumables", consumable_rows.clean_rows(_parse_payload(rows) or []))
+	mark_doc.save(ignore_permissions=True)
+	return _mark_consumables_payload(mark_doc)
+
+
+def _ensure_encounter_open(encounter: str | None) -> None:
+	"""A closed encounter is read-only on the chart; a stale tab must not write past it."""
+	if not encounter:
+		return
+	if cint(frappe.db.get_value("Patient Encounter", encounter, "docstatus")) != 0:
+		frappe.throw(_("This encounter is closed and can no longer be edited."))
+
+
+def _mark_consumables_payload(mark_doc) -> dict[str, Any]:
+	"""The same shape the chart read produces, so the panel can swap its state for it."""
+	from do_derma.consumables import snapshot
+	from do_derma.consumables.defaults import CONSUMABLE_FIELDS
+
+	live = [{field: row.get(field) for field in CONSUMABLE_FIELDS} for row in mark_doc.consumables]
+	frozen = snapshot.load(mark_doc.default_consumables_json)
+	compared = snapshot.compare(live, frozen)
+	return {
+		"mark": mark_doc.name,
+		"consumables": compared["consumables"],
+		"removed_consumables": compared["removed"],
+		"default_consumables": frozen,
+	}
+
+
 def _next_mark_sequence(patient: str, encounter: str | None = None, category: str | None = None) -> int:
 	filters = {"patient": patient}
 	if encounter:
@@ -3226,6 +3350,7 @@ def create_procedure_from_mark(
 		procedure.medical_department = template_doc.get("medical_department") or encounter_doc.get(
 			"medical_department"
 		)
+	_apply_mark_consumables(procedure, mark_doc)
 	procedure.insert(ignore_permissions=True)
 
 	mark_doc.procedure_template = procedure_template

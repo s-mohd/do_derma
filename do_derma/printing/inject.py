@@ -1,4 +1,4 @@
-"""Puts the assessment block into every hand-written Patient Encounter print format.
+"""Puts do_derma's blocks into every hand-written Patient Encounter print format.
 
 Runs from after_migrate rather than a patch: `Encounter Print` is a standard format owned
 by healthcare, so a healthcare release that edits its JSON silently reverts our DB row, and
@@ -6,20 +6,43 @@ a patch recorded as applied could never repair it.
 """
 
 import re
+from dataclasses import dataclass
 
 import frappe
 
-START = "<!-- do_derma:assessment:start -->"
-END = "<!-- do_derma:assessment:end -->"
-# Also matches the markers of the hand-injected block that predates this module.
-LEGACY_PREFIX = "<!-- do_derma:assessment"
-
-BLOCK = f"{START}\n{{{{ derma_assessment_html(doc) }}}}\n{END}"
-
+DERMA_PREFIX = "<!-- do_derma:"
 COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
+# The hand-injected assessment block that predates this module: an opening marker with no
+# closing one. Our own markers are excluded so a second run does not read them as legacy.
+LEGACY_PATTERN = re.compile(r"<!--\s*do_derma:assessment(?!:start|:end)[^>]*-->")
 
 
-def ensure_assessment_block_in_print_formats() -> dict[str, list[str]]:
+@dataclass(frozen=True)
+class PrintBlock:
+	"""One marker-delimited call this app owns inside a print format."""
+
+	key: str
+	method: str
+
+	@property
+	def start(self) -> str:
+		return f"<!-- do_derma:{self.key}:start -->"
+
+	@property
+	def end(self) -> str:
+		return f"<!-- do_derma:{self.key}:end -->"
+
+	@property
+	def html(self) -> str:
+		return f"{self.start}\n{{{{ {self.method}(doc) }}}}\n{self.end}"
+
+
+ASSESSMENT = PrintBlock("assessment", "derma_assessment_html")
+CONSUMABLES = PrintBlock("consumables", "derma_consumables_html")
+BLOCKS = [ASSESSMENT, CONSUMABLES]
+
+
+def ensure_derma_blocks_in_print_formats() -> dict[str, list[str]]:
 	"""Idempotent. Returns the formats updated, left alone, and refused."""
 	result: dict[str, list[str]] = {"updated": [], "unchanged": [], "skipped": []}
 	for row in frappe.get_all(
@@ -43,7 +66,7 @@ def ensure_assessment_block_in_print_formats() -> dict[str, list[str]]:
 
 
 def _apply_to(name: str, html: str) -> str:
-	stripped = strip_derma_block(html)
+	stripped = strip_legacy_block(html)
 	if stripped is None:
 		frappe.log_error(
 			title="Derma print block skipped",
@@ -51,7 +74,9 @@ def _apply_to(name: str, html: str) -> str:
 		)
 		return "skipped"
 
-	new_html = f"{stripped.rstrip()}\n\n{BLOCK}\n"
+	new_html = stripped
+	for block in BLOCKS:
+		new_html = place_block(new_html, block)
 	if new_html == html:
 		return "unchanged"
 
@@ -61,18 +86,26 @@ def _apply_to(name: str, html: str) -> str:
 	return "updated"
 
 
-def strip_derma_block(html: str) -> str | None:
-	"""Everything before our block, or None when the tail cannot be proven ours.
+def place_block(html: str, block: PrintBlock) -> str:
+	"""The block written over its own markers, or appended when it is not there yet."""
+	start = html.find(block.start)
+	end = html.find(block.end)
+	if start != -1 and end > start:
+		return html[:start] + block.html + html[end + len(block.end) :]
+	return f"{html.rstrip()}\n\n{block.html}\n"
 
-	Our own block is marker-delimited, but the hand-injected one that predates it has an
-	opening marker and no closing one, so removing it means truncating to end of string.
-	Only do that when nothing foreign lives in the tail.
+
+def strip_legacy_block(html: str) -> str | None:
+	"""Everything before the hand-injected block, or None when the tail cannot be proven ours.
+
+	The legacy block has no closing marker, so removing it means truncating to end of
+	string. Only do that when nothing foreign lives in the tail.
 	"""
-	index = html.find(LEGACY_PREFIX)
-	if index == -1:
+	match = LEGACY_PATTERN.search(html)
+	if not match:
 		return html
-	tail = html[index:]
-	foreign = [comment for comment in COMMENT_PATTERN.findall(tail) if not comment.startswith(LEGACY_PREFIX)]
+	tail = html[match.start() :]
+	foreign = [comment for comment in COMMENT_PATTERN.findall(tail) if not comment.startswith(DERMA_PREFIX)]
 	if foreign:
 		return None
-	return html[:index]
+	return html[: match.start()]

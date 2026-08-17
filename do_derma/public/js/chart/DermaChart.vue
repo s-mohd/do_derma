@@ -536,6 +536,10 @@
                       <b>{{ item.marks?.length || 0 }}</b>
                       <small>{{ __("marks") }}</small>
                     </span>
+                    <span v-if="item.contributors?.length">
+                      <b>{{ readinessContributorLabel(item) }}</b>
+                      <small>{{ __("recorded in") }}</small>
+                    </span>
                   </div>
                   <p>{{ item.message }}</p>
                   <footer>
@@ -840,6 +844,13 @@ const readinessSummaryText = computed(() => {
 })
 function readinessSourceLabel(source) {
   return source === READINESS_INVENTORY ? __("Inventory") : __("Follow-up")
+}
+
+// Says which field a readiness line was built from, so the clinician knows where to fix it.
+const CONTRIBUTOR_LABELS = { dose: __("dose"), consumable: __("materials") }
+
+function readinessContributorLabel(item) {
+  return (item.contributors || []).map((source) => CONTRIBUTOR_LABELS[source] || source).join(" + ")
 }
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
 const procedureArtifactText = computed(() => {

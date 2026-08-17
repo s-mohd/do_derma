@@ -204,7 +204,8 @@
             <tr class="procedure-date-row">
               <td colspan="8">{{ formatGroupLabel(group) }}</td>
             </tr>
-            <tr v-for="row in group.items" :key="row.name" @dblclick="handleRowDoubleClick(row, $event)">
+            <template v-for="row in group.items" :key="row.name">
+            <tr @dblclick="handleRowDoubleClick(row, $event)">
               <td>
                 <span class="pill" :class="statusClass(row.status)">
                   {{ row.status || "Draft" }}
@@ -281,6 +282,18 @@
                     <i class="fa-solid fa-shield-halved"></i>
                     <span>{{ __("Insurance") }}</span>
                   </span>
+                  <button
+                    v-if="hasConsumablePanel(row)"
+                    type="button"
+                    class="detail-chip detail-chip-button"
+                    data-test="procedure-toggle-consumables"
+                    :aria-expanded="isConsumablesOpen(row)"
+                    :title="__('Materials consumed')"
+                    @click.stop="toggleConsumables(row)"
+                  >
+                    <i class="fa-solid fa-box-open"></i>
+                    <span>{{ __("Materials") }} ({{ consumableCount(row) }})</span>
+                  </button>
                   <span v-if="row.derma_artifact_text" class="detail-chip derma-artifact-chip">
                     <i class="fa-regular fa-images"></i>
                     <span>{{ row.derma_artifact_text }}</span>
@@ -407,6 +420,24 @@
                 <span v-if="!getProcedureName(row) && !isEditable(row)" class="text-muted">—</span>
               </td>
             </tr>
+            <tr v-if="isConsumablesOpen(row)" class="consumables-row" data-test="procedure-consumables-row">
+              <td colspan="8">
+                <MarkConsumables
+                  v-for="mark in marksOf(row)"
+                  :key="mark.name"
+                  :mark-name="mark.name"
+                  :mark-label="markConsumablesLabel(mark)"
+                  :rows="consumablesOf(mark).consumables"
+                  :removed="consumablesOf(mark).removed_consumables"
+                  :defaults="consumablesOf(mark).default_consumables"
+                  :read-only="readOnly"
+                  :saving="!!savingConsumables[mark.name]"
+                  :error="consumableErrors[mark.name] || ''"
+                  @change="saveConsumables(mark.name, $event)"
+                />
+              </td>
+            </tr>
+            </template>
           </template>
         </tbody>
       </table>
@@ -444,6 +475,7 @@
 
 <script setup>
 import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
+import MarkConsumables from "./consumables/MarkConsumables.vue"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -915,6 +947,84 @@ function displayPrice(row) {
   if (row.base_rate !== undefined && row.base_rate !== null) return row.base_rate
   if (row.base_price !== undefined && row.base_price !== null) return row.base_price
   return ""
+}
+
+// Consumables belong to the mark, not to the procedure row that shows them. The server
+// decides what counts as a deviation from the template; nothing here recomputes it.
+const expandedConsumables = ref({})
+const consumablesByMark = ref({})
+const consumableErrors = ref({})
+const savingConsumables = ref({})
+
+watch(
+  () => props.groups,
+  () => {
+    consumablesByMark.value = {}
+    consumableErrors.value = {}
+  }
+)
+
+function marksOf(row) {
+  return row?.derma_marks || []
+}
+
+function consumablesOf(mark) {
+  return (
+    consumablesByMark.value[mark?.name] || {
+      consumables: mark?.consumables || [],
+      removed_consumables: mark?.removed_consumables || [],
+      default_consumables: mark?.default_consumables || [],
+    }
+  )
+}
+
+function consumableCount(row) {
+  return marksOf(row).reduce((total, mark) => total + consumablesOf(mark).consumables.length, 0)
+}
+
+function hasConsumablePanel(row) {
+  return marksOf(row).length > 0
+}
+
+function isConsumablesOpen(row) {
+  return !!expandedConsumables.value[row.name]
+}
+
+function toggleConsumables(row) {
+  expandedConsumables.value = {
+    ...expandedConsumables.value,
+    [row.name]: !expandedConsumables.value[row.name],
+  }
+}
+
+function markConsumablesLabel(mark) {
+  return mark.region_label || mark.body_region || mark.category || mark.name
+}
+
+async function saveConsumables(markName, rows) {
+  savingConsumables.value = { ...savingConsumables.value, [markName]: true }
+  consumableErrors.value = { ...consumableErrors.value, [markName]: "" }
+  try {
+    const resp = await frappe.call("do_derma.api.save_mark_consumables", { mark: markName, rows })
+    if (resp?.message) {
+      consumablesByMark.value = { ...consumablesByMark.value, [markName]: resp.message }
+    }
+  } catch (err) {
+    consumableErrors.value = { ...consumableErrors.value, [markName]: consumableErrorText(err) }
+  } finally {
+    savingConsumables.value = { ...savingConsumables.value, [markName]: false }
+  }
+}
+
+function consumableErrorText(err) {
+  const raw = err?._server_messages || window.frappe?._server_messages
+  try {
+    const parsed = JSON.parse(raw)
+    const first = JSON.parse(parsed[0])
+    return htmlToPlainText(first?.message || first)
+  } catch (parseError) {
+    return htmlToPlainText(err?.message || "") || __("The materials could not be saved.")
+  }
 }
 
 function updateLocal(row, key, value) {

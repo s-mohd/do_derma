@@ -3,7 +3,7 @@
 import frappe
 
 from do_derma.assessment import ensure_derma_settings_defaults
-from do_derma.printing.inject import ensure_assessment_block_in_print_formats
+from do_derma.printing.inject import ensure_derma_blocks_in_print_formats
 from do_derma.schema import ensure_derma_schema
 from do_derma.settings import ensure_readiness_defaults
 
@@ -22,6 +22,6 @@ def after_migrate() -> None:
 	except Exception:
 		frappe.log_error(title="Derma Settings defaults", message=frappe.get_traceback())
 	try:
-		ensure_assessment_block_in_print_formats()
+		ensure_derma_blocks_in_print_formats()
 	except Exception:
 		frappe.log_error(title="Derma print formats", message=frappe.get_traceback())

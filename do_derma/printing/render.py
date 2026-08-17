@@ -13,6 +13,7 @@ from frappe.utils.formatters import format_value
 from markupsafe import Markup, escape
 
 from do_derma import assessment
+from do_derma.consumables import encounter as encounter_consumables
 
 # Fieldtypes whose stored value is already HTML, written through the desk form that owns
 # them. None of the shipped assessment fields use one; a clinic that configures one into
@@ -35,6 +36,54 @@ def derma_assessment_html(doc) -> Markup:
 		# content at all. Degrade to nothing printed, loudly logged.
 		frappe.log_error(title="Derma assessment print block", message=frappe.get_traceback())
 		return Markup("")
+
+
+def derma_consumables_html(doc) -> Markup:
+	"""Jinja global. What each procedure on one encounter consumed, or empty."""
+	try:
+		encounter = doc if hasattr(doc, "get") else frappe.get_doc("Patient Encounter", doc)
+		return render_consumables(encounter_consumables.get_encounter_consumables(encounter.get("name")))
+	except Exception:
+		# A raise here 500s the printview for every encounter, the same way it would for
+		# the assessment block. Degrade to nothing printed, loudly logged.
+		frappe.log_error(title="Derma consumables print block", message=frappe.get_traceback())
+		return Markup("")
+
+
+def render_consumables(groups: list[dict[str, Any]]) -> Markup:
+	"""One paragraph per procedure, or empty when the session consumed nothing."""
+	if not groups:
+		return Markup("")
+	paragraphs = [
+		Markup("<p><b>{procedure}:</b> {lines}</p>").format(
+			procedure=group["procedure"], lines=Markup(", ").join(consumable_lines(group["rows"]))
+		)
+		for group in groups
+	]
+	return (
+		Markup('<div class="derma-consumables"><h5>{heading}</h5>').format(heading=_("Consumables"))
+		+ Markup("").join(paragraphs)
+		+ Markup("</div>")
+	)
+
+
+def consumable_lines(rows: list[dict[str, Any]]) -> list[Markup]:
+	"""Item, quantity, unit and batch, so paper can be reconciled against a stock ledger."""
+	lines = []
+	for row in rows:
+		text = " ".join(
+			part
+			for part in [
+				str(row.get("item_name") or row.get("item_code") or ""),
+				f"{frappe.utils.flt(row.get('qty')):g}",
+				str(row.get("uom") or ""),
+			]
+			if part
+		)
+		if row.get("batch_no"):
+			text = _("{0} (Batch {1})").format(text, row["batch_no"])
+		lines.append(escape(text))
+	return lines
 
 
 def render_mode(encounter, mode: str) -> Markup:

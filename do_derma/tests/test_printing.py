@@ -3,10 +3,13 @@ from __future__ import annotations
 import frappe
 from frappe.tests import IntegrationTestCase
 
+import do_derma.api as api
 from do_derma import assessment
 from do_derma.printing import inject, render
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
+from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
+from do_derma.tests.test_consumables import ConsumableHelpers
 
 LEGACY_BLOCK = """
 <!-- do_derma:assessment -->
@@ -213,21 +216,42 @@ class TestPrintFormatInjection(PrintingTestBase):
 	def test_injects_block_once(self):
 		name = self._make_print_format()
 
-		inject.ensure_assessment_block_in_print_formats()
+		inject.ensure_derma_blocks_in_print_formats()
 
 		html = self._html_of(name)
-		self.assertEqual(html.count(inject.START), 1)
-		self.assertEqual(html.count(inject.END), 1)
+		self.assertEqual(html.count(inject.ASSESSMENT.start), 1)
+		self.assertEqual(html.count(inject.ASSESSMENT.end), 1)
 		self.assertIn("derma_assessment_html(doc)", html)
 		self.assertIn("<div>Body</div>", html)
 
+	def test_injects_the_consumables_block_once_beside_the_assessment_block(self):
+		name = self._make_print_format()
+
+		inject.ensure_derma_blocks_in_print_formats()
+
+		html = self._html_of(name)
+		self.assertEqual(html.count(inject.CONSUMABLES.start), 1)
+		self.assertEqual(html.count(inject.CONSUMABLES.end), 1)
+		self.assertIn("derma_consumables_html(doc)", html)
+		self.assertEqual(html.count(inject.ASSESSMENT.start), 1)
+
+	def test_a_reverted_format_is_repaired_on_the_next_run(self):
+		name = self._make_print_format()
+		inject.ensure_derma_blocks_in_print_formats()
+		repaired = self._html_of(name)
+		frappe.db.set_value("Print Format", name, "html", "<div>Body</div>")
+
+		inject.ensure_derma_blocks_in_print_formats()
+
+		self.assertEqual(self._html_of(name), repaired)
+
 	def test_second_run_is_a_no_op(self):
 		name = self._make_print_format()
-		inject.ensure_assessment_block_in_print_formats()
+		inject.ensure_derma_blocks_in_print_formats()
 		first_html = self._html_of(name)
 		first_modified = frappe.db.get_value("Print Format", name, "modified")
 
-		result = inject.ensure_assessment_block_in_print_formats()
+		result = inject.ensure_derma_blocks_in_print_formats()
 
 		self.assertIn(name, result["unchanged"])
 		self.assertEqual(self._html_of(name), first_html)
@@ -236,46 +260,87 @@ class TestPrintFormatInjection(PrintingTestBase):
 	def test_replaces_legacy_hand_injected_block(self):
 		name = self._make_print_format(html=f"<div>Body</div>{LEGACY_BLOCK}")
 
-		inject.ensure_assessment_block_in_print_formats()
+		inject.ensure_derma_blocks_in_print_formats()
 
 		html = self._html_of(name)
 		self.assertNotIn("derma_structured_values", html)
 		self.assertNotIn('class="derma-soap"', html)
-		self.assertEqual(html.count(inject.START), 1)
+		self.assertEqual(html.count(inject.ASSESSMENT.start), 1)
 		self.assertIn("<div>Body</div>", html)
 
 	def test_skips_print_format_builder_formats(self):
 		name = self._make_print_format(print_format_builder=1)
 
-		result = inject.ensure_assessment_block_in_print_formats()
+		result = inject.ensure_derma_blocks_in_print_formats()
 
-		self.assertNotIn(inject.START, self._html_of(name))
+		self.assertNotIn(inject.ASSESSMENT.start, self._html_of(name))
 		self.assertNotIn(name, result["updated"])
 
 	def test_skips_disabled_formats(self):
 		name = self._make_print_format(disabled=1)
 
-		inject.ensure_assessment_block_in_print_formats()
+		inject.ensure_derma_blocks_in_print_formats()
 
-		self.assertNotIn(inject.START, self._html_of(name))
+		self.assertNotIn(inject.ASSESSMENT.start, self._html_of(name))
 
 	def test_skips_format_with_foreign_trailing_comment(self):
 		name = self._make_print_format(
 			html=f"<div>Body</div>{LEGACY_BLOCK}\n<!-- clinic footer -->\n<div>Footer</div>"
 		)
 
-		result = inject.ensure_assessment_block_in_print_formats()
+		result = inject.ensure_derma_blocks_in_print_formats()
 
 		self.assertIn(name, result["skipped"])
 		self.assertIn("<!-- clinic footer -->", self._html_of(name))
-		self.assertNotIn(inject.START, self._html_of(name))
+		self.assertNotIn(inject.ASSESSMENT.start, self._html_of(name))
 
 	def test_leaves_other_doctypes_alone(self):
 		name = self._make_print_format(doc_type="Clinical Procedure")
 
-		inject.ensure_assessment_block_in_print_formats()
+		inject.ensure_derma_blocks_in_print_formats()
 
-		self.assertNotIn(inject.START, self._html_of(name))
+		self.assertNotIn(inject.ASSESSMENT.start, self._html_of(name))
+
+
+class TestConsumablesPrintBlock(ConsumableHelpers, ConfigTemplateHelpers, PrintingTestBase):
+	"""The paper record says what each procedure consumed, or says nothing at all."""
+
+	def setUp(self):
+		super().setUp()
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def test_lists_item_quantity_unit_and_batch_grouped_by_procedure(self):
+		item = self._make_stock_item(has_batch_no=1)
+		batch = self._make_batch(item)
+		template = self._make_consuming_template([])
+		mark = self._make_mark(procedure_template=template, encounter=self.encounter.name)
+		api.save_mark_consumables(
+			mark.name, [{"item_code": item, "qty": 3, "uom": "Nos", "batch_no": batch}]
+		)
+
+		html = render.derma_consumables_html(self.encounter)
+
+		self.assertIn("Consumables", html)
+		self.assertIn(frappe.db.get_value("Clinical Procedure Template", template, "template"), html)
+		self.assertIn("3 Nos", html)
+		self.assertIn(batch, html)
+
+	def test_renders_nothing_when_the_session_consumed_nothing(self):
+		self.assertEqual(render.derma_consumables_html(self.encounter), "")
+
+	def test_escapes_whatever_it_is_handed(self):
+		lines = render.consumable_lines([{"item_name": "<b>Gauze</b>", "qty": 1, "uom": "Nos"}])
+
+		self.assertNotIn("<b>", lines[0])
+		self.assertIn("&lt;b&gt;", lines[0])
+
+	def test_logs_and_returns_empty_on_failure(self):
+		class Exploding:
+			def get(self, *args, **kwargs):
+				raise RuntimeError("boom")
+
+		self.assertEqual(render.derma_consumables_html(Exploding()), "")
 
 
 class TestPrintedEncounter(PrintingTestBase):
@@ -299,7 +364,7 @@ class TestPrintedEncounter(PrintingTestBase):
 			}
 		).insert(ignore_permissions=True)
 		self.addCleanup(frappe.delete_doc, "Print Format", doc.name, True)
-		inject.ensure_assessment_block_in_print_formats()
+		inject.ensure_derma_blocks_in_print_formats()
 		encounter = self._soap_encounter(custom_derma_soap_plan="Topical steroid twice daily")
 
 		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=name)

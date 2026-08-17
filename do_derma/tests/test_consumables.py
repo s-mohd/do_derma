@@ -1,0 +1,583 @@
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import frappe
+from frappe.tests import IntegrationTestCase
+from frappe.utils import add_days, nowdate
+
+import do_derma.api as api
+from do_derma.consumables import defaults, snapshot
+from do_derma.readiness import inventory
+from do_derma.tests.test_api import DermaTestHelpers
+from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
+
+
+class ConsumableHelpers:
+	def _make_stock_item(self, has_batch_no=0, stock_uom="Nos"):
+		token = frappe.generate_hash(length=8)
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Item",
+					"item_code": f"DermaStock{token}",
+					"item_name": f"Derma Stock {token}",
+					"item_group": frappe.db.get_value("Item Group", {}, "name"),
+					"stock_uom": stock_uom,
+					"is_stock_item": 1,
+					"has_batch_no": has_batch_no,
+					"create_new_batch": has_batch_no,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _make_batch(self, item_code, expiry_date=None):
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Batch",
+					"batch_id": f"DermaBatch{frappe.generate_hash(length=8)}",
+					"item": item_code,
+					"expiry_date": expiry_date,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _make_consuming_template(self, rows, **custom):
+		"""A Clinical Procedure Template that consumes stock, carrying the given rows."""
+		template = self._make_derma_template(**custom)
+		doc = frappe.get_doc("Clinical Procedure Template", template)
+		doc.consume_stock = 1
+		for row in rows:
+			doc.append("items", row)
+		doc.save(ignore_permissions=True)
+		return template
+
+	def _consumable_row(self, item_code, qty=1, **extra):
+		return {"item_code": item_code, "qty": qty, "uom": "Nos", "stock_uom": "Nos", **extra}
+
+	def _make_mark(self, **values):
+		return frappe.get_doc(
+			{
+				"doctype": "Derma Chart Mark",
+				"patient": self.patient,
+				"x_percent": 10,
+				"y_percent": 20,
+				**values,
+			}
+		).insert(ignore_permissions=True)
+
+
+class TestConsumableDefaults(ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase):
+	"""A mark takes the template's list once and then owns it."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+
+	def test_a_template_with_items_gives_the_mark_those_items(self):
+		item = self._make_stock_item()
+		template = self._make_consuming_template([self._consumable_row(item, qty=3)])
+
+		mark = self._make_mark(procedure_template=template)
+
+		self.assertEqual([row.item_code for row in mark.consumables], [item])
+		self.assertEqual(mark.consumables[0].qty, 3)
+
+	def test_a_template_that_does_not_consume_stock_gives_the_mark_no_items(self):
+		item = self._make_stock_item()
+		template = self._make_consuming_template([self._consumable_row(item)])
+		frappe.db.set_value("Clinical Procedure Template", template, "consume_stock", 0)
+
+		mark = self._make_mark(procedure_template=template)
+
+		self.assertEqual(mark.consumables, [])
+		self.assertEqual(snapshot.load(mark.default_consumables_json), [])
+
+	def test_a_mark_with_no_template_carries_nothing(self):
+		mark = self._make_mark()
+
+		self.assertEqual(mark.consumables, [])
+		self.assertFalse(mark.default_consumables_json)
+
+	def test_rows_added_by_hand_survive_a_save(self):
+		item = self._make_stock_item()
+		mark = self._make_mark()
+		mark.append("consumables", self._consumable_row(item, qty=2))
+		mark.save(ignore_permissions=True)
+
+		mark.reload()
+		mark.note = "Second save."
+		mark.save(ignore_permissions=True)
+
+		self.assertEqual([row.item_code for row in mark.consumables], [item])
+
+	def test_rows_added_by_hand_join_the_templates_defaults_on_insert(self):
+		default_item = self._make_stock_item()
+		hand_item = self._make_stock_item()
+		template = self._make_consuming_template([self._consumable_row(default_item)])
+
+		mark = self._make_mark(
+			procedure_template=template, consumables=[self._consumable_row(hand_item, qty=2)]
+		)
+
+		self.assertEqual(sorted(row.item_code for row in mark.consumables), sorted([default_item, hand_item]))
+
+	def test_hand_rows_survive_a_template_that_tracks_no_stock(self):
+		hand_item = self._make_stock_item()
+		template = self._make_derma_template()
+
+		mark = self._make_mark(
+			procedure_template=template, consumables=[self._consumable_row(hand_item, qty=2)]
+		)
+
+		self.assertEqual([row.item_code for row in mark.consumables], [hand_item])
+		self.assertEqual(snapshot.load(mark.default_consumables_json), [])
+
+	def test_editing_the_template_leaves_an_existing_mark_alone(self):
+		item = self._make_stock_item()
+		other_item = self._make_stock_item()
+		template = self._make_consuming_template([self._consumable_row(item, qty=1)])
+		mark = self._make_mark(procedure_template=template)
+
+		template_doc = frappe.get_doc("Clinical Procedure Template", template)
+		template_doc.append("items", self._consumable_row(other_item, qty=5))
+		template_doc.save(ignore_permissions=True)
+		mark.reload()
+		mark.note = "Charted after the template changed."
+		mark.save(ignore_permissions=True)
+
+		self.assertEqual([row.item_code for row in mark.consumables], [item])
+		self.assertEqual([row["item_code"] for row in snapshot.load(mark.default_consumables_json)], [item])
+
+	def test_changing_the_marks_template_replaces_rows_and_snapshot(self):
+		first_item = self._make_stock_item()
+		second_item = self._make_stock_item()
+		first = self._make_consuming_template([self._consumable_row(first_item)])
+		second = self._make_consuming_template([self._consumable_row(second_item, qty=4)])
+		mark = self._make_mark(procedure_template=first)
+
+		mark.procedure_template = second
+		mark.save(ignore_permissions=True)
+
+		self.assertEqual([row.item_code for row in mark.consumables], [second_item])
+		self.assertEqual(
+			[row["item_code"] for row in snapshot.load(mark.default_consumables_json)], [second_item]
+		)
+
+	def test_defaults_are_empty_without_the_healthcare_doctypes(self):
+		with patch.object(api, "_has_doctype", return_value=False):
+			self.assertEqual(defaults.get_template_consumables("Anything"), [])
+
+
+class TestConsumablesApi(ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase):
+	"""What the chart reads and what it may write back."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+		self.item = self._make_stock_item()
+		self.template = self._make_consuming_template([self._consumable_row(self.item, qty=2)])
+		self.mark = self._make_mark(procedure_template=self.template)
+		self.addCleanup(frappe.set_user, "Administrator")
+
+	def _payload_mark(self):
+		marks = api._get_marks(self.patient)
+		return next(row for row in marks if row["name"] == self.mark.name)
+
+	def test_a_marks_consumables_arrive_in_the_chart_payload(self):
+		mark = self._payload_mark()
+
+		self.assertEqual([row["item_code"] for row in mark["consumables"]], [self.item])
+		self.assertEqual(mark["consumables"][0]["qty"], 2)
+
+	def test_an_untouched_row_arrives_as_default_and_a_changed_one_as_overridden(self):
+		self.assertFalse(self._payload_mark()["consumables"][0]["is_overridden"])
+
+		api.save_mark_consumables(self.mark.name, [{"item_code": self.item, "qty": 5}])
+
+		self.assertTrue(self._payload_mark()["consumables"][0]["is_overridden"])
+
+	def test_a_removed_default_arrives_named_so_it_can_be_restored(self):
+		api.save_mark_consumables(self.mark.name, [])
+
+		mark = self._payload_mark()
+		self.assertEqual(mark["consumables"], [])
+		self.assertEqual([row["item_code"] for row in mark["removed_consumables"]], [self.item])
+		self.assertEqual([row["item_code"] for row in mark["default_consumables"]], [self.item])
+
+	def test_previous_visit_marks_carry_their_consumables_too(self):
+		rows = api._get_previous_marks(self.patient, current_encounter="DOES-NOT-EXIST")
+
+		mark = next(row for row in rows if row["name"] == self.mark.name)
+		self.assertEqual([row["item_code"] for row in mark["consumables"]], [self.item])
+
+	def test_saving_replaces_the_whole_list(self):
+		other = self._make_stock_item()
+
+		result = api.save_mark_consumables(self.mark.name, [{"item_code": other, "qty": 1, "uom": "Nos"}])
+
+		self.assertEqual([row["item_code"] for row in result["consumables"]], [other])
+		self.assertEqual([row["item_code"] for row in self._payload_mark()["consumables"]], [other])
+
+	def test_saving_never_alters_the_frozen_snapshot(self):
+		api.save_mark_consumables(self.mark.name, [{"item_code": self.item, "qty": 9}])
+
+		self.mark.reload()
+		self.assertEqual(
+			[row["item_code"] for row in snapshot.load(self.mark.default_consumables_json)], [self.item]
+		)
+		self.assertEqual(snapshot.load(self.mark.default_consumables_json)[0]["qty"], 2)
+
+	def test_a_save_without_clinical_access_is_refused(self):
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			api.save_mark_consumables(self.mark.name, [])
+
+	def test_a_save_against_a_closed_encounter_is_refused(self):
+		encounter = self._make_encounter(self.patient, docstatus=1)
+		mark = self._make_mark(procedure_template=self.template, encounter=encounter.name)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.save_mark_consumables(mark.name, [])
+
+		self.assertIn("closed", str(caught.exception))
+
+	def test_an_unknown_item_is_refused_by_name(self):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.save_mark_consumables(self.mark.name, [{"item_code": "NO-SUCH-ITEM", "qty": 1}])
+
+		self.assertIn("NO-SUCH-ITEM", str(caught.exception))
+
+	def test_a_quantity_of_zero_or_less_is_refused_by_name(self):
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.save_mark_consumables(self.mark.name, [{"item_code": self.item, "qty": 0}])
+
+		self.assertIn(self.item, str(caught.exception))
+
+	def test_a_batch_belonging_to_another_item_is_refused(self):
+		other = self._make_stock_item(has_batch_no=1)
+		batch = self._make_batch(other)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.save_mark_consumables(self.mark.name, [{"item_code": self.item, "qty": 1, "batch_no": batch}])
+
+		self.assertIn(batch, str(caught.exception))
+
+	def test_a_batched_item_without_a_batch_is_refused(self):
+		batched = self._make_stock_item(has_batch_no=1)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			api.save_mark_consumables(self.mark.name, [{"item_code": batched, "qty": 1}])
+
+		self.assertIn(batched, str(caught.exception))
+
+	def test_a_chosen_batch_is_stored_and_read_back(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		batch = self._make_batch(batched)
+
+		api.save_mark_consumables(self.mark.name, [{"item_code": batched, "qty": 1, "batch_no": batch}])
+
+		self.assertEqual(self._payload_mark()["consumables"][0]["batch_no"], batch)
+
+	def test_the_payload_omits_consumables_when_the_doctypes_are_absent(self):
+		with patch.object(api, "_has_doctype", side_effect=lambda name: name != "Clinical Procedure Item"):
+			mark = self._payload_mark()
+
+		self.assertNotIn("consumables", mark)
+
+
+class TestConsumablesOnClinicalProcedure(
+	ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase
+):
+	"""What the clinician recorded is what the procedure consumes."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient).name
+		self.item = self._make_stock_item()
+		self.template = self._make_consuming_template([self._consumable_row(self.item, qty=2)])
+
+	def _create_procedure(self, mark=None, procedure_template=None):
+		response = api.create_derma_chart_procedure(
+			{
+				"patient": self.patient,
+				"encounter": self.encounter,
+				"procedure_template": procedure_template or self.template,
+				"mark": mark,
+			}
+		)
+		return frappe.get_doc("Clinical Procedure", response["clinical_procedure"]["name"])
+
+	def test_a_marks_consumables_become_the_procedures_consumables(self):
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+
+		procedure = self._create_procedure(mark=mark.name)
+
+		self.assertEqual([row.item_code for row in procedure.items], [self.item])
+		self.assertEqual(procedure.items[0].qty, 2)
+		self.assertTrue(procedure.consume_stock)
+
+	def test_a_material_added_at_the_chart_appears_and_a_removed_one_does_not(self):
+		added = self._make_stock_item()
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		api.save_mark_consumables(mark.name, [{"item_code": added, "qty": 4}])
+
+		procedure = self._create_procedure(mark=mark.name)
+
+		self.assertEqual([row.item_code for row in procedure.items], [added])
+
+	def test_a_batch_chosen_at_the_chart_survives_onto_the_procedure(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		batch = self._make_batch(batched)
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		api.save_mark_consumables(mark.name, [{"item_code": batched, "qty": 1, "batch_no": batch}])
+
+		procedure = self._create_procedure(mark=mark.name)
+
+		self.assertEqual(procedure.items[0].batch_no, batch)
+
+	def test_the_quantities_healthcare_writes_during_stock_movement_are_left_empty(self):
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+
+		procedure = self._create_procedure(mark=mark.name)
+
+		self.assertFalse(procedure.items[0].actual_qty)
+		self.assertFalse(procedure.items[0].transfer_qty)
+
+	def test_a_mark_with_no_consumables_leaves_the_procedure_as_it_was(self):
+		plain = self._make_derma_template()
+		mark = self._make_mark(procedure_template=plain, encounter=self.encounter)
+
+		procedure = self._create_procedure(mark=mark.name, procedure_template=plain)
+
+		self.assertEqual(procedure.items, [])
+		self.assertFalse(procedure.consume_stock)
+
+	def test_a_call_without_a_mark_behaves_exactly_as_before(self):
+		procedure = self._create_procedure()
+
+		self.assertEqual(procedure.items, [])
+		self.assertFalse(procedure.consume_stock)
+
+	def test_two_marks_on_one_template_produce_two_procedures_with_their_own_lists(self):
+		other_item = self._make_stock_item()
+		first = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		second = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		api.save_mark_consumables(second.name, [{"item_code": other_item, "qty": 7}])
+
+		first_procedure = self._create_procedure(mark=first.name)
+		second_procedure = self._create_procedure(mark=second.name)
+
+		self.assertNotEqual(first_procedure.name, second_procedure.name)
+		self.assertEqual([row.item_code for row in first_procedure.items], [self.item])
+		self.assertEqual([row.item_code for row in second_procedure.items], [other_item])
+
+	def test_a_unit_that_does_not_convert_is_refused_rather_than_consuming_nothing(self):
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		api.save_mark_consumables(mark.name, [{"item_code": self.item, "qty": 2, "uom": "Box"}])
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self._create_procedure(mark=mark.name)
+
+		self.assertIn("Box", str(caught.exception))
+
+	def test_the_procedure_stays_a_draft_and_posts_no_stock(self):
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		stock_entries = frappe.db.count("Stock Entry")
+
+		procedure = self._create_procedure(mark=mark.name)
+
+		self.assertEqual(procedure.docstatus, 0)
+		self.assertEqual(frappe.db.count("Stock Entry"), stock_entries)
+
+
+class TestConsumablesInReadiness(
+	ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase
+):
+	"""One inventory picture for the session, whatever field the demand came from."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+		self.item = self._make_stock_item()
+
+	def _mark_with(self, consumables, **values):
+		return {
+			"name": f"MARK-{frappe.generate_hash(length=6)}",
+			"consumables": consumables,
+			**values,
+		}
+
+	def _line(self, item_code, qty=1, uom="Nos", conversion_factor=1, **extra):
+		return {
+			"item_code": item_code,
+			"item_name": item_code,
+			"qty": qty,
+			"uom": uom,
+			"conversion_factor": conversion_factor,
+			"stock_uom": "Nos",
+			"batch_no": None,
+			**extra,
+		}
+
+	def test_a_consumable_alone_raises_a_readiness_row(self):
+		rows = inventory.build([self._mark_with([self._line(self.item, qty=2)])])
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["product_item"], self.item)
+		self.assertEqual(rows[0]["dose"], 2)
+
+	def test_a_consumable_and_a_dose_for_one_item_and_batch_add_up(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		expiry = add_days(nowdate(), 30)
+		batch = self._make_batch(batched, expiry_date=expiry)
+
+		rows = inventory.build(
+			[
+				self._mark_with(
+					[self._line(batched, qty=2, batch_no=batch)],
+					product_item=batched,
+					dose=1,
+					dose_unit="Nos",
+					lot_no=batch,
+					expiry_date=expiry,
+				)
+			]
+		)
+
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0]["dose"], 3)
+		self.assertEqual(sorted(rows[0]["contributors"]), ["consumable", "dose"])
+
+	def test_the_same_item_on_two_batches_produces_two_rows(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		first = self._make_batch(batched, expiry_date=add_days(nowdate(), 30))
+		second = self._make_batch(batched, expiry_date=add_days(nowdate(), 60))
+
+		rows = inventory.build(
+			[
+				self._mark_with(
+					[
+						self._line(batched, batch_no=first),
+						self._line(batched, batch_no=second),
+					]
+				)
+			]
+		)
+
+		self.assertEqual(len(rows), 2)
+
+	def test_an_expired_batch_blocks_and_reads_its_expiry_from_the_batch(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		expiry = add_days(nowdate(), -1)
+		batch = self._make_batch(batched, expiry_date=expiry)
+
+		rows = inventory.build([self._mark_with([self._line(batched, batch_no=batch)])])
+
+		self.assertTrue(rows[0]["blocking"])
+		self.assertIn("expired", rows[0]["message"].lower())
+		self.assertEqual(str(rows[0]["expiry_date"]), expiry)
+
+	def test_a_batched_item_without_a_batch_blocks(self):
+		batched = self._make_stock_item(has_batch_no=1)
+
+		rows = inventory.build([self._mark_with([self._line(batched)])])
+
+		self.assertTrue(rows[0]["blocking"])
+		self.assertIn("Batch", rows[0]["message"])
+
+	def test_a_quantity_greater_than_the_available_balance_blocks(self):
+		with patch.object(inventory, "_stock_available_qty", return_value=1):
+			rows = inventory.build([self._mark_with([self._line(self.item, qty=4)])])
+
+		self.assertTrue(rows[0]["blocking"])
+		self.assertIn("Insufficient", rows[0]["message"])
+
+	def test_a_unit_the_item_does_not_convert_is_uncheckable_rather_than_blocking(self):
+		with patch.object(inventory, "_stock_available_qty", return_value=1):
+			rows = inventory.build(
+				[self._mark_with([self._line(self.item, qty=4, uom="Box", conversion_factor=0)])]
+			)
+
+		self.assertFalse(rows[0]["blocking"])
+		self.assertIn("not available", rows[0]["message"])
+
+	def test_every_row_names_the_contributors_it_came_from(self):
+		rows = inventory.build([self._mark_with([self._line(self.item)])])
+
+		self.assertEqual(rows[0]["contributors"], ["consumable"])
+
+	def test_nothing_raises_when_the_stock_doctypes_are_absent(self):
+		stock_doctypes = {"Batch", "Bin", "Item"}
+		with patch.object(api, "_has_doctype", side_effect=lambda name: name not in stock_doctypes):
+			rows = inventory.build([self._mark_with([self._line(self.item)])])
+
+		self.assertEqual(len(rows), 1)
+		self.assertIn("not available", rows[0]["message"])
+
+	def test_the_session_readiness_counts_the_marks_consumables(self):
+		template = self._make_consuming_template([self._consumable_row(self.item, qty=3)])
+		encounter = self._make_encounter(self.patient).name
+		self._make_mark(procedure_template=template, encounter=encounter)
+
+		readiness = api.get_session_readiness(self.patient, encounter=encounter)
+
+		item_rows = [row for row in readiness["items"] if row.get("product_item") == self.item]
+		self.assertEqual(len(item_rows), 1)
+		self.assertEqual(readiness["blockers"], [row for row in readiness["items"] if row.get("blocking")])
+
+
+class TestConsumableSnapshot(IntegrationTestCase):
+	"""Overridden is a comparison against the frozen list, never a stored flag."""
+
+	def _row(self, item_code, qty=1, **extra):
+		return {"item_code": item_code, "qty": qty, "uom": "Nos", "batch_no": None, **extra}
+
+	def test_an_untouched_row_is_not_overridden(self):
+		frozen = [self._row("ITEM-A", qty=2)]
+
+		result = snapshot.compare([self._row("ITEM-A", qty=2)], frozen)
+
+		self.assertFalse(result["consumables"][0]["is_overridden"])
+		self.assertEqual(result["removed"], [])
+
+	def test_a_changed_quantity_reads_as_overridden(self):
+		result = snapshot.compare([self._row("ITEM-A", qty=3)], [self._row("ITEM-A", qty=2)])
+
+		self.assertTrue(result["consumables"][0]["is_overridden"])
+
+	def test_a_changed_unit_or_batch_reads_as_overridden(self):
+		frozen = [self._row("ITEM-A")]
+
+		by_unit = snapshot.compare([self._row("ITEM-A", uom="Box")], frozen)
+		by_batch = snapshot.compare([self._row("ITEM-A", batch_no="BATCH-1")], frozen)
+
+		self.assertTrue(by_unit["consumables"][0]["is_overridden"])
+		self.assertTrue(by_batch["consumables"][0]["is_overridden"])
+
+	def test_an_added_row_reads_as_overridden(self):
+		result = snapshot.compare([self._row("ITEM-B")], [self._row("ITEM-A")])
+
+		self.assertTrue(result["consumables"][0]["is_overridden"])
+
+	def test_a_removed_default_is_reported(self):
+		result = snapshot.compare([], [self._row("ITEM-A", qty=2)])
+
+		self.assertEqual([row["item_code"] for row in result["removed"]], ["ITEM-A"])
+
+	def test_two_live_rows_of_one_item_cannot_both_claim_one_default(self):
+		result = snapshot.compare(
+			[self._row("ITEM-A", qty=2), self._row("ITEM-A", qty=2)], [self._row("ITEM-A", qty=2)]
+		)
+
+		self.assertEqual(
+			[row["is_overridden"] for row in result["consumables"]],
+			[False, True],
+		)
+
+	def test_a_mark_with_no_snapshot_reads_as_an_empty_list(self):
+		self.assertEqual(snapshot.load(None), [])
+		self.assertEqual(snapshot.load("not json"), [])
