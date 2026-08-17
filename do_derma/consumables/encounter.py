@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 
 from do_derma import api
-from do_derma.consumables.defaults import has_consumable_doctypes
+from do_derma.consumables.defaults import has_consumable_doctypes, select_fields
 
 PRINTED_ROW_FIELDS = ["item_code", "item_name", "qty", "uom", "batch_no"]
 
@@ -40,9 +40,7 @@ def get_encounter_consumables(encounter: str | None) -> list[dict[str, Any]]:
 	)
 	by_parent: dict[str, list[dict[str, Any]]] = {}
 	for row in rows:
-		by_parent.setdefault(row.get("parent"), []).append(
-			{field: row.get(field) for field in PRINTED_ROW_FIELDS}
-		)
+		by_parent.setdefault(row.get("parent"), []).extend(select_fields([row], PRINTED_ROW_FIELDS))
 	return _group_by_procedure(marks, by_parent)
 
 

@@ -46,3 +46,13 @@ def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
 	normalized["qty"] = flt(row.get("qty"))
 	normalized["conversion_factor"] = flt(row.get("conversion_factor")) or 1.0
 	return normalized
+
+
+def select_fields(rows: list[dict[str, Any]], fields: list[str] | None = None) -> list[dict[str, Any]]:
+	"""The same rows reduced to the fields named, defaulting to the ones do_derma carries.
+
+	Unlike `normalize_row` this coerces nothing: a stored row's zero conversion factor means
+	the unit could not be converted, and readiness and procedure creation both read it.
+	"""
+	names = fields or CONSUMABLE_FIELDS
+	return [{field: row.get(field) for field in names} for row in rows]

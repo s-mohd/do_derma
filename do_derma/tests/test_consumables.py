@@ -580,4 +580,9 @@ class TestConsumableSnapshot(IntegrationTestCase):
 
 	def test_a_mark_with_no_snapshot_reads_as_an_empty_list(self):
 		self.assertEqual(snapshot.load(None), [])
-		self.assertEqual(snapshot.load("not json"), [])
+		self.assertEqual(snapshot.load("[]"), [])
+
+	def test_an_unreadable_snapshot_raises_rather_than_reading_as_no_defaults(self):
+		for stored in ["not json", '{"item_code": "A"}', "[1, 2]"]:
+			with self.assertRaises(frappe.ValidationError):
+				snapshot.load(stored)

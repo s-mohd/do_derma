@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import frappe
+from frappe import _
 from frappe.utils import flt
 
 from do_derma.consumables.defaults import normalize_row
@@ -19,17 +20,20 @@ def dump(rows: list[dict[str, Any]]) -> str:
 
 
 def load(value: str | None) -> list[dict[str, Any]]:
-	"""The frozen rows, empty for a mark that never had a snapshot written."""
+	"""The frozen rows, empty for a mark that never had a snapshot written.
+
+	Anything else in the field is this app's own bug, and answering "no defaults" would
+	quietly report every live row as overridden and every default as removed.
+	"""
 	if not value:
 		return []
 	try:
 		rows = json.loads(value)
 	except (TypeError, ValueError):
-		# Nobody but this app writes the field, so this is a bug rather than bad input.
-		# It is logged rather than raised because it would otherwise break the whole chart.
-		frappe.log_error(title="Derma consumables snapshot unreadable", message=value)
-		return []
-	return [normalize_row(row) for row in rows if isinstance(row, dict)]
+		rows = None
+	if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+		frappe.throw(_("The stored template consumables of this mark are unreadable."))
+	return [normalize_row(row) for row in rows]
 
 
 def compare(live_rows: list[dict[str, Any]], frozen_rows: list[dict[str, Any]]) -> dict[str, list]:
