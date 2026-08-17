@@ -23,3 +23,4 @@ do_derma.patches.ensure_derma_config_page
 do_derma.patches.seed_derma_config_sidebar_item
 do_derma.patches.materialize_derma_template_required_fields
 do_derma.patches.cleanup_derma_allowed_body_regions
+do_derma.patches.set_product_tracking_for_derma_categories

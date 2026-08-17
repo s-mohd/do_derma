@@ -12,9 +12,6 @@ from do_derma import api
 from do_derma.readiness.templates import templates_for_marks
 
 SOURCE = "inventory"
-# Retiring in favour of `custom_derma_product_tracking_required` alone: readiness must not
-# depend on how a clinic named its categories.
-TRACKED_CATEGORIES = {"Botox", "Filler"}
 PRODUCT_FIELDS = ["product_item", "product_name", "dose", "dose_unit", "lot_no", "expiry_date"]
 TEMPLATE_FIELDS = [
 	"name",
@@ -41,9 +38,7 @@ def _group_marks(marks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 	for mark in marks:
 		template = templates.get(mark.get("procedure_template")) or {}
 		category = mark.get("category") or template.get("custom_derma_category")
-		requires_tracking = (
-			bool(template.get("custom_derma_product_tracking_required")) or category in TRACKED_CATEGORIES
-		)
+		requires_tracking = bool(template.get("custom_derma_product_tracking_required"))
 		if not requires_tracking and not any(mark.get(field) for field in PRODUCT_FIELDS):
 			continue
 

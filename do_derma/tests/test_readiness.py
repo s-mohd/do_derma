@@ -8,6 +8,9 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, nowdate
 
 import do_derma.api as api
+from do_derma.patches.set_product_tracking_for_derma_categories import (
+	execute as set_product_tracking,
+)
 from do_derma.readiness import followup, inventory, procedure
 from do_derma.readiness.session import get_session_readiness
 from do_derma.tests.test_api import DermaTestHelpers
@@ -97,13 +100,11 @@ class TestInventoryReadiness(ReadinessMarkHelpers, ConfigTemplateHelpers, Integr
 		self.assertEqual(len(rows), 1)
 		self.assertTrue(rows[0]["blocking"])
 
-	def test_a_category_named_botox_still_forces_tracking(self):
-		"""Today's behaviour, and the reason readiness depends on how a clinic named a
-		category. Phase 4 retires this and migrates the flag onto the template."""
-		rows = inventory.build([self._mark(category="Botox")])
-
-		self.assertEqual(len(rows), 1)
-		self.assertTrue(rows[0]["blocking"])
+	def test_a_category_named_botox_no_longer_forces_tracking(self):
+		"""Readiness follows the template's flag alone, so it no longer depends on how a
+		clinic named a category. `set_product_tracking_for_derma_categories` carries the
+		templates the name rule was covering onto the flag."""
+		self.assertEqual(inventory.build([self._mark(category="Botox")]), [])
 
 
 class TestFollowupReadiness(ReadinessMarkHelpers, ConfigTemplateHelpers, IntegrationTestCase):
@@ -265,6 +266,102 @@ class TestChartContextReadiness(DermaTestHelpers, IntegrationTestCase):
 
 		self.assertIn("readiness", chart["context_errors"])
 		self.assertEqual(chart["readiness"], {"items": [], "blockers": [], "enforcement": "Warn"})
+
+
+class TestProductTrackingMigration(DermaTestHelpers, ConfigTemplateHelpers, IntegrationTestCase):
+	"""What the retiring category-name rule was tracking keeps being tracked, because
+	the migration writes it onto each template's own flag."""
+
+	def setUp(self):
+		super().setUp()
+		for fieldname in ("custom_derma_product_tracking_required", "custom_derma_category"):
+			if not api._has_field("Clinical Procedure Template", fieldname):
+				self.skipTest(f"Clinical Procedure Template.{fieldname} is missing")
+
+	def _tracking_flag(self, template):
+		return frappe.db.get_value(
+			"Clinical Procedure Template", template, "custom_derma_product_tracking_required"
+		)
+
+	def _make_mark_for(self, template, category):
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "Derma Chart Mark",
+					"patient": self._make_patient(),
+					"procedure_template": template,
+					"category": category,
+					"x_percent": 40,
+					"y_percent": 60,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def test_a_template_in_a_retired_category_gains_the_flag(self):
+		template = self._make_derma_template(custom_derma_category=self._make_category("Botox"))
+
+		set_product_tracking()
+
+		self.assertTrue(self._tracking_flag(template))
+
+	def test_every_retired_category_is_carried_over(self):
+		template = self._make_derma_template(custom_derma_category=self._make_category("Filler"))
+
+		set_product_tracking()
+
+		self.assertTrue(self._tracking_flag(template))
+
+	def test_a_template_a_mark_named_a_retired_category_for_gains_the_flag(self):
+		"""The retired rule read the mark's category before the template's, so a mark can
+		be tracked today while the template it points at is in another category."""
+		template = self._make_derma_template(custom_derma_category=self._make_category("Laser"))
+		self._make_mark_for(template, self._make_category("Botox"))
+
+		set_product_tracking()
+
+		self.assertTrue(self._tracking_flag(template))
+
+	def test_a_category_named_in_another_case_is_not_migrated(self):
+		"""The rule this replaces matched exactly, so migrating `botox` would start
+		tracking a template nothing tracks today. Written past the Link field, which
+		canonicalises to the docname a case-insensitive database already holds."""
+		template = self._make_derma_template(custom_derma_category=self._make_category("Laser"))
+		frappe.db.set_value(
+			"Clinical Procedure Template", template, "custom_derma_category", "botox", update_modified=False
+		)
+
+		set_product_tracking()
+
+		self.assertFalse(self._tracking_flag(template))
+
+	def test_a_template_in_another_category_is_left_alone(self):
+		template = self._make_derma_template(custom_derma_category=self._make_category("Laser"))
+
+		set_product_tracking()
+
+		self.assertFalse(self._tracking_flag(template))
+
+	def test_the_migrated_template_blocks_on_a_missing_lot_as_it_did_before(self):
+		category = self._make_category("Botox")
+		template = self._make_derma_template(custom_derma_category=category)
+
+		set_product_tracking()
+		rows = inventory.build([{"name": "MARK-1", "procedure_template": template, "category": category}])
+
+		self.assertEqual(len(rows), 1)
+		self.assertTrue(rows[0]["blocking"])
+
+	def test_a_second_run_writes_nothing(self):
+		template = self._make_derma_template(custom_derma_category=self._make_category("Botox"))
+		set_product_tracking()
+		before = frappe.db.get_value("Clinical Procedure Template", template, "modified")
+
+		set_product_tracking()
+
+		self.assertTrue(self._tracking_flag(template))
+		self.assertEqual(frappe.db.get_value("Clinical Procedure Template", template, "modified"), before)
 
 
 class TestMarksReadyForProcedure(IntegrationTestCase):

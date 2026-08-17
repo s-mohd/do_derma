@@ -1,13 +1,16 @@
 # Readiness With One Owner, Enforced By The Server
 
 Date: 2026-08-16
-Status: **Phases 1-3 shipped** (2026-08-17), Phase 4 draft. Phase 1 deviated on which direction
+Status: **Implemented & verified** (2026-08-17) — all four phases shipped; see
+[Verification](#verification). Phase 1 deviated on which direction
 the new package imports in, on `get_session_readiness` normalising the two engines' item shapes,
 and on where the procedure gate's tests came from; Phase 2 deviated on both schema changes
 arriving without a patch, and on a Frappe single storing nothing for a field until something
 writes it — which needed a seeder the plan does not mention; Phase 3 deviated on replacing the
 chart payload's two engine sections with one `readiness` section rather than adding a third, and
-on Warn mode asking before it proceeds — see
+on Warn mode asking before it proceeds; Phase 4 deviated on the migration also carrying the *mark's*
+category, on matching category names exactly in Python, and on the readiness panel already being
+complete — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -306,8 +309,8 @@ existing sites.
 reason.
 *Exit:* the browser holds no readiness logic at all.
 
-**Phase 4 — reconcile the lot rule.** Migration patch, the `{"Botox","Filler"}` set removed from
-inventory, plus the readiness panel in the config workspace showing the current mode.
+**Phase 4 — reconcile the lot rule.** ✅ Shipped 2026-08-17. Migration patch, the `{"Botox","Filler"}`
+set removed from inventory, plus the readiness panel in the config workspace showing the current mode.
 *Exit:* readiness behaviour no longer depends on how a clinic named its categories.
 
 ## Open Questions
@@ -502,6 +505,56 @@ inventory, plus the readiness panel in the config workspace showing the current 
   — a mark with status `Worse` — needs no template configuration, so no new fixture was required.
   `setBlockerEnforcement` is a new helper beside `setFeatureToggle`; the spec restores `Warn`.
 
+### Phase 4 (2026-08-17)
+
+- **The readiness panel needed no work.** Phase 4's third clause — "the readiness panel in the
+  config workspace showing the current mode" — was already shipped by spec 2 Phase 3 and corrected
+  by Phase 3's stale-warning fix. `get_config_readiness` (`api.py:717-730`) reports the mode and the
+  downgrade rule, and `ReadinessPanel.vue` renders both. Nothing was added rather than something
+  being added twice.
+- **The migration also carries the *mark's* category, which is the riskiest thing this phase
+  touches.** The retired rule read `mark.get("category") or template.get("custom_derma_category")`
+  (`inventory.py:40`), so a mark whose own category link named Botox forced tracking even when the
+  template it points at was in another category — and `save_chart_mark` writes that field from the
+  payload, not only from the template default, so the divergent case is reachable. Migrating
+  templates alone would have loosened exactly what the Decisions section promises not to
+  ("so nothing loosens"). `_templates_a_mark_named_a_category_for` scans `Derma Chart Mark` and
+  flags the templates those marks point at. **The residue is a mark carrying a retiring category
+  and no template at all**: there is nowhere to put the flag, because the flag lives on templates.
+  Such a mark stops raising an inventory row unless it carries product data of its own, and
+  `test_a_category_named_botox_no_longer_forces_tracking` pins that.
+- **The migration filters in Python, not in the query.** Design §2 filtered on
+  `custom_derma_product_tracking_required: 0`, which in SQL also excludes rows storing `NULL` — the
+  state a Check custom field is in on a site where the column was added without a default. The patch
+  fetches every template in a retiring category and skips the ones already carrying the flag, so a
+  never-written flag is migrated rather than silently passed over.
+- **Category names are matched exactly, in Python.** Design §2 matched with
+  `["in", ("Botox", "Filler")]`, which MariaDB's default collation folds — a category a clinic named
+  `botox` would be migrated although the retired rule, an exact-case Python `in`, never fired for it.
+  A migration must reproduce the rule it retires, not a wider one, so `_is_retired_category` compares
+  exactly. `test_a_category_named_in_another_case_is_not_migrated` writes past the Link field to
+  arrange that state, because link validation canonicalises to the docname the database already has.
+- **The write uses `update_modified=False`,** following `materialize_derma_template_required_fields`.
+  A schema repair is not a clinic's edit, and `test_a_second_run_writes_nothing` pins that a re-run
+  moves neither the value nor `modified`.
+- **The patch guards both fields, not one.** Design §2 guarded only
+  `custom_derma_product_tracking_required`; the filter also reads `custom_derma_category`, and a site
+  missing that field would raise instead of returning.
+- **`RETIRED_TRACKED_CATEGORIES` is a tuple in the patch, not `inventory.TRACKED_CATEGORIES`.** The
+  set retires *with* the rule, so leaving the engine importing a constant only the migration still
+  needs would have kept the category rule alive as a name. It is documented in the patch as seed data
+  for that migration only, the way `CATEGORY_NAME_REQUIRED_FIELDS` is.
+- **`category` is still computed in `_group_marks`** — it feeds `_new_group`'s product-name fallback
+  (`inventory.py:64-71`), which is display text, not a rule.
+- **The Exit line is about the lot rule, not every category name.** `followup.NEXT_SESSION_INTERVALS`
+  still keys `{"Botox": 90, "Filler": 180, "Laser": 28}` on category names (`followup.py:17`). It is
+  non-blocking advice and changing it would be a new readiness rule, which the Non-Goals forbid, so
+  it stays — Phase 4's exit holds for what blocks a completion, not for the interval hint.
+- **`test_a_category_named_botox_still_forces_tracking` became
+  `test_a_category_named_botox_no_longer_forces_tracking`.** Phase 1 wrote it to pin today's
+  behaviour "so Phase 4's migration has something to fail against if it loosens anything"; it failed
+  first, as intended, and now asserts the opposite.
+
 ## Verification
 
 ### Phase 1
@@ -662,6 +715,49 @@ pipx run ruff format --check do_derma/   → 88 files already formatted
 **Not yet run:** no migrate — Phase 3 changes no doctype, patch or fixture. Criterion 7 belongs to
 Phase 4.
 
+### Phase 4
+
+Migrate (the new patch; no doctype or fixture changed):
+
+```
+bench --site dermaone.localhost migrate      → OK
+Patch Log → do_derma.patches.set_product_tracking_for_derma_categories
+```
+
+On this site the patch is a no-op in both directions: no template carries a `Botox` or `Filler`
+category (they are `Biopsy`, `Laser`, `Facial`, `DEMO Aesthetics`, `E2E Injectables`) and no chart
+mark names one either — 218 marks across the same five. That is itself the point: nothing loosened
+and nothing tightened here. The behaviour is proved by the tests, which make the categories
+themselves.
+
+Integration:
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_readiness
+→ Ran 39 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 273 tests in 30.0s, OK (skipped=1)
+```
+
+`TestProductTrackingMigration` is the seven new cases, written before the patch existed and failing
+on import first: a template in a Botox category gains the flag, a Filler one does too, a Laser one
+is left alone, a template a **mark** named a retiring category for gains it, a category named in
+another case does not, the migrated template **still blocks on a missing lot exactly as the category
+rule made it** — criterion 7 end to end — and a second run writes neither a value nor a new
+`modified`.
+`test_a_category_named_botox_no_longer_forces_tracking` replaces Phase 1's inverse and proves the
+engine no longer reads the category name.
+
+Lint:
+
+```
+pipx run ruff check do_derma/            → All checks passed
+pipx run ruff format --check do_derma/   → 89 files already formatted
+```
+
+**Not yet run:** `bench build` and Playwright — Phase 4 changes no frontend file. Every acceptance
+criterion is now implemented; criterion 7 is the one this phase adds.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -677,8 +773,10 @@ Phase 4.
 | `do_derma/install.py` | *(Phase 2)* seeds the readiness defaults before the structured-field ones, each in its own `try` |
 | `do_derma/schema.py` | *(Phase 2)* `COMPLETION_OVERRIDE_FIELD` on `Patient Encounter` — declared here rather than by patch, so it re-converges on every migrate |
 | `do_derma/readiness/session.py` | *(Phase 2)* `is_completion_blocked()` |
-| `do_derma/patches/set_product_tracking_for_derma_categories.py` | *(new)* |
+| `do_derma/patches/set_product_tracking_for_derma_categories.py` | *(new, Phase 4)* carries the retiring category names — on templates **and on the marks that named one** — onto each template's flag; exact-case, skips rows already carrying it, writes with `update_modified=False` |
 | `do_derma/patches.txt` | *(Phase 4)* the product-tracking migration |
+| `do_derma/readiness/inventory.py` | *(Phase 4)* `TRACKED_CATEGORIES` deleted; the template flag is the only trigger |
+| `do_derma/tests/test_readiness.py` | *(Phase 4)* `TestProductTrackingMigration`, and the category test inverted |
 | `do_derma/api.py` | *(Phase 3)* one `readiness` chart section replacing `followup_items` + `inventory_readiness`; `_get_session_readiness` |
 | `public/js/chart/DermaChart.vue` | *(Phase 3)* renders the server's readiness; `sessionBlockers` / `showBlockers` / the `!item.todo` filter deleted; Warn confirms, Block prompts for a reason |
 | `public/js/chart/derma_chart.bundle.css` | *(Phase 3)* the Review-tab readiness summary |
