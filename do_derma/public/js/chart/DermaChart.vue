@@ -467,6 +467,26 @@
               </div>
             </section>
 
+            <section class="derma-readiness-summary" data-test="review-readiness">
+              <header>
+                <div>
+                  <strong>{{ __("Session Readiness") }}</strong>
+                  <small>{{ readinessSummaryText }}</small>
+                </div>
+                <span class="readiness-mode" :data-mode="readinessEnforcement" data-test="review-readiness-mode">
+                  {{ readinessEnforcement === "Block" ? __("Completion refused until resolved") : __("Completion warns only") }}
+                </span>
+              </header>
+
+              <ul v-if="readinessBlockers.length" class="readiness-blocker-list" data-test="review-readiness-blockers">
+                <li v-for="item in readinessBlockers" :key="item.key" :data-source="item.source">
+                  <span class="readiness-source">{{ readinessSourceLabel(item.source) }}</span>
+                  <b>{{ item.title }}</b>
+                  <small>{{ item.detail || item.location || "" }}</small>
+                </li>
+              </ul>
+            </section>
+
             <section class="derma-inventory-workspace">
               <header>
                 <div>
@@ -571,6 +591,9 @@
                     <span>{{ formatDate(item.due_date) || __("No due date") }}</span>
                   </header>
                   <p>{{ item.detail }}</p>
+                  <p v-if="item.downgraded_by_todo" class="readiness-downgraded" data-test="followup-downgraded">
+                    {{ __("Warns instead of blocking: a follow-up task is already open.") }}
+                  </p>
                   <footer>
                     <button type="button" class="ghost small" :disabled="!item.mark" @click="selectMarkFromItem(item)">
                       {{ __("Select Mark") }}
@@ -641,6 +664,13 @@ const STATUS_PILLS = [
 
 const COMPARE_RESPONSE_STATUSES = ["Improving", "Stable", "Worse", "Resolved", "Monitoring"]
 
+// Readiness is the server's; the chart only says which engine an item came from.
+const READINESS_INVENTORY = "inventory"
+const READINESS_FOLLOWUP = "followup"
+const ENFORCEMENT_WARN = "Warn"
+const ENFORCEMENT_BLOCK = "Block"
+const EMPTY_READINESS = { items: [], blockers: [], enforcement: ENFORCEMENT_WARN }
+
 const SECTION_TABS = [
   { key: "assessment", label: __("Assessment"), hint: __("Notes") },
   { key: "procedures", label: __("Procedures"), hint: __("Treatment") },
@@ -668,7 +698,7 @@ const SECTION_ALIASES = {
 const SECTION_CONTEXT_LABELS = {
   procedures: ["procedures"],
   photos: ["photo sets", "previous photo sets"],
-  review: ["visit timeline", "inventory readiness", "follow-up intelligence"],
+  review: ["visit timeline", "readiness"],
 }
 
 const DERMA_SECTION_STORAGE_KEY = "do_derma_chart_last_section"
@@ -763,8 +793,12 @@ const lastVisitMarks = computed(() => {
 const photoSets = computed(() => data.value.photo_sets || [])
 const previousPhotoSets = computed(() => data.value.previous_photo_sets || [])
 const visitTimeline = computed(() => data.value.visit_timeline || [])
-const followupItems = computed(() => data.value.followup_items || [])
-const inventoryReadiness = computed(() => data.value.inventory_readiness || [])
+const readiness = computed(() => data.value.readiness || EMPTY_READINESS)
+const readinessItems = computed(() => readiness.value.items || [])
+const readinessBlockers = computed(() => readiness.value.blockers || [])
+const readinessEnforcement = computed(() => readiness.value.enforcement || ENFORCEMENT_WARN)
+const followupItems = computed(() => readinessItems.value.filter((item) => item.source === READINESS_FOLLOWUP))
+const inventoryReadiness = computed(() => readinessItems.value.filter((item) => item.source === READINESS_INVENTORY))
 const activeProcedure = computed(() => {
   if (!activeProcedureName.value) return null
   return procedures.value.find((row) => row.name === activeProcedureName.value || row.clinical_procedure === activeProcedureName.value) || null
@@ -783,8 +817,8 @@ const currentPractitionerName = computed(() => encounter.value.practitioner_name
 const priceLists = computed(() => selectedPriceList.value ? [selectedPriceList.value] : [])
 const anesthesiaRecorded = computed(() => anesthesiaPanel.rows.length > 0)
 const procedureCount = computed(() => procedures.value.length)
-const followupBlockers = computed(() => followupItems.value.filter((item) => item.blocking && !item.todo))
-const inventoryBlockers = computed(() => inventoryReadiness.value.filter((item) => item.blocking))
+const followupBlockers = computed(() => readinessBlockers.value.filter((item) => item.source === READINESS_FOLLOWUP))
+const inventoryBlockers = computed(() => readinessBlockers.value.filter((item) => item.source === READINESS_INVENTORY))
 const followupStats = computed(() => ({
   high: followupItems.value.filter((item) => item.severity === "high").length,
   blockers: followupBlockers.value.length,
@@ -795,6 +829,18 @@ const inventoryStats = computed(() => ({
   warnings: inventoryReadiness.value.filter((item) => item.status === "warning").length,
   blockers: inventoryBlockers.value.length,
 }))
+const readinessSummaryText = computed(() => {
+  if (!readinessItems.value.length) return __("Nothing outstanding for this session")
+  if (!readinessBlockers.value.length) {
+    return __("{0} item(s), none blocking").replace("{0}", readinessItems.value.length)
+  }
+  return __("{0} blocker(s) of {1} item(s)")
+    .replace("{0}", readinessBlockers.value.length)
+    .replace("{1}", readinessItems.value.length)
+})
+function readinessSourceLabel(source) {
+  return source === READINESS_INVENTORY ? __("Inventory") : __("Follow-up")
+}
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
 const procedureArtifactText = computed(() => {
   if (!activeProcedure.value) {
@@ -1403,11 +1449,9 @@ async function createFollowupTask(item) {
     },
   })
   if (response.message?.name) {
-    data.value = {
-      ...data.value,
-      followup_items: followupItems.value.map((row) => (row.key === item.key ? { ...row, todo: response.message.name } : row)),
-    }
     frappe.show_alert({ message: __("Follow-up task created"), indicator: "green" })
+    // Whether the new task downgrades the blocker is the server's call, so re-read it.
+    await refresh()
   }
 }
 
@@ -2080,26 +2124,59 @@ function consentMetaText(row = {}) {
   return [row.status, row.signed_by, row.signed_on].filter(Boolean).join(" · ")
 }
 
-function sessionBlockers() {
-  return [
-    ...inventoryBlockers.value.map((item) => ({
-      title: item.product_name || item.product_item || __("Inventory"),
-      detail: item.message,
-    })),
-    ...followupBlockers.value,
-  ]
+function blockerListHtml(blockers) {
+  return blockers
+    .map((item) => `<li><b>${escapeHtml(item.title)}</b>: ${escapeHtml(item.detail || item.location || "")}</li>`)
+    .join("")
 }
 
-function showBlockers(blockers) {
-  const message = blockers
-    .slice(0, 6)
-    .map((item) => `<li>${item.title}: ${item.detail || item.location || ""}</li>`)
-    .join("")
-  frappe.msgprint({
-    title: __("Encounter Blockers"),
-    message: `<p>${__("There are unresolved derma blockers.")}</p><ul>${message}</ul>`,
-    indicator: "orange",
+function askToProceedPastBlockers(blockers) {
+  return new Promise((resolve) => {
+    frappe.confirm(
+      `<p>${__("This session has {0} unresolved blocker(s).").replace("{0}", blockers.length)}</p><ul>${blockerListHtml(blockers)}</ul><p>${__("Complete it anyway?")}</p>`,
+      () => resolve(true),
+      () => resolve(false),
+    )
   })
+}
+
+function askForOverrideReason(blockers) {
+  return new Promise((resolve) => {
+    const dialog = new frappe.ui.Dialog({
+      title: __("Complete With Unresolved Blockers"),
+      fields: [
+        {
+          fieldtype: "HTML",
+          options: `<p>${__("These blockers must be recorded before this session can be completed.")}</p><ul>${blockerListHtml(blockers)}</ul>`,
+        },
+        {
+          fieldname: "override_reason",
+          fieldtype: "Small Text",
+          label: __("Reason"),
+          reqd: 1,
+        },
+      ],
+      primary_action_label: __("Complete Session"),
+      primary_action: ({ override_reason }) => {
+        const reason = (override_reason || "").trim()
+        if (!reason) return
+        // Resolve before hiding: onhide is the cancel path and would answer first.
+        resolve(reason)
+        dialog.hide()
+      },
+    })
+    dialog.$wrapper.attr("data-test", "readiness-override-dialog")
+    dialog.onhide = () => resolve(null)
+    dialog.show()
+  })
+}
+
+/** The reason to complete with, or null when the clinician backed out. */
+async function overrideReasonForCompletion() {
+  const blockers = readinessBlockers.value
+  if (!blockers.length) return ""
+  if (readinessEnforcement.value === ENFORCEMENT_BLOCK) return askForOverrideReason(blockers)
+  return (await askToProceedPastBlockers(blockers)) ? "" : null
 }
 
 async function syncBillablesForSession() {
@@ -2129,16 +2206,23 @@ async function syncBillablesForSession() {
 
 async function completeSession() {
   if (!encounter.value.name || completingSession.value) return
-  const blockers = sessionBlockers()
-  if (blockers.length) {
-    showBlockers(blockers)
-    return
-  }
+  // Claimed before the dialog, not after it: a second click while the clinician is
+  // typing a reason would otherwise open a second dialog and complete twice.
   completingSession.value = true
+  try {
+    const overrideReason = await overrideReasonForCompletion()
+    if (overrideReason === null) return
+    await submitSessionCompletion(overrideReason)
+  } finally {
+    completingSession.value = false
+  }
+}
+
+async function submitSessionCompletion(overrideReason) {
   try {
     const response = await frappe.call({
       method: "do_derma.api.complete_derma_session",
-      args: contextArgs(),
+      args: { ...contextArgs(), override_reason: overrideReason },
     })
     const result = response.message || {}
     frappe.show_alert({
@@ -2147,16 +2231,16 @@ async function completeSession() {
         : __("Session billing synced."),
       indicator: "green",
     })
-    await refresh()
   } catch (err) {
     frappe.msgprint({
       title: __("Unable to Complete Session"),
       message: err?.message || __("Something went wrong while completing this session."),
       indicator: "red",
     })
-  } finally {
-    completingSession.value = false
   }
+  // Either way the server has the last word on readiness, so re-read it: a refusal
+  // means this chart's copy was stale, and the next attempt must prompt on the new one.
+  await refresh()
 }
 
 function contextArgs() {

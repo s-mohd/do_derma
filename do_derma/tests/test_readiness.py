@@ -237,6 +237,36 @@ class TestSessionReadiness(DermaTestHelpers, IntegrationTestCase):
 		return next(item for item in readiness["items"] if item["key"].endswith("-status"))
 
 
+class TestChartContextReadiness(DermaTestHelpers, IntegrationTestCase):
+	"""The chart reads readiness the server computed - it no longer gets two engine
+	payloads to aggregate itself."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+
+	def test_the_chart_carries_one_readiness_section(self):
+		self._save_mark(self.patient, status="Worse", product_name="Botox 100", dose=2)
+
+		readiness = api.get_patient_derma_chart(patient_id=self.patient)["readiness"]
+
+		self.assertTrue(readiness["blockers"])
+		self.assertEqual({item["source"] for item in readiness["items"]}, {inventory.SOURCE, followup.SOURCE})
+		self.assertEqual(readiness["enforcement"], api.get_readiness_settings()["enforcement"])
+
+	def test_the_two_engine_sections_are_gone(self):
+		chart = api.get_patient_derma_chart(patient_id=self.patient)
+
+		self.assertNotIn("inventory_readiness", chart)
+		self.assertNotIn("followup_items", chart)
+
+	def test_a_broken_readiness_query_degrades_to_an_empty_session(self):
+		with patch("do_derma.readiness.session.get_session_readiness", side_effect=ValueError("boom")):
+			chart = api.get_patient_derma_chart(patient_id=self.patient)
+
+		self.assertIn("readiness", chart["context_errors"])
+		self.assertEqual(chart["readiness"], {"items": [], "blockers": [], "enforcement": "Warn"})
+
+
 class TestMarksReadyForProcedure(IntegrationTestCase):
 	"""The gate at Clinical Procedure creation, which is the only place required fields
 	are enforced. Its message names every field the clinician still has to fill."""

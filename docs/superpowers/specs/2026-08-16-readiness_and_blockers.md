@@ -1,11 +1,13 @@
 # Readiness With One Owner, Enforced By The Server
 
 Date: 2026-08-16
-Status: **Phases 1-2 shipped** (2026-08-17), Phases 3-4 draft. Phase 1 deviated on which direction
+Status: **Phases 1-3 shipped** (2026-08-17), Phase 4 draft. Phase 1 deviated on which direction
 the new package imports in, on `get_session_readiness` normalising the two engines' item shapes,
 and on where the procedure gate's tests came from; Phase 2 deviated on both schema changes
 arriving without a patch, and on a Frappe single storing nothing for a field until something
-writes it — which needed a seeder the plan does not mention — see
+writes it — which needed a seeder the plan does not mention; Phase 3 deviated on replacing the
+chart payload's two engine sections with one `readiness` section rather than adding a third, and
+on Warn mode asking before it proceeds — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -299,8 +301,9 @@ consults readiness, override reason field and Comment. Default Warn, so nothing 
 existing sites.
 *Exit:* a direct API call cannot complete a blocked session on a site set to Block.
 
-**Phase 3 — one owner in the UI.** The chart renders the server's list; `sessionBlockers`,
-`showBlockers` and the `!item.todo` filter are deleted; Block mode collects the reason.
+**Phase 3 — one owner in the UI.** ✅ Shipped 2026-08-17. The chart renders the server's list;
+`sessionBlockers`, `showBlockers` and the `!item.todo` filter are deleted; Block mode collects the
+reason.
 *Exit:* the browser holds no readiness logic at all.
 
 **Phase 4 — reconcile the lot rule.** Migration patch, the `{"Botox","Filler"}` set removed from
@@ -446,6 +449,59 @@ inventory, plus the readiness panel in the config workspace showing the current 
   shared `setUp` making a patient, an encounter and a mark for them would have changed what they
   test. Criterion 11 is met by leaving them untouched.
 
+### Phase 3 (2026-08-17)
+
+- **The chart payload's two engine sections were replaced, not joined by a third.**
+  `get_patient_derma_chart` shipped `followup_items` and `inventory_readiness`, each computing its
+  own `_get_marks`; it now ships one `readiness` section holding `{items, blockers, enforcement}`.
+  Keeping the old keys would have left three payload readers of one fact and computed the marks
+  three times. The two whitelisted endpoints are untouched, as Design promised — nothing outside
+  `DermaChart.vue` read either key. The chart's `followupItems` and `inventoryReadiness` are now
+  `readiness.items` filtered by `source`, so the two Review cards, their stats and their
+  `data-test` hooks are unchanged.
+- **`api.get_session_readiness` is a public thin re-entry point.** Both of this module's readers —
+  the chart payload and the completion gate — go through it, so the lazy import that avoids the
+  load-time cycle (Phase 1's first deviation) is written once instead of per call site. It is not
+  whitelisted, and it is not the owner: `readiness/session.py` still is.
+- **Warn mode asks before it proceeds.** Design §5 said the chart "shows the server's blockers and,
+  in Block mode, collects an override reason", leaving Warn undefined. Silently completing past a
+  blocker is worse than today, where the chart refused outright, so Warn now confirms
+  (`askToProceedPastBlockers`) and Block prompts for a reason (`askForOverrideReason`). Neither
+  decides anything: `readiness.enforcement` says which one runs. `overrideReasonForCompletion`
+  returns `null` for "backed out", `""` for "proceed", or the reason — the dialog resolves before
+  it hides, because `onhide` is the cancel path and would otherwise answer first.
+- **`blockerListHtml` escapes.** The deleted `showBlockers` interpolated `item.title` and
+  `item.detail` into `frappe.msgprint` HTML unescaped; both are clinic-authored (product names,
+  mark locations). The replacement runs every value through the file's existing `escapeHtml`.
+- **`createFollowupTask` re-reads the chart instead of patching `followup_items` locally.** It used
+  to write `todo` onto its own copy of the row, which was the client owning half of the downgrade
+  rule. Whether a new ToDo downgrades the blocker is `todo_downgrades_blockers`, so the client
+  calls `refresh()` and renders what comes back.
+- **A Review-tab readiness summary was added** (`data-test="review-readiness"`), naming the
+  enforcement mode and listing every blocker with a source badge. Design §5 asked for
+  `readiness.items` grouped by severity with a source badge; the two existing cards already render
+  every item grouped by engine with severity classes, so this adds only what they cannot say —
+  which mode completion will apply, and the blockers as one cross-engine list. The six-item
+  truncation is gone with `showBlockers`.
+- **`downgraded_by_todo` is rendered on the follow-up card**, which is the marker Phase 1 added
+  "so Phase 3 can say why a blocker went quiet". The card used to imply it through a `done` class
+  driven by the raw `todo` field; it now says it in words, and only when the server actually
+  applied the downgrade.
+- **`completingSession` is claimed before the dialog opens, not after it closes.** The first cut
+  awaited the reason and then set the flag, which left the Complete Encounter button live for as
+  long as the clinician was typing — two clicks, two dialogs, two completions.
+- **Completion always re-reads the chart, success or failure.** Design §5 said Block mode
+  "collects an override reason before retrying"; there is no retry loop, because the client
+  prompts from its own copy of the readiness and a server refusal means that copy was stale.
+  Refreshing after every attempt is what makes the next click prompt on current state, and it is
+  one rule instead of a retry path that would have to re-derive the server's answer.
+- **`SECTION_CONTEXT_LABELS.review` follows the section rename** to `["visit timeline",
+  "readiness"]`, or the degraded-section notice would never fire on the Review tab again.
+- **The e2e spec runs on `E2E ` fixtures, not `demo_seed`.** The Files table said demo_seed, but
+  every other spec resolves the seeded prefix through `helpers/derma.ts`, and the cheapest blocker
+  — a mark with status `Worse` — needs no template configuration, so no new fixture was required.
+  `setBlockerEnforcement` is a new helper beside `setFeatureToggle`; the spec restores `Warn`.
+
 ## Verification
 
 ### Phase 1
@@ -545,6 +601,67 @@ pipx run ruff format do_derma/    → 88 files left unchanged
 runs its own client-side gate, so a Block-mode site refuses twice (browser first, server second)
 until Phase 3 deletes the browser's copy. Criteria 7 and 9 belong to Phases 3-4.
 
+### Phase 3
+
+Integration:
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_readiness
+→ Ran 32 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 266 tests in 31.5s, OK (skipped=1)
+```
+
+`TestChartContextReadiness` is the three new cases, written before the change and failing first:
+the chart carries one `readiness` section whose items name both engines and whose enforcement is
+the site's; the two old engine keys are gone; and a readiness query that raises degrades to
+`{"items": [], "blockers": [], "enforcement": "Warn"}` while naming `readiness` in
+`context_errors` — the schema-defensive contract every other chart section already has.
+
+Build (the Vue bundle and its CSS changed; no bundle filename moved):
+
+```
+bench build --app do_derma    → DONE, 719ms
+```
+
+Browser:
+
+```
+npx playwright test                                              → 91 passed, 2 failed (10.8m)
+npx playwright test readiness-blockers config-workspace tab-spine → 21 passed (32.7s)
+```
+
+The second line is the re-run after the code review's fixes, over the specs this phase touches
+plus the chart's own tab-spine suite.
+
+Both full-suite failures were run down:
+
+- `config-workspace.spec.ts` "says the completion gate lives in the browser" was **stale from
+  Phase 2**, which shipped the enforcement fields but did not run Playwright. The warning it
+  asserts only fires on a site that lacks those fields, so a migrated site can never show it. The
+  spec now asserts the opposite — no client-side-gate warning on a configurable site — and passes.
+- `annotation-anchoring.spec.ts` "keeps a dragged treatment area at its drawn size across resume"
+  fails **on a clean tree at `d3ab01f` too**: `--repeat-each=3` with every Phase 3 change stashed
+  and the bundle rebuilt failed 3/3, as it does with them applied. It is a pre-existing failure in
+  the resume path (`renderChartMarks` stamping a mark the imported scene already carries), not a
+  Phase 3 regression, and it is not fixed here.
+
+`readiness-blockers.spec.ts` proves criterion 9 end to end: in Warn mode the Review tab renders the
+server's blocker with its `followup` source and reports the mode it will apply, and in Block mode
+Complete Encounter opens the override dialog listing the blockers — cancelling it leaves the
+encounter at `docstatus 0`, so the browser no longer completes anything the server has not agreed
+to.
+
+Lint:
+
+```
+pipx run ruff check do_derma/            → All checks passed
+pipx run ruff format --check do_derma/   → 88 files already formatted
+```
+
+**Not yet run:** no migrate — Phase 3 changes no doctype, patch or fixture. Criterion 7 belongs to
+Phase 4.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -562,13 +679,19 @@ until Phase 3 deletes the browser's copy. Criteria 7 and 9 belong to Phases 3-4.
 | `do_derma/readiness/session.py` | *(Phase 2)* `is_completion_blocked()` |
 | `do_derma/patches/set_product_tracking_for_derma_categories.py` | *(new)* |
 | `do_derma/patches.txt` | *(Phase 4)* the product-tracking migration |
-| `public/js/chart/DermaChart.vue` | render server readiness; delete local blocker logic |
-| `public/js/config/panels/ReadinessPanel.vue` | enforcement mode (file created by spec 2) |
-| `do_derma/tests/test_readiness.py` | *(new, Phase 1)* both engines, the session owner, and the procedure gate's tests moved here with it |
+| `do_derma/api.py` | *(Phase 3)* one `readiness` chart section replacing `followup_items` + `inventory_readiness`; `_get_session_readiness` |
+| `public/js/chart/DermaChart.vue` | *(Phase 3)* renders the server's readiness; `sessionBlockers` / `showBlockers` / the `!item.todo` filter deleted; Warn confirms, Block prompts for a reason |
+| `public/js/chart/derma_chart.bundle.css` | *(Phase 3)* the Review-tab readiness summary |
+| `public/js/config/panels/ReadinessPanel.vue` | enforcement mode (file created by spec 2) — unchanged in Phase 3 |
+| `e2e/helpers/derma.ts` | *(Phase 3)* `setBlockerEnforcement` |
+| `e2e/tests/config-workspace.spec.ts` | *(Phase 3)* the client-side-gate warning assertion, stale since Phase 2 |
+| `do_derma/tests/test_readiness.py` | *(new, Phase 1)* both engines, the session owner, and the procedure gate's tests moved here with it; *(Phase 3)* `TestChartContextReadiness` |
 | `do_derma/tests/test_template_variables.py` | *(Phase 1)* `TestMarksReadyForProcedure` moves out |
 | `do_derma/tests/test_api.py` | *(Phase 2)* `TestCompleteDermaSessionBlockers`, eight cases |
 | `do_derma/tests/test_settings.py` | *(Phase 2)* the never-stored read and `TestReadinessDefaultsSeeding` |
-| `e2e/tests/readiness-blockers.spec.ts` | *(new)*, on `demo_seed` fixtures |
+| `e2e/tests/readiness-blockers.spec.ts` | *(new, Phase 3)* on the `E2E ` fixtures, not `demo_seed` |
 
-`bench build --app do_derma` is **required** (`DermaChart.vue` changes). No bundle filename
-changes. `bench --site dermaone.localhost migrate` is required — two patches and a doctype change.
+`bench build --app do_derma` is **required** (`DermaChart.vue` changes, Phase 3). No bundle
+filename changes. `bench --site dermaone.localhost migrate` is required for Phase 2 (the settings
+fields on `Derma Settings`, and `COMPLETION_OVERRIDE_FIELD` through `ensure_derma_schema`) and will
+be again for Phase 4's product-tracking patch. Phase 3 needs neither a patch nor a migrate.

@@ -13,7 +13,12 @@ from frappe.utils.file_manager import save_file
 from do_derma import assessment
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.schema import COMPLETION_OVERRIDE_FIELD
-from do_derma.settings import FEATURE_TOGGLES, get_feature_toggles, get_readiness_settings
+from do_derma.settings import (
+	ENFORCEMENT_WARN,
+	FEATURE_TOGGLES,
+	get_feature_toggles,
+	get_readiness_settings,
+)
 
 DERMA_FINDING_FIELDS = [
 	"name",
@@ -1951,6 +1956,16 @@ def get_chart_context(
 	}
 
 
+def get_session_readiness(
+	patient: str | None, appointment: str | None = None, encounter: str | None = None
+) -> dict[str, Any]:
+	"""This module's two readers of readiness - the chart payload and the completion gate -
+	ask here; `do_derma.readiness.session` owns the answer."""
+	from do_derma.readiness import session as readiness_session
+
+	return readiness_session.get_session_readiness(patient, appointment=appointment, encounter=encounter)
+
+
 @frappe.whitelist()
 def get_patient_derma_chart(
 	patient_id: str | None = None, encounter: str | None = None, appointment: str | None = None
@@ -2028,19 +2043,10 @@ def get_patient_derma_chart(
 			[],
 			lambda: get_visit_timeline(patient, current_encounter=encounter_id),
 		),
-		"followup_items": section(
-			"follow-up intelligence",
-			[],
-			lambda: get_followup_intelligence(
-				patient=patient, encounter=encounter_id, appointment=appointment_id
-			),
-		),
-		"inventory_readiness": section(
-			"inventory readiness",
-			[],
-			lambda: get_inventory_readiness(
-				patient=patient, encounter=encounter_id, appointment=appointment_id
-			),
+		"readiness": section(
+			"readiness",
+			{"items": [], "blockers": [], "enforcement": ENFORCEMENT_WARN},
+			lambda: get_session_readiness(patient, appointment=appointment_id, encounter=encounter_id),
 		),
 		"visit_summary": section(
 			"visit summary",
@@ -3003,8 +3009,6 @@ def complete_derma_session(
 	"""Finalize a derma visit: complete draft procedures, sync billables, raise/update
 	the patient invoice, and submit the encounter."""
 	_ensure_clinical_access()
-	from do_derma.readiness.session import get_session_readiness
-
 	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
 	appointment_id = context["appointment_id"]
 	encounter_id = context["encounter_id"]

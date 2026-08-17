@@ -244,8 +244,9 @@ test.describe("Derma configuration lists", () => {
 });
 
 /**
- * The readiness panel. It needs no fixture: it reports the site's own Derma Settings,
- * which on a site without the enforcement field is Warn plus the client-side-gate warning.
+ * The readiness panel. It needs no fixture: it reports the site's own Derma Settings.
+ * A site missing the enforcement field reads Warn and carries the client-side-gate warning;
+ * a migrated site carries neither.
  */
 test.describe("Derma configuration readiness", () => {
 	test("reports the enforcement mode and every feature toggle", async ({ page }) => {
@@ -262,15 +263,20 @@ test.describe("Derma configuration readiness", () => {
 		await expect(panel.locator('[data-test="config-feature-toggle"]')).toHaveCount(3);
 	});
 
-	test("says the completion gate lives in the browser", async ({ page }) => {
+	/**
+	 * The warning is for a site that has not migrated into the enforcement fields. This
+	 * one has them, and since the server took the gate over there is nothing to warn about.
+	 */
+	test("does not claim the completion gate lives in the browser", async ({ page }) => {
 		await page.goto("/app/derma-config");
 		await expect(page.locator('[data-test="derma-config-root"]')).toBeVisible();
 		await page.locator('[data-test="config-rail-item-readiness"]').click();
 
+		await expect(page.locator('[data-test="config-readiness"]')).toBeVisible();
 		await expect(
 			page.locator(
 				'[data-test="config-readiness-warning"][data-warning="completion_gate_is_client_side"]',
 			),
-		).toBeVisible();
+		).toHaveCount(0);
 	});
 });

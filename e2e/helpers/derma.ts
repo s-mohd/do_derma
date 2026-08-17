@@ -339,3 +339,13 @@ export async function resetFeatureToggles(request: APIRequestContext): Promise<v
 	const off = Object.fromEntries(FEATURE_TOGGLES.map((toggle) => [toggle, 0]));
 	await updateDoc(request, "Derma Settings", "Derma Settings", off);
 }
+
+export type BlockerEnforcement = "Warn" | "Block";
+
+/** How the server gates session completion. Warn is the shipped default; restore it. */
+export async function setBlockerEnforcement(
+	request: APIRequestContext,
+	mode: BlockerEnforcement,
+): Promise<void> {
+	await updateDoc(request, "Derma Settings", "Derma Settings", { blocker_enforcement: mode });
+}
