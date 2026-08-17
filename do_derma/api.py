@@ -7,7 +7,7 @@ from typing import Any
 import frappe
 from do_health.api.appointment_methods import create_encounter_for_appointment
 from frappe import _
-from frappe.utils import add_days, cint, flt, getdate, now_datetime, nowdate
+from frappe.utils import cint, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
 from do_derma import assessment
@@ -1793,153 +1793,15 @@ def get_inventory_readiness(
 	patient: str | None = None, encounter: str | None = None, appointment: str | None = None
 ) -> list[dict[str, Any]]:
 	_ensure_clinical_access()
+	# Imported here rather than at module scope: the readiness engines read this module's
+	# schema helpers, so the package must not be pulled in while api.py is still loading.
+	from do_derma.readiness import inventory
+
 	if not patient and encounter:
 		patient = frappe.db.get_value("Patient Encounter", encounter, "patient")
 	if not patient:
 		return []
-	return _build_inventory_readiness(_get_marks(patient, appointment=appointment, encounter=encounter))
-
-
-def _build_inventory_readiness(marks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-	if not marks:
-		return []
-
-	template_names = [row.get("procedure_template") for row in marks if row.get("procedure_template")]
-	templates = {}
-	if template_names:
-		fields = _select_existing_fields(
-			"Clinical Procedure Template",
-			["name", "template", "item", "custom_derma_category", "custom_derma_product_tracking_required"],
-		)
-		templates = {
-			row.name: row
-			for row in frappe.get_all(
-				"Clinical Procedure Template", filters={"name": ["in", template_names]}, fields=fields
-			)
-		}
-
-	grouped: dict[str, dict[str, Any]] = {}
-	for mark in marks:
-		template = templates.get(mark.get("procedure_template")) or {}
-		category = mark.get("category") or template.get("custom_derma_category")
-		requires_tracking = bool(template.get("custom_derma_product_tracking_required")) or category in {
-			"Botox",
-			"Filler",
-		}
-		has_product_data = any(
-			mark.get(field)
-			for field in ["product_item", "product_name", "dose", "dose_unit", "lot_no", "expiry_date"]
-		)
-		if not requires_tracking and not has_product_data:
-			continue
-
-		product_item = (
-			mark.get("product_item")
-			or template.get("item")
-			or _find_item_for_product(mark.get("product_name"))
-		)
-		product_name = (
-			mark.get("product_name")
-			or _item_display_name(product_item)
-			or template.get("template")
-			or category
-			or _("Product")
-		)
-		lot_no = mark.get("lot_no") or ""
-		expiry_date = mark.get("expiry_date") or ""
-		dose_unit = mark.get("dose_unit") or ""
-		key = "|".join([product_item or product_name or _("Missing product"), lot_no, expiry_date, dose_unit])
-		row = grouped.setdefault(
-			key,
-			{
-				"key": key,
-				"product_item": product_item,
-				"product_name": product_name,
-				"lot_no": lot_no,
-				"expiry_date": expiry_date,
-				"dose": 0,
-				"dose_unit": dose_unit,
-				"available_qty": None,
-				"status": "ready",
-				"severity": "low",
-				"blocking": False,
-				"marks": [],
-				"message": "",
-			},
-		)
-		row["dose"] += flt(mark.get("dose") or 0)
-		row["marks"].append(mark.get("name"))
-		if not row.get("product_item") and product_item:
-			row["product_item"] = product_item
-
-	for row in grouped.values():
-		messages = []
-		blocking = False
-		if not row.get("product_item") and not row.get("product_name"):
-			messages.append(_("Product is missing."))
-			blocking = True
-		if not row.get("dose"):
-			messages.append(_("Dose/quantity is missing."))
-			blocking = True
-		if not row.get("lot_no"):
-			messages.append(_("Lot number is missing."))
-			blocking = True
-		if not row.get("expiry_date"):
-			messages.append(_("Expiry date is missing."))
-			blocking = True
-		elif _is_expired(row.get("expiry_date")):
-			messages.append(_("Product is expired."))
-			blocking = True
-
-		available_qty = _stock_available_qty(row.get("product_item"))
-		row["available_qty"] = available_qty
-		if available_qty is not None and row.get("dose") and available_qty < flt(row.get("dose")):
-			messages.append(_("Insufficient available stock."))
-			blocking = True
-		elif row.get("product_item") and available_qty is None:
-			messages.append(_("Stock balance is not available for this item."))
-
-		row["blocking"] = blocking
-		row["status"] = "blocked" if blocking else ("warning" if messages else "ready")
-		row["severity"] = "high" if blocking else ("medium" if messages else "low")
-		row["message"] = " ".join(messages) if messages else _("Ready for product consumption review.")
-
-	return sorted(grouped.values(), key=lambda row: (row["blocking"] is False, row.get("product_name") or ""))
-
-
-def _find_item_for_product(product_name: str | None) -> str | None:
-	if not product_name or not _has_doctype("Item"):
-		return None
-	if frappe.db.exists("Item", product_name):
-		return product_name
-	return frappe.db.get_value("Item", {"item_name": product_name}, "name") or frappe.db.get_value(
-		"Item", {"item_code": product_name}, "name"
-	)
-
-
-def _item_display_name(item_code: str | None) -> str | None:
-	if not item_code or not _has_doctype("Item"):
-		return None
-	return frappe.db.get_value("Item", item_code, "item_name") or item_code
-
-
-def _stock_available_qty(item_code: str | None) -> float | None:
-	if not item_code or not _has_doctype("Bin"):
-		return None
-	result = frappe.db.sql("select sum(actual_qty) from `tabBin` where item_code=%s", (item_code,))
-	if not result:
-		return None
-	value = result[0][0]
-	return flt(value) if value is not None else None
-
-
-def _is_expired(expiry_date: str | None) -> bool:
-	if not expiry_date:
-		return False
-	try:
-		return getdate(expiry_date) < getdate(nowdate())
-	except Exception:
-		return False
+	return inventory.build(_get_marks(patient, appointment=appointment, encounter=encounter))
 
 
 def _get_previous_marks(patient: str, current_encounter: str | None = None) -> list[dict[str, Any]]:
@@ -3268,6 +3130,8 @@ def create_procedure_from_mark(
 	mark: str, procedure_template: str | None = None, values: str | dict[str, Any] | None = None
 ):
 	_ensure_clinical_access()
+	from do_derma.readiness import procedure as procedure_readiness
+
 	if not mark:
 		frappe.throw(_("Chart mark is required."))
 	mark_doc = frappe.get_doc("Derma Chart Mark", mark)
@@ -3292,7 +3156,7 @@ def create_procedure_from_mark(
 
 	template_doc = frappe.get_doc("Clinical Procedure Template", procedure_template)
 	_ensure_body_template_allowed(procedure_template, mark_doc.body_template, template_doc.as_dict())
-	_validate_marks_ready_for_procedure([mark_doc], template_doc)
+	procedure_readiness.validate_marks_ready([mark_doc], template_doc)
 	procedure = frappe.new_doc("Clinical Procedure")
 	procedure.patient = mark_doc.patient
 	procedure.patient_name = mark_doc.patient_name
@@ -3378,53 +3242,6 @@ def _is_mark_documented(mark_doc) -> bool:
 	if not procedure or not frappe.db.exists("Clinical Procedure", procedure):
 		return False
 	return cint(frappe.db.get_value("Clinical Procedure", procedure, "docstatus")) == 1
-
-
-def _validate_marks_ready_for_procedure(mark_docs: list[Any], template_doc) -> None:
-	required_variables = [row for row in _get_template_variables(template_doc) if row.get("required")]
-	missing = []
-	for variable in required_variables:
-		fieldname = variable.get("fieldname")
-		if fieldname and not all(
-			_mark_variable_value(mark_doc, fieldname) not in (None, "") for mark_doc in mark_docs
-		):
-			missing.append(variable.get("label") or fieldname)
-
-	if template_doc.get("custom_derma_product_tracking_required"):
-		if not all(mark_doc.get("product_name") or mark_doc.get("product_item") for mark_doc in mark_docs):
-			missing.append(_("Product / Device"))
-		if not all(mark_doc.get("lot_no") for mark_doc in mark_docs):
-			missing.append(_("Lot No"))
-
-	if missing:
-		frappe.throw(
-			_(
-				"Complete required derma procedure details before creating the Clinical Procedure: {0}."
-			).format(", ".join(dict.fromkeys(missing)))
-		)
-
-	if template_doc.get("custom_derma_before_after_photo_required") and not any(
-		mark_doc.get("photo_set") for mark_doc in mark_docs
-	):
-		frappe.throw(_("Photo evidence is required before creating this Clinical Procedure."))
-
-
-def _mark_variable_value(mark_doc, fieldname: str):
-	key = _variable_fieldname(fieldname)
-	mapping = {
-		"product": "product_name",
-		"item": "product_item",
-		"item_code": "product_item",
-		"product_item": "product_item",
-		"injectable": "product_name",
-		"lot": "lot_no",
-		"expiry": "expiry_date",
-		"units": "dose",
-		"ml": "dose",
-		"quantity": "dose",
-		"site": "body_region",
-	}
-	return mark_doc.get(mapping.get(key, key))
 
 
 @frappe.whitelist()
@@ -3844,137 +3661,18 @@ def get_followup_intelligence(
 	patient: str, encounter: str | None = None, appointment: str | None = None
 ) -> list[dict[str, Any]]:
 	_ensure_clinical_access()
+	from do_derma.readiness import followup
+
 	if not patient:
 		return []
-
-	marks = _get_marks(patient, appointment=appointment, encounter=encounter)
-	template_names = [mark.get("procedure_template") for mark in marks if mark.get("procedure_template")]
-	template_map = {}
-	if template_names:
-		for row in frappe.get_all(
-			"Clinical Procedure Template",
-			filters={"name": ["in", template_names]},
-			fields=_select_existing_fields(
-				"Clinical Procedure Template",
-				[
-					"name",
-					"template",
-					"custom_derma_category",
-					"custom_derma_before_after_photo_required",
-					"custom_derma_product_tracking_required",
-					"custom_derma_device_settings_required",
-				],
-			),
-		):
-			template_map[row.get("name")] = row
-
-	existing_todos = _open_todos_for_marks([mark.get("name") for mark in marks if mark.get("name")])
-	items: list[dict[str, Any]] = []
-	for mark in marks:
-		template = template_map.get(mark.get("procedure_template")) or {}
-		category = mark.get("category") or template.get("custom_derma_category") or _("Derma")
-		location = _meaningful_location(mark) or mark.get("body_view") or _("charted area")
-		status = mark.get("status") or "Active"
-		base = {
-			"mark": mark.get("name"),
-			"category": category,
-			"location": location,
-			"clinical_procedure": mark.get("clinical_procedure"),
-			"todo": existing_todos.get(mark.get("name")),
-		}
-
-		if status in {"Monitoring", "Worse", "Biopsied", "Excised"}:
-			due_days = {"Worse": 7, "Biopsied": 3, "Excised": 14, "Monitoring": 30}.get(status, 30)
-			items.append(
-				{
-					**base,
-					"key": f"{mark.get('name')}-status",
-					"type": "Pathology" if status == "Biopsied" else "Review",
-					"severity": "high" if status in {"Worse", "Biopsied"} else "medium",
-					"title": _("{0} follow-up").format(status),
-					"detail": ", ".join(
-						value for value in [mark.get("diagnosis") or category, location] if value
-					),
-					"due_date": add_days(nowdate(), due_days),
-					"blocking": status in {"Worse", "Biopsied"},
-				}
-			)
-
-		if template.get("custom_derma_before_after_photo_required") and not mark.get("photo_set"):
-			items.append(
-				{
-					**base,
-					"key": f"{mark.get('name')}-photo",
-					"type": "Photo",
-					"severity": "medium",
-					"title": _("Photo evidence needed"),
-					"detail": _("Capture or link before/after photos for {0}.").format(location),
-					"due_date": nowdate(),
-					"blocking": True,
-				}
-			)
-
-		if template.get("custom_derma_product_tracking_required") and (
-			not mark.get("product_name") or not mark.get("lot_no")
-		):
-			items.append(
-				{
-					**base,
-					"key": f"{mark.get('name')}-inventory",
-					"type": "Inventory",
-					"severity": "high",
-					"title": _("Product / lot missing"),
-					"detail": _("Product and lot are required for {0}.").format(category),
-					"due_date": nowdate(),
-					"blocking": True,
-				}
-			)
-
-		if category in {"Botox", "Filler", "Laser"} and mark.get("clinical_procedure"):
-			interval = {"Botox": 90, "Filler": 180, "Laser": 28}.get(category, 30)
-			items.append(
-				{
-					**base,
-					"key": f"{mark.get('name')}-next-session",
-					"type": "Next Session",
-					"severity": "low",
-					"title": _("{0} next session due").format(category),
-					"detail": _("Plan next {0} review for {1}.").format(category, location),
-					"due_date": add_days(nowdate(), interval),
-					"blocking": False,
-				}
-			)
-
-	items.sort(
-		key=lambda row: (
-			{"high": 0, "medium": 1, "low": 2}.get(row.get("severity"), 3),
-			row.get("due_date") or "",
-		)
-	)
-	return items
-
-
-def _open_todos_for_marks(mark_names: list[str]) -> dict[str, str]:
-	mark_names = [name for name in mark_names if name]
-	if not mark_names or not frappe.db.exists("DocType", "ToDo"):
-		return {}
-	fields = _select_existing_fields("ToDo", ["name", "reference_type", "reference_name", "status"])
-	rows = frappe.get_all(
-		"ToDo",
-		filters={
-			"reference_type": "Derma Chart Mark",
-			"reference_name": ["in", mark_names],
-			"status": ["!=", "Closed"],
-		},
-		fields=fields,
-		limit=200,
-	)
-	return {row.get("reference_name"): row.get("name") for row in rows if row.get("reference_name")}
+	return followup.build(_get_marks(patient, appointment=appointment, encounter=encounter))
 
 
 @frappe.whitelist()
 def create_followup_todo(payload: str | dict[str, Any]):
 	_ensure_clinical_access()
+	from do_derma.readiness import followup
+
 	values = json.loads(payload) if isinstance(payload, str) else dict(payload or {})
 	mark = values.get("mark")
 	if not mark:
@@ -3982,7 +3680,7 @@ def create_followup_todo(payload: str | dict[str, Any]):
 	if not frappe.db.exists("Derma Chart Mark", mark):
 		frappe.throw(_("Chart mark {0} was not found.").format(mark))
 
-	existing = _open_todos_for_marks([mark]).get(mark)
+	existing = followup.open_todos_for_marks([mark]).get(mark)
 	if existing:
 		return frappe.get_doc("ToDo", existing).as_dict()
 

@@ -154,50 +154,6 @@ class TestRequiredFieldParsing(IntegrationTestCase):
 		self.assertEqual(api._parse_required_fields("[]"), [])
 
 
-class TestMarksReadyForProcedure(IntegrationTestCase):
-	"""The gate at Clinical Procedure creation, which is the only place required fields
-	are enforced. Its message names every field the clinician still has to fill."""
-
-	def _mark(self, **values):
-		return frappe._dict(values)
-
-	def test_throws_naming_every_missing_required_field(self):
-		template = frappe._dict(custom_derma_required_fields=json.dumps(["dose", "plane"]))
-
-		with self.assertRaises(frappe.ValidationError) as caught:
-			api._validate_marks_ready_for_procedure([self._mark()], template)
-
-		self.assertIn("Dose", str(caught.exception))
-		self.assertIn("Plane", str(caught.exception))
-
-	def test_passes_when_every_required_field_is_filled(self):
-		template = frappe._dict(custom_derma_required_fields=json.dumps(["dose"]))
-
-		api._validate_marks_ready_for_procedure([self._mark(dose=2)], template)
-
-	def test_one_unfilled_mark_of_several_is_enough_to_throw(self):
-		template = frappe._dict(custom_derma_required_fields=json.dumps(["dose"]))
-
-		with self.assertRaises(frappe.ValidationError):
-			api._validate_marks_ready_for_procedure([self._mark(dose=2), self._mark()], template)
-
-	def test_product_tracking_demands_a_lot_number(self):
-		template = frappe._dict(custom_derma_product_tracking_required=1)
-
-		with self.assertRaises(frappe.ValidationError) as caught:
-			api._validate_marks_ready_for_procedure([self._mark(product_name="Botox 100")], template)
-
-		self.assertIn("Lot", str(caught.exception))
-
-	def test_photo_evidence_is_demanded_when_the_flag_is_on(self):
-		template = frappe._dict(custom_derma_before_after_photo_required=1)
-
-		with self.assertRaises(frappe.ValidationError) as caught:
-			api._validate_marks_ready_for_procedure([self._mark()], template)
-
-		self.assertIn("Photo", str(caught.exception))
-
-
 class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 	"""Authoring a variable set without typing JSON. The endpoint validates through the
 	same helpers the chart reads with, so what it accepts is what the chart resolves."""

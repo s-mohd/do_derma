@@ -257,6 +257,19 @@ class TestClinicalAccessGate(DermaTestHelpers, IntegrationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			api.get_derma_template_variables("does-not-matter")
 
+	def test_inventory_readiness_is_gated(self):
+		"""The readiness engines live outside api.py now, so this wrapper's gate is the
+		only thing between an unroled user and one patient's product and lot numbers."""
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			api.get_inventory_readiness(patient="does-not-matter")
+
+	def test_followup_intelligence_is_gated(self):
+		"""It reads every mark's status and diagnosis for one patient."""
+		frappe.set_user(self._make_limited_user())
+		with self.assertRaises(frappe.PermissionError):
+			api.get_followup_intelligence("does-not-matter")
+
 	def test_annotation_summary_is_gated(self):
 		"""It reads another patient's drawings if it is not, and it is reachable from any desk
 		form, so it is the easiest of these to call unnoticed."""

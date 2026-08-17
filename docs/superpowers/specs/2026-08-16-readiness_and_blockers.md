@@ -1,7 +1,10 @@
 # Readiness With One Owner, Enforced By The Server
 
 Date: 2026-08-16
-Status: **Draft**
+Status: **Phase 1 shipped** (2026-08-17), Phases 2-4 draft. Phase 1 deviated on which direction
+the new package imports in, on `get_session_readiness` normalising the two engines' item shapes,
+and on where the procedure gate's tests came from — see
+[Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
 
@@ -283,7 +286,7 @@ throw, `encounterAlertItems`, the billing stub, and `CLINICAL_ACCESS_ROLES`.
 
 ## Phases
 
-**Phase 1 — the package, behaviour unchanged.** Move all three engines into `do_derma/readiness/`,
+**Phase 1 — the package, behaviour unchanged.** ✅ Shipped 2026-08-17. Move all three engines into `do_derma/readiness/`,
 add `get_session_readiness`, leave the endpoints and the client exactly as they are. Ship with the
 first tests these engines have ever had.
 *Exit:* `bench run-tests --module do_derma.tests.test_readiness` passes and the chart is byte-for-byte
@@ -317,16 +320,125 @@ inventory, plus the readiness panel in the config workspace showing the current 
   *Default:* the config workspace's Readiness panel (spec 2 Phase 3), reading and writing the same
   singleton.
 
+## Reconciliation — what changed vs the plan
+
+### Phase 1 (2026-08-17)
+
+- **The package imports `api`, not the other way round.** Design §1 implied `api.py` would import
+  the engines the way it imports `assessment`, but the engines read `api._select_existing_fields`,
+  `api._has_doctype`, `api._meaningful_location`, `api._get_marks`, `api._get_template_variables`
+  and `api._variable_fieldname` — a module-level import in both directions is a cycle, resolvable
+  only by CPython's `sys.modules` fallback for partially-initialised modules. Instead
+  `do_derma/readiness/*` imports `from do_derma import api` at module scope and **`api.py` imports
+  each engine inside the four functions that call it**, so no cycle exists at load time in either
+  order. The alternative — extracting the six helpers into a shared low-level module — moves the
+  schema-defensive spine of a 3.8k-line file and belongs to its own change, not to a phase whose
+  exit is "behaviour unchanged".
+- **`get_session_readiness` normalises the two engines' item shapes.** The plan concatenated them
+  as they are, but an inventory row's headline is `product_name` + `message` while a follow-up
+  item's is `title` + `detail`, so any caller would have had to branch on the source. `_as_item`
+  adds `source` and fills `title` / `detail` from whichever key the engine populated, always into a
+  **new dict** — the engines' own return values are untouched, so `get_inventory_readiness` and
+  `get_followup_intelligence` keep the exact response shape the chart reads today. Phase 2's
+  override Comment needs a blocker title; this is where it comes from.
+- **`_downgrade_if_todo` is applied to every item, not only follow-up ones.** The client rule it
+  replaces (`DermaChart.vue:785`) filtered follow-up blockers alone, but inventory rows carry no
+  `todo` key at all, so a uniform rule is the same behaviour with one fewer special case. It marks
+  the item `downgraded_by_todo` so Phase 3 can say why a blocker went quiet.
+- **The procedure gate's five tests moved rather than being written.** They already existed as
+  `TestMarksReadyForProcedure` in `test_template_variables.py` — written by spec 3 Phase 1 — and
+  they test `readiness.procedure` now, so they live in `test_readiness.py` with it. A sixth case
+  was added for the alias map (`product` reading the mark's `product_name`), which nothing covered.
+  "The first tests these engines have ever had" was true of inventory and follow-up only.
+- **`_build_inventory_readiness` is three functions.** It was a ~100-line function with the
+  template fetch, the grouping loop and the rule pass inside it. New files bind the 25-line target,
+  so `build` now reads as `_templates_for_marks` → `_add_mark_to_group` → `_resolve_row_status`.
+  No rule changed; the six blocking rules and the status/severity trichotomy are byte-for-byte.
+- **`_open_todos_for_marks` became public `followup.open_todos_for_marks`,** because
+  `create_followup_todo` in `api.py` reads it to find an existing ToDo before making a second one.
+- **`_meaningful_location` stayed in `api.py`.** The narrative builders (`build_mark_narrative`,
+  the timeline) read it too, so moving it would have swapped one cross-module read for three.
+- **The hard-coded `{"Botox", "Filler"}` set is `inventory.TRACKED_CATEGORIES`,** named and
+  documented as retiring in Phase 4 rather than left as a literal in the middle of the loop. The
+  test `test_a_category_named_botox_still_forces_tracking` pins today's behaviour so Phase 4's
+  migration has something to fail against if it loosens anything.
+- **`do_derma/readiness/templates.py` is a fifth module the plan did not list.** Both engines fetch
+  the `Clinical Procedure Template` rows behind a set of marks, differing only in which columns
+  they select, and the split into functions turned what were two inline blocks into two
+  near-identical private helpers. `templates_for_marks(marks, fields)` is the one reader; each
+  engine keeps its own `TEMPLATE_FIELDS`.
+- **`_resolve_row_status` returns a new row rather than writing into the one it is given.** The
+  original mutated the grouped dict in place; the grouping accumulator stays mutable but is now
+  scoped inside `_group_marks`, so nothing outside it sees a half-resolved row.
+- **`readiness/__init__.py` re-exports nothing.** Design §1 gave it `get_session_readiness`, but
+  CLAUDE.md's *Main Rules* forbid lazy re-exports and every caller names
+  `do_derma.readiness.session` anyway. The module keeps only the docstring saying nothing in the
+  package is whitelisted.
+- **The package reaches into six of `api.py`'s underscore-prefixed helpers** (`_get_marks`,
+  `_select_existing_fields`, `_has_doctype`, `_meaningful_location`, `_get_template_variables`,
+  `_variable_fieldname`). They are private by convention and now have a caller outside their
+  module; promoting them is a rename across a 3.8k-line file and its tests, so it is deliberately
+  **not** done in a phase whose exit is "behaviour unchanged".
+- **`_mark_variable_value` is public as `procedure.mark_variable_value`** even though only
+  `validate_marks_ready` calls it today — a method is not made private for having one caller, and
+  the alias map it applies is the contract Phase 3's chart has to render against.
+- **`api.py`'s `add_days` and `getdate` imports went with the engines.** Ruff's config ignores
+  `F401`, so nothing would have flagged them.
+- **`api.py` lost 302 lines**, from 4,153 to 3,851 — the plan estimated ~250.
+
+## Verification
+
+### Phase 1
+
+Integration (Frappe's runner, real site with `healthcare` + `do_health`):
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_readiness
+→ Ran 29 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 251 tests in 29.2s, OK (skipped=1)
+```
+
+`test_readiness.py` is the first coverage inventory and follow-up have ever had: the inventory
+engine (a mark with no product data and no tracking ignored, product data alone raising a row, the
+missing-lot and expired-product refusals, a complete row reading ready, marks sharing a lot summing
+their dose, a second lot as a second row, the tracking flag raising a row for a mark carrying
+nothing, and a category *named* Botox still forcing tracking); the follow-up engine (a plain active
+mark owing nothing, `Worse` blocking at +7 days, `Monitoring` a non-blocking review at +30, the
+photo and product/lot refusals driven by the template flags, a non-blocking next session at +90,
+and the severity sort); and the session owner (no patient meaning no readiness, every item naming
+its engine, an inventory row gaining a title and detail, `blockers` being the blocking subset, the
+enforcement mode echoed, and the ToDo downgrade in both directions — the rule that until now
+existed only in the browser). The five procedure-gate cases moved here with the function.
+
+`TestClinicalAccessGate` gains `test_inventory_readiness_is_gated` and
+`test_followup_intelligence_is_gated`, the two cases the Security section asks for: this is the
+phase that moved both engines behind their wrappers, so it is the phase that proves the wrappers
+still refuse a user without a clinical role.
+
+Lint:
+
+```
+pipx run ruff check do_derma/     → All checks passed
+pipx run ruff format do_derma/    → 1 file reformatted, then clean
+```
+
+**Not yet run:** `bench build` and Playwright — this phase changes no frontend file and no bundle,
+and the two whitelisted readiness endpoints keep their names and response shapes. No migrate is
+needed: no doctype, patch or fixture changed. Acceptance criteria 2-9 belong to Phases 2-4 and are
+unimplemented; criterion 1 is met by construction (the engines moved unedited apart from the
+splits named above) and criteria 10-11 by the full suite passing.
+
 ## Files to touch (summary)
 
 | File | Change |
 |---|---|
-| `do_derma/readiness/__init__.py` | *(new)* `get_session_readiness` |
-| `do_derma/readiness/inventory.py` | *(new)* moved from `api.py:1357-1496`, category set removed |
-| `do_derma/readiness/followup.py` | *(new)* moved from `api.py:3371-3500` |
-| `do_derma/readiness/procedure.py` | *(new)* moved from `api.py:2911-2955` |
-| `do_derma/readiness/session.py` | *(new)* the single owner |
-| `do_derma/api.py` | wrappers become thin; `complete_derma_session` consults readiness; ~250 lines removed |
+| `do_derma/readiness/__init__.py` | *(new, Phase 1)* `get_session_readiness` |
+| `do_derma/readiness/inventory.py` | *(new, Phase 1)* moved from `api.py:1357-1496`, split into three functions; `TRACKED_CATEGORIES` retires in Phase 4 |
+| `do_derma/readiness/followup.py` | *(new, Phase 1)* moved from `api.py:3371-3500`; `open_todos_for_marks` is public |
+| `do_derma/readiness/procedure.py` | *(new, Phase 1)* moved from `api.py:2911-2955` |
+| `do_derma/readiness/session.py` | *(new, Phase 1)* the single owner; `_as_item` and `_downgrade_if_todo` |
+| `do_derma/api.py` | *(Phase 1)* wrappers become thin, importing each engine inside the call; 302 lines removed. *(Phase 2)* `complete_derma_session` consults readiness |
 | `do_derma/do_derma/doctype/derma_settings/derma_settings.json` | two fields |
 | `do_derma/settings.py` | `get_readiness_settings()` — **already shipped** by spec 2 Phase 3; only its fieldname constants move if a field is renamed |
 | `do_derma/patches/add_derma_completion_override_field.py` | *(new)* |
@@ -334,7 +446,8 @@ inventory, plus the readiness panel in the config workspace showing the current 
 | `do_derma/patches.txt` | two entries |
 | `public/js/chart/DermaChart.vue` | render server readiness; delete local blocker logic |
 | `public/js/config/panels/ReadinessPanel.vue` | enforcement mode (file created by spec 2) |
-| `do_derma/tests/test_readiness.py` | *(new)* |
+| `do_derma/tests/test_readiness.py` | *(new, Phase 1)* both engines, the session owner, and the procedure gate's tests moved here with it |
+| `do_derma/tests/test_template_variables.py` | *(Phase 1)* `TestMarksReadyForProcedure` moves out |
 | `do_derma/tests/test_api.py` | `TestCompleteDermaSession` gains blocker cases |
 | `e2e/tests/readiness-blockers.spec.ts` | *(new)*, on `demo_seed` fixtures |
 
