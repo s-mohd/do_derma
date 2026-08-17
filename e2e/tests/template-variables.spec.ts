@@ -23,13 +23,28 @@ test.describe("Template variables in the studio", () => {
 	let context: ChartContext;
 	let procedure: string;
 
+	let seededVariables: string;
+
 	async function setRequiredVariables(request: APIRequestContext, fieldnames: string[]): Promise<void> {
 		await updateDoc(request, "Clinical Procedure Template", SEED.pointTemplate, {
 			custom_derma_required_fields: JSON.stringify(fieldnames),
 		});
 	}
 
+	/** The seeded list is asserted by 40 other specs, so it is restored in `afterEach`. */
+	async function setTemplateVariables(request: APIRequestContext, json: string): Promise<void> {
+		await updateDoc(request, "Clinical Procedure Template", SEED.pointTemplate, {
+			custom_derma_variables_json: json,
+		});
+	}
+
 	test.beforeEach(async ({ request }) => {
+		const [template] = await getList<{ custom_derma_variables_json?: string }>(
+			request,
+			"Clinical Procedure Template",
+			{ fields: ["custom_derma_variables_json"], filters: { name: SEED.pointTemplate }, limit: 1 }
+		);
+		seededVariables = template?.custom_derma_variables_json ?? "";
 		await setRequiredVariables(request, ["plane"]);
 		const patient = await getSeedPatient(request);
 		const encounter = await freshEncounter(request, patient);
@@ -41,6 +56,7 @@ test.describe("Template variables in the studio", () => {
 		if (context.encounter) await cleanupEncounter(request, context.encounter);
 		if (procedure) await cleanupClinicalProcedure(request, procedure);
 		await setRequiredVariables(request, []);
+		await setTemplateVariables(request, seededVariables);
 	});
 
 	async function openStudioWithProcedure(page: Page): Promise<void> {
@@ -109,6 +125,70 @@ test.describe("Template variables in the studio", () => {
 		expect(marks.map((mark) => mark.plane ?? ""), "a blank required variable blocked the mark").toEqual([
 			"",
 			"Subdermal",
+		]);
+	});
+
+	test("writes a saved mark one edit at a time, so no save collides with its predecessor", async ({
+		page,
+		request,
+	}) => {
+		test.setTimeout(240000);
+		// `lot_no` is a mark fieldname, so what the studio writes can be read back off the mark.
+		await setTemplateVariables(
+			request,
+			JSON.stringify([
+				...JSON.parse(seededVariables || "[]"),
+				{ variable_name: "Lot No", fieldname: "lot_no", label: "Lot No", type: "Data" },
+			])
+		);
+		await openStudioWithProcedure(page);
+		const canvas = page.locator(".derma-annotation-canvas canvas").first();
+		const box = (await canvas.boundingBox())!;
+		const mark = { x: box.x + box.width * 0.5, y: box.y + box.height * 0.4 };
+		await page.mouse.click(mark.x, mark.y);
+		await page.waitForTimeout(2500);
+
+		// Leave placement mode, then pick the mark back up - editing it is what writes as you type.
+		await page.getByRole("button", { name: "Stop Tagging" }).click();
+		await page.mouse.click(mark.x, mark.y);
+		await page.waitForTimeout(1500);
+		const editor = page.locator('[data-test="annotation-variable-editor"]');
+		await expect(editor, "the editor is not bound to the clicked mark").not.toHaveAttribute(
+			"data-editing-mark",
+			""
+		);
+
+		// Each keystroke writes the mark. Two writes in flight together race on the mark's
+		// timestamp and the loser comes back 417, so they have to queue. The delay widens the
+		// window a fast local site would otherwise close before the next keystroke lands.
+		let inFlight = 0;
+		let mostInFlight = 0;
+		await page.route("**/do_derma.api.save_chart_mark", async (route) => {
+			inFlight += 1;
+			mostInFlight = Math.max(mostInFlight, inFlight);
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			await route.continue();
+			inFlight -= 1;
+		});
+
+		await editor
+			.locator('[data-test="annotation-variable-row"][data-fieldname="lot_no"] input')
+			.pressSequentially("LOT-24-0917", { delay: 25 });
+		await page.waitForTimeout(8000);
+
+		expect(mostInFlight, "two writes of one mark were in flight together").toBe(1);
+		await expect(
+			page.locator(".modal-title", { hasText: "Unable to update mark" }),
+			"a mark write was refused"
+		).toHaveCount(0);
+
+		const marks = await getList<{ name: string; lot_no?: string }>(request, "Derma Chart Mark", {
+			fields: ["name", "lot_no"],
+			filters: { encounter: context.encounter },
+			limit: 10,
+		});
+		expect(marks.map((row) => row.lot_no ?? ""), "the last keystroke never reached the mark").toEqual([
+			"LOT-24-0917",
 		]);
 	});
 });

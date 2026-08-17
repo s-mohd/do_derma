@@ -405,6 +405,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // and which areas were edited this session - the untouched ones are already stored.
   const areaMarks = useRef(seedAreaMarks(marks))
   const touchedAreas = useRef(new Set())
+  // Every write to a Derma Chart Mark queues here. Two saves of one mark in flight together
+  // make the second one fail on the timestamp the first has already moved.
+  const markWrites = useRef(Promise.resolve())
   // Templates whose image failed to load this session, and the last one that did.
   const [unavailableTemplates, setUnavailableTemplates] = useState(() => new Set())
   const lastLoadedTemplateName = useRef("")
@@ -651,29 +654,37 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   function updateProcedureValue(procedureName, field, value) {
     const key = variableKey(field)
-    setProcedureValues((current) => {
-      const next = { ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }
-      if (editingMark?.procedure === procedureName) persistMarkVariables(next[procedureName])
-      return next
-    })
+    // The write stays out of the state updater: React runs an updater twice for one change
+    // - once eagerly, once while rendering - and each run would be its own save.
+    const next = { ...(procedureValues[procedureName] || {}), [key]: value }
+    setProcedureValues((current) => ({ ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }))
+    if (editingMark?.procedure === procedureName) persistMarkVariables(next)
+  }
+
+  /** Marks are saved one at a time, in the order the clinician typed them. */
+  function queueMarkWrite(write) {
+    markWrites.current = markWrites.current.then(write, write)
+    return markWrites.current
   }
 
   /**
    * The Derma Chart Mark owns a mark's variables; the canvas element caches them so badges and
    * the legend can read them without a round trip. Written in that order, never one alone.
    */
-  async function persistMarkVariables(values) {
+  function persistMarkVariables(values) {
     const target = editingMark
-    if (!target?.name) return
-    try {
-      await window.frappe.call({
-        method: "do_derma.api.save_chart_mark",
-        args: { values: { name: target.name, patient: context.patient, ...sanitizeMarkVariables(values) } },
-      })
-      embeddedRef.current?.updateMarkVariables?.({ markName: target.name, variables: values })
-    } catch (error) {
-      window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: error.message || String(error), indicator: "red" })
-    }
+    if (!target?.name) return Promise.resolve()
+    return queueMarkWrite(async () => {
+      try {
+        await window.frappe.call({
+          method: "do_derma.api.save_chart_mark",
+          args: { values: { name: target.name, patient: context.patient, ...sanitizeMarkVariables(values) } },
+        })
+        embeddedRef.current?.updateMarkVariables?.({ markName: target.name, variables: values })
+      } catch (error) {
+        window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: error.message || String(error), indicator: "red" })
+      }
+    })
   }
 
   function rememberAreaMark(partName, markName) {
@@ -693,10 +704,12 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       if (!rows) continue
       try {
         for (const markName of areaMarks.current.get(partName) || []) {
-          await window.frappe.call({
-            method: "do_derma.api.save_chart_mark",
-            args: { values: { name: markName, patient: context.patient, area_variables: rows } },
-          })
+          await queueMarkWrite(() =>
+            window.frappe.call({
+              method: "do_derma.api.save_chart_mark",
+              args: { values: { name: markName, patient: context.patient, area_variables: rows } },
+            })
+          )
         }
       } catch (error) {
         // The drawing still saves below - losing it over an area value would cost more.
