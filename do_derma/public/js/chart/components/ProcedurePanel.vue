@@ -1016,11 +1016,12 @@ async function saveConsumables(markName, rows) {
   }
 }
 
+// A refused frappe.call rejects with the jqXHR, so the reason the clinician needs is in
+// the response body rather than on the error itself.
 function consumableErrorText(err) {
-  const raw = err?._server_messages || window.frappe?._server_messages
+  const raw = err?.responseJSON?._server_messages || err?._server_messages
   try {
-    const parsed = JSON.parse(raw)
-    const first = JSON.parse(parsed[0])
+    const first = JSON.parse(JSON.parse(raw)[0])
     return htmlToPlainText(first?.message || first)
   } catch (parseError) {
     return htmlToPlainText(err?.message || "") || __("The materials could not be saved.")

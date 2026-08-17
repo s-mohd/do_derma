@@ -7,8 +7,6 @@ from typing import Any
 import frappe
 from frappe.utils import flt
 
-from do_derma import api
-
 # The stock fields do_derma owns on a consumable row. `actual_qty` and `transfer_qty` are
 # healthcare's to write during stock movement, so they are never copied.
 CONSUMABLE_FIELDS = [
@@ -37,6 +35,10 @@ def get_template_consumables(procedure_template: str | None) -> list[dict[str, A
 
 
 def has_consumable_doctypes() -> bool:
+	# Imported inside the function, not at module scope: `api` reads this package, and the
+	# Derma Chart Mark controller imports this package before `api` has ever been loaded.
+	from do_derma import api
+
 	return api._has_doctype("Clinical Procedure Template") and api._has_doctype("Clinical Procedure Item")
 
 

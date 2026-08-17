@@ -7,7 +7,6 @@ from typing import Any
 import frappe
 from frappe import _
 
-from do_derma import api
 from do_derma.consumables.defaults import has_consumable_doctypes, select_fields
 
 PRINTED_ROW_FIELDS = ["item_code", "item_name", "qty", "uom", "batch_no"]
@@ -16,6 +15,8 @@ PRINTED_ROW_FIELDS = ["item_code", "item_name", "qty", "uom", "batch_no"]
 def get_encounter_consumables(encounter: str | None) -> list[dict[str, Any]]:
 	"""One group per procedure template, in chart order, skipping procedures that
 	consumed nothing."""
+	from do_derma import api
+
 	if not encounter or not has_consumable_doctypes():
 		return []
 	if not api._has_doctype("Derma Chart Mark") or not api._has_field("Derma Chart Mark", "consumables"):

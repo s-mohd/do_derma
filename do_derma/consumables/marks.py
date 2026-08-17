@@ -8,7 +8,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from do_derma import api
 from do_derma.consumables import snapshot
 from do_derma.consumables.defaults import CONSUMABLE_FIELDS, select_fields
 
@@ -47,6 +46,8 @@ def apply_to_procedure(procedure, mark_doc) -> None:
 	The clinician's list is the more recent statement about the same procedure. A mark that
 	recorded none leaves the document exactly as healthcare wrote it.
 	"""
+	from do_derma import api
+
 	if not mark_doc or not is_available() or not api._has_field("Clinical Procedure", "items"):
 		return
 	rows = select_fields(mark_doc.get("consumables"))
@@ -66,6 +67,10 @@ def apply_to_procedure(procedure, mark_doc) -> None:
 
 
 def is_available() -> bool:
+	# Imported inside the function, not at module scope: `api` reads this package, and the
+	# Derma Chart Mark controller imports this package before `api` has ever been loaded.
+	from do_derma import api
+
 	return api._has_doctype("Clinical Procedure Item") and api._has_field("Derma Chart Mark", "consumables")
 
 
