@@ -1,7 +1,7 @@
 import { expect, Page, test } from "@playwright/test";
 import { APIRequestContext } from "@playwright/test";
 import { ChartContext, getSeedClinicalProcedure, getSeedPatient, SEED } from "../helpers/derma";
-import { callMethod } from "../helpers/frappe";
+import { callMethod, getList } from "../helpers/frappe";
 import { ChartPage } from "../pages";
 
 /** do_derma.api.get_derma_annotations, narrowed to what this spec reads. */
@@ -45,6 +45,16 @@ function markElementsByName(json: string): Map<string, MarkElement> {
 		if (name) byName.set(name, element);
 	}
 	return byName;
+}
+
+/** Every Derma Chart Mark on the procedure, so a run can tell its own marks from history. */
+async function markNames(request: APIRequestContext, procedure: string): Promise<Set<string>> {
+	const rows = await getList<{ name: string }>(request, "Derma Chart Mark", {
+		fields: ["name"],
+		filters: { clinical_procedure: procedure },
+		limit: 500,
+	});
+	return new Set(rows.map((row) => row.name));
 }
 
 /** Excalidraw is loaded dynamically after the overlay mounts, so wait on its canvas. */
@@ -231,13 +241,19 @@ test.describe("Annotation anchoring", () => {
 		await chart.open(context);
 		await chart.setSection("procedures");
 
+		// Only the marks this run drags are in scope. The seeded procedure's scene is shared,
+		// and a mark an earlier run left without an element of its own is re-stamped every
+		// session by design - asserting over the whole scene would fail on that history.
+		const before = await markNames(request, procedure);
 		await openProcedureStudio(page, chart);
 		await drawAreaMark(page);
 		await saveAndClose(page);
+		const placed = [...(await markNames(request, procedure))].filter((name) => !before.has(name));
+		expect(placed, "the dragged area was never linked to a mark").toHaveLength(1);
 
 		const [saved] = await procedureAnnotations(request, context, procedure);
-		const drawn = markElementsByName(saved.json);
-		expect(drawn.size, "the dragged area was never linked to a mark").toBeGreaterThan(0);
+		const drawn = markElementsByName(saved.json).get(placed[0]);
+		expect(drawn, `mark ${placed[0]} never reached the saved scene`).toBeDefined();
 
 		await chart.setSection("procedures");
 		await openProcedureStudio(page, chart);
@@ -246,14 +262,11 @@ test.describe("Annotation anchoring", () => {
 		await saveAndClose(page);
 
 		const [resumed] = await procedureAnnotations(request, context, procedure);
-		const after = markElementsByName(resumed.json);
+		const element = markElementsByName(resumed.json).get(placed[0]);
 
-		for (const [markName, before] of drawn) {
-			const element = after.get(markName);
-			expect(element, `mark ${markName} vanished from the resumed scene`).toBeDefined();
-			expect(Math.round(element!.width), `mark ${markName} was replaced by a generated stamp`).toBe(Math.round(before.width));
-			expect(Math.round(element!.height)).toBe(Math.round(before.height));
-			expect(element!.customData?.generated_by).toBeUndefined();
-		}
+		expect(element, `mark ${placed[0]} vanished from the resumed scene`).toBeDefined();
+		expect(Math.round(element!.width), `mark ${placed[0]} was replaced by a generated stamp`).toBe(Math.round(drawn!.width));
+		expect(Math.round(element!.height)).toBe(Math.round(drawn!.height));
+		expect(element!.customData?.generated_by).toBeUndefined();
 	});
 });
