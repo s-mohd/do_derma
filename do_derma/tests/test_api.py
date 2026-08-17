@@ -725,6 +725,112 @@ class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
 		self.assertFalse(result["encounter_submitted"])
 
 
+class TestCompleteDermaSessionBlockers(DermaTestHelpers, IntegrationTestCase):
+	"""The gate that used to live only in the browser. Warn is today's behaviour; Block
+	refuses a session with live blockers unless a reason is recorded."""
+
+	def setUp(self):
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _complete(self, enforcement, **kwargs):
+		settings = {
+			"enforcement": enforcement,
+			"todo_downgrades_blockers": True,
+			"is_configurable": True,
+		}
+		with patch("do_derma.readiness.session.get_readiness_settings", return_value=settings):
+			return api.complete_derma_session(encounter=self.encounter.name, patient=self.patient, **kwargs)
+
+	def _blocking_mark(self):
+		return self._save_mark(self.patient, encounter=self.encounter.name, status="Worse")
+
+	def test_warn_mode_completes_and_still_reports_the_blockers(self):
+		self._blocking_mark()
+
+		result = self._complete("Warn")
+
+		self.assertTrue(result["encounter_submitted"])
+		self.assertTrue(result["readiness"]["blockers"])
+
+	def test_block_mode_refuses_a_session_with_blockers_and_no_reason(self):
+		self._blocking_mark()
+
+		with self.assertRaises(frappe.ValidationError):
+			self._complete("Block")
+
+		self.assertEqual(frappe.db.get_value("Patient Encounter", self.encounter.name, "docstatus"), 0)
+
+	def test_a_refused_session_submits_no_procedure(self):
+		self._blocking_mark()
+
+		with patch.object(api, "_complete_derma_procedures_for_session") as complete_procedures:
+			with self.assertRaises(frappe.ValidationError):
+				self._complete("Block")
+
+		complete_procedures.assert_not_called()
+
+	def test_a_blank_reason_is_no_reason(self):
+		self._blocking_mark()
+
+		with self.assertRaises(frappe.ValidationError):
+			self._complete("Block", override_reason="   ")
+
+	def test_block_mode_with_a_reason_completes_and_records_it(self):
+		self._blocking_mark()
+
+		result = self._complete("Block", override_reason="Patient leaving the country tomorrow.")
+
+		self.assertTrue(result["encounter_submitted"])
+		self.assertEqual(
+			frappe.db.get_value("Patient Encounter", self.encounter.name, api.COMPLETION_OVERRIDE_FIELD),
+			"Patient leaving the country tomorrow.",
+		)
+
+	def test_the_override_comment_names_the_user_and_the_blockers(self):
+		self._blocking_mark()
+
+		blockers = self._complete("Block", override_reason="Reviewed with the consultant.")["readiness"][
+			"blockers"
+		]
+
+		comment = frappe.db.get_value(
+			"Comment",
+			{"reference_doctype": "Patient Encounter", "reference_name": self.encounter.name},
+			"content",
+		)
+		self.assertIn(frappe.session.user, comment)
+		self.assertIn("Reviewed with the consultant.", comment)
+		for blocker in blockers:
+			self.assertIn(blocker["title"], comment)
+
+	def test_a_site_without_the_field_still_records_the_reason_in_the_comment(self):
+		"""The encounter field is the queryable copy; the Comment is the one that always
+		survives, so a site whose schema has not converged loses nothing."""
+		self._blocking_mark()
+
+		real_has_field = api._has_field
+
+		def without_the_override_field(doctype, fieldname):
+			return False if fieldname == api.COMPLETION_OVERRIDE_FIELD else real_has_field(doctype, fieldname)
+
+		with patch.object(api, "_has_field", side_effect=without_the_override_field):
+			self._complete("Block", override_reason="Consultant reviewed by phone.")
+
+		comment = frappe.db.get_value(
+			"Comment",
+			{"reference_doctype": "Patient Encounter", "reference_name": self.encounter.name},
+			"content",
+		)
+		self.assertIn("Consultant reviewed by phone.", comment)
+
+	def test_block_mode_completes_a_session_with_no_blockers(self):
+		result = self._complete("Block")
+
+		self.assertTrue(result["encounter_submitted"])
+		self.assertEqual(result["readiness"]["blockers"], [])
+
+
 class TestCreateChartProcedure(DermaTestHelpers, IntegrationTestCase):
 	"""The Procedures tab's New Procedure button is this endpoint's first caller, so the
 	contract it now depends on is pinned here rather than assumed."""

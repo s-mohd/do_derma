@@ -6,6 +6,9 @@
  "field_order": [
   "assessment_section",
   "structured_assessment_fields",
+  "session_completion_section",
+  "blocker_enforcement",
+  "todo_downgrades_blockers",
   "features_section",
   "enable_whatsapp_consent",
   "enable_lab_cases",
@@ -23,6 +26,26 @@
    "fieldtype": "Table",
    "label": "Structured Assessment Fields",
    "options": "Derma Structured Field"
+  },
+  {
+   "fieldname": "session_completion_section",
+   "fieldtype": "Section Break",
+   "label": "Session Completion"
+  },
+  {
+   "default": "Warn",
+   "description": "Warn lets a session with unresolved blockers be completed. Block refuses it unless a reason is recorded on the encounter.",
+   "fieldname": "blocker_enforcement",
+   "fieldtype": "Select",
+   "label": "Blocker Enforcement",
+   "options": "Warn\nBlock"
+  },
+  {
+   "default": "1",
+   "description": "An open follow-up ToDo turns a blocker into a warning.",
+   "fieldname": "todo_downgrades_blockers",
+   "fieldtype": "Check",
+   "label": "An Open ToDo Downgrades A Blocker"
   },
   {
    "description": "Features that are not finished. Leave off unless the integration behind them is configured.",

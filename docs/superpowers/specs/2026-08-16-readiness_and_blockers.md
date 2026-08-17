@@ -1,9 +1,11 @@
 # Readiness With One Owner, Enforced By The Server
 
 Date: 2026-08-16
-Status: **Phase 1 shipped** (2026-08-17), Phases 2-4 draft. Phase 1 deviated on which direction
+Status: **Phases 1-2 shipped** (2026-08-17), Phases 3-4 draft. Phase 1 deviated on which direction
 the new package imports in, on `get_session_readiness` normalising the two engines' item shapes,
-and on where the procedure gate's tests came from — see
+and on where the procedure gate's tests came from; Phase 2 deviated on both schema changes
+arriving without a patch, and on a Frappe single storing nothing for a field until something
+writes it — which needed a seeder the plan does not mention — see
 [Reconciliation](#reconciliation--what-changed-vs-the-plan) and [Verification](#verification).
 
 ## Goal
@@ -292,8 +294,9 @@ first tests these engines have ever had.
 *Exit:* `bench run-tests --module do_derma.tests.test_readiness` passes and the chart is byte-for-byte
 unchanged in behaviour.
 
-**Phase 2 — the server decides.** Settings fields, `complete_derma_session` consults readiness,
-override reason field and Comment. Default Warn, so nothing changes for existing sites.
+**Phase 2 — the server decides.** ✅ Shipped 2026-08-17. Settings fields, `complete_derma_session`
+consults readiness, override reason field and Comment. Default Warn, so nothing changes for
+existing sites.
 *Exit:* a direct API call cannot complete a blocked session on a site set to Block.
 
 **Phase 3 — one owner in the UI.** The chart renders the server's list; `sessionBlockers`,
@@ -386,6 +389,63 @@ inventory, plus the readiness panel in the config workspace showing the current 
   `F401`, so nothing would have flagged them.
 - **`api.py` lost 302 lines**, from 4,153 to 3,851 — the plan estimated ~250.
 
+### Phase 2 (2026-08-17)
+
+- **The two settings fields ship in `derma_settings.json`, not in a patch.** Design §3 said "added
+  by patch to the existing single doctype", which is how a *foreign* doctype gains a field. `Derma
+  Settings` is do_derma's own, so `bench migrate` syncs the JSON and a patch would be a second
+  owner of the same schema.
+- **`custom_derma_completion_override_reason` is declared in `do_derma/schema.py`, not by a patch.**
+  Design §6 asked for a patch modelled on `add_derma_annotation_title_field.py`, and one was
+  written and applied — then deleted in favour of a row in `DERMA_CUSTOM_FIELDS`. `schema.py` is
+  the single owner of the custom fields do_derma puts on other apps' doctypes, and it runs from
+  `after_migrate` rather than the Patch Log, so a site whose patches are recorded as applied but
+  whose field is missing converges anyway. A patch here would have been a second owner that never
+  re-converges. The field carries `read_only` and `no_copy` beyond the design's "Small Text,
+  module `Do Derma`": nothing but the endpoint writes it, and it must not ride along when an
+  encounter is duplicated.
+- **A Frappe single stores nothing for a field until something writes one**, so the two new
+  settings fields' JSON defaults never reach an existing site — and an unwritten
+  `todo_downgrades_blockers` read as `0`, which is *stricter* than today and the opposite of what
+  the Decisions section promises. Two changes fix it: `get_readiness_settings` treats `None` as the
+  default rather than falsy, and `settings.ensure_readiness_defaults()` writes both defaults from
+  `after_migrate` so the desk form shows the mode the server applies. It never overwrites a value
+  a clinic has stored.
+- **`ensure_readiness_defaults` runs *before* `ensure_derma_settings_defaults` in
+  `install.after_migrate`, in its own `try`.** Saving the singleton — which the structured-field
+  seeder does — writes `0` for every Check it has never stored, which would hide an unset flag from
+  the readiness seeder on exactly the sites it exists for. Separate `try` blocks so a failure in
+  one does not skip the other.
+- **The gate is two functions, `_gate_session_completion` and `_record_completion_override`.** The
+  design sketched four lines inline in `complete_derma_session`, which is already a 50-line
+  function doing five things. The gate decides and the recorder writes; neither is whitelisted.
+- **`_record_completion_override` takes the encounter *name*, not the doc.** Design §4 passed
+  `encounter_doc`, but that doc is loaded 30 lines later, after the procedures and the invoice —
+  loading it early only to submit a different instance later is two readers of one row. The field
+  is written with `frappe.db.set_value` and the Comment through a doc loaded for that one call.
+- **`ENFORCEMENT_BLOCK` moved into `do_derma/settings.py`** beside `ENFORCEMENT_MODES`, which was
+  already a literal tuple there, and the comparison itself became
+  `readiness.session.is_completion_blocked(readiness)`. The gate reads only the readiness result's
+  own keys, so the decision belongs next to the state that owns them; `api.py` asks the question
+  rather than knowing what the answer is made of.
+- **A whitespace-only override reason is refused,** matching the Open Question's default of
+  "non-empty after strip", and pinned by `test_a_blank_reason_is_no_reason`.
+- **`get_config_readiness`'s docstring was corrected.** It claimed "nothing on the server refuses a
+  blocked session", which this phase makes false. The warning it returns still fires only on a site
+  missing the fields, where the mode is not choosable and stays Warn.
+- **`readiness` rides in the response in both modes**, so a Warn-mode client can show what it
+  proceeded past — as designed, and now covered by
+  `test_warn_mode_completes_and_still_reports_the_blockers`.
+- **The encounter field is the queryable copy; the Comment is the record that always survives.**
+  `_record_completion_override` writes the field behind `_has_field`, and a site whose schema has
+  not converged would otherwise drop the reason silently — so the Comment is written
+  unconditionally and `test_a_site_without_the_field_still_records_the_reason_in_the_comment`
+  pins that branch.
+- **The blocker cases live in a new `TestCompleteDermaSessionBlockers`,** not inside
+  `TestCompleteDermaSession`. The two existing tests carry no blockers and no settings patch; a
+  shared `setUp` making a patient, an encounter and a mark for them would have changed what they
+  test. Criterion 11 is met by leaving them untouched.
+
 ## Verification
 
 ### Phase 1
@@ -429,6 +489,62 @@ needed: no doctype, patch or fixture changed. Acceptance criteria 2-9 belong to 
 unimplemented; criterion 1 is met by construction (the engines moved unedited apart from the
 splits named above) and criteria 10-11 by the full suite passing.
 
+### Phase 2
+
+Migrate (two schema changes: the settings fields in the doctype JSON, and the encounter custom
+field through `ensure_derma_schema`):
+
+```
+bench --site dermaone.localhost migrate      → OK
+bench --site dermaone.localhost execute do_derma.settings.get_readiness_settings
+→ {"enforcement": "Warn", "todo_downgrades_blockers": true, "is_configurable": true}
+```
+
+That last line is the point of the seeder: before it, the same call answered
+`"todo_downgrades_blockers": false` on this site, because the single had never stored the field.
+
+Integration:
+
+```
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_api
+→ Ran 55 tests, OK
+bench --site dermaone.localhost run-tests --module do_derma.tests.test_settings
+→ Ran 16 tests, OK
+bench --site dermaone.localhost run-tests --app do_derma
+→ Ran 263 tests in 33.8s, OK (skipped=1)
+```
+
+`test_settings.py` gains four cases for the seeding and the never-stored read: a field the single
+has never written reads as the default, a clinic that turned the downgrade off keeps it off,
+seeding fills both fields, and seeding never overwrites a clinic's choice.
+
+`TestCompleteDermaSessionBlockers` is the eight new cases, each patching
+`do_derma.readiness.session.get_readiness_settings` so the site's own mode cannot decide the
+result: Warn completes and still reports the blockers (criterion 4); Block with a live blocker and
+no reason throws and leaves the encounter at `docstatus 0` (criterion 2); the refused call never
+reaches `_complete_derma_procedures_for_session`, proving nothing is submitted first; a
+whitespace-only reason is no reason; Block with a reason completes and the reason is on
+`custom_derma_completion_override_reason` (criterion 3); the Comment names `frappe.session.user`,
+the reason and **every blocker's title**; a site missing the field still records the reason in the
+Comment; and Block with no blockers completes untouched. Criterion 5 follows from the gate living
+inside the endpoint — the tests call `api.complete_derma_session` directly, which is the bypass
+path the chart used to be the only guard against. Criterion 8 is pinned by `test_settings.py`'s
+`test_an_unreadable_singleton_falls_back_to_warn`, and now also by
+`test_a_field_the_singleton_has_never_stored_reads_as_the_default`.
+
+Criterion 6 was proved in Phase 1 (`test_readiness.py`'s two ToDo cases) and is unchanged here.
+
+Lint:
+
+```
+pipx run ruff check do_derma/     → All checks passed
+pipx run ruff format do_derma/    → 88 files left unchanged
+```
+
+**Not yet run:** `bench build` and Playwright — Phase 2 touches no frontend file. The chart still
+runs its own client-side gate, so a Block-mode site refuses twice (browser first, server second)
+until Phase 3 deletes the browser's copy. Criteria 7 and 9 belong to Phases 3-4.
+
 ## Files to touch (summary)
 
 | File | Change |
@@ -439,16 +555,19 @@ splits named above) and criteria 10-11 by the full suite passing.
 | `do_derma/readiness/procedure.py` | *(new, Phase 1)* moved from `api.py:2911-2955` |
 | `do_derma/readiness/session.py` | *(new, Phase 1)* the single owner; `_as_item` and `_downgrade_if_todo` |
 | `do_derma/api.py` | *(Phase 1)* wrappers become thin, importing each engine inside the call; 302 lines removed. *(Phase 2)* `complete_derma_session` consults readiness |
-| `do_derma/do_derma/doctype/derma_settings/derma_settings.json` | two fields |
-| `do_derma/settings.py` | `get_readiness_settings()` — **already shipped** by spec 2 Phase 3; only its fieldname constants move if a field is renamed |
-| `do_derma/patches/add_derma_completion_override_field.py` | *(new)* |
+| `do_derma/do_derma/doctype/derma_settings/derma_settings.json` | *(Phase 2)* a Session Completion section with `blocker_enforcement` and `todo_downgrades_blockers` |
+| `do_derma/settings.py` | `get_readiness_settings()` — **already shipped** by spec 2 Phase 3; *(Phase 2)* gained `ENFORCEMENT_WARN` / `ENFORCEMENT_BLOCK`, the never-stored fallback, and `ensure_readiness_defaults()` |
+| `do_derma/install.py` | *(Phase 2)* seeds the readiness defaults before the structured-field ones, each in its own `try` |
+| `do_derma/schema.py` | *(Phase 2)* `COMPLETION_OVERRIDE_FIELD` on `Patient Encounter` — declared here rather than by patch, so it re-converges on every migrate |
+| `do_derma/readiness/session.py` | *(Phase 2)* `is_completion_blocked()` |
 | `do_derma/patches/set_product_tracking_for_derma_categories.py` | *(new)* |
-| `do_derma/patches.txt` | two entries |
+| `do_derma/patches.txt` | *(Phase 4)* the product-tracking migration |
 | `public/js/chart/DermaChart.vue` | render server readiness; delete local blocker logic |
 | `public/js/config/panels/ReadinessPanel.vue` | enforcement mode (file created by spec 2) |
 | `do_derma/tests/test_readiness.py` | *(new, Phase 1)* both engines, the session owner, and the procedure gate's tests moved here with it |
 | `do_derma/tests/test_template_variables.py` | *(Phase 1)* `TestMarksReadyForProcedure` moves out |
-| `do_derma/tests/test_api.py` | `TestCompleteDermaSession` gains blocker cases |
+| `do_derma/tests/test_api.py` | *(Phase 2)* `TestCompleteDermaSessionBlockers`, eight cases |
+| `do_derma/tests/test_settings.py` | *(Phase 2)* the never-stored read and `TestReadinessDefaultsSeeding` |
 | `e2e/tests/readiness-blockers.spec.ts` | *(new)*, on `demo_seed` fixtures |
 
 `bench build --app do_derma` is **required** (`DermaChart.vue` changes). No bundle filename

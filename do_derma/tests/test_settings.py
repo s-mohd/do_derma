@@ -123,6 +123,46 @@ class TestReadinessSettings(SettingsTestBase):
 		self.assertTrue(readiness["todo_downgrades_blockers"])
 		self.assertTrue(readiness["is_configurable"])
 
+	def test_a_field_the_singleton_has_never_stored_reads_as_the_default(self):
+		"""A single carries no value for a field until something writes one, so an
+		unwritten downgrade flag must not read as off - that is stricter than today."""
+		doc = FakeSettings({"blocker_enforcement": None, "todo_downgrades_blockers": None})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			readiness = settings.get_readiness_settings()
+
+		self.assertEqual(readiness["enforcement"], "Warn")
+		self.assertTrue(readiness["todo_downgrades_blockers"])
+
+	def test_a_clinic_that_turned_the_downgrade_off_keeps_it_off(self):
+		doc = FakeSettings({"blocker_enforcement": "Warn", "todo_downgrades_blockers": 0})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			self.assertFalse(settings.get_readiness_settings()["todo_downgrades_blockers"])
+
+
+class TestReadinessDefaultsSeeding(SettingsTestBase):
+	"""after_migrate writes the defaults a site upgrading into these fields has never
+	stored, so the desk form shows the mode the server is actually applying."""
+
+	def test_seeding_fills_both_fields(self):
+		settings.ensure_readiness_defaults()
+
+		self.assertIsNotNone(
+			frappe.db.get_single_value(settings.SETTINGS_DOCTYPE, settings.ENFORCEMENT_FIELD)
+		)
+		self.assertIsNotNone(
+			frappe.db.get_single_value(settings.SETTINGS_DOCTYPE, settings.TODO_DOWNGRADE_FIELD)
+		)
+
+	def test_seeding_never_overwrites_a_clinic_choice(self):
+		self._set_toggle(settings.ENFORCEMENT_FIELD, "Block")
+		self._set_toggle(settings.TODO_DOWNGRADE_FIELD, 0)
+
+		settings.ensure_readiness_defaults()
+
+		readiness = settings.get_readiness_settings()
+		self.assertEqual(readiness["enforcement"], "Block")
+		self.assertFalse(readiness["todo_downgrades_blockers"])
+
 
 class TestChartPayloadCarriesToggles(SettingsTestBase):
 	def test_chart_payload_carries_every_toggle(self):

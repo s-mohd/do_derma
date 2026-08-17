@@ -15,6 +15,8 @@ from frappe import _
 DERMA_MODULE = "Do Derma"
 ASSESSMENT_MODE_OPTIONS = "\nStructured\nSOAP"
 SOAP_ONLY = "eval:doc.custom_derma_assessment_mode=='SOAP'"
+# Written when a clinic set to Block completes a session past its readiness blockers.
+COMPLETION_OVERRIDE_FIELD = "custom_derma_completion_override_reason"
 
 DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 	"Patient Encounter": [
@@ -61,6 +63,15 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"label": "Plan",
 			"insert_after": "custom_derma_soap_assessment",
 			"depends_on": SOAP_ONLY,
+		},
+		{
+			"fieldname": COMPLETION_OVERRIDE_FIELD,
+			"fieldtype": "Small Text",
+			"label": "Completion Override Reason",
+			"insert_after": "custom_derma_soap_plan",
+			"read_only": 1,
+			"no_copy": 1,
+			"description": "Why this session was completed with readiness blockers unresolved.",
 		},
 	],
 	# do_health owns this child table; do_derma adds the column that carries the badge legend

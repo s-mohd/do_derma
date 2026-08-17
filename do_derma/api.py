@@ -12,6 +12,7 @@ from frappe.utils.file_manager import save_file
 
 from do_derma import assessment
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
+from do_derma.schema import COMPLETION_OVERRIDE_FIELD
 from do_derma.settings import FEATURE_TOGGLES, get_feature_toggles, get_readiness_settings
 
 DERMA_FINDING_FIELDS = [
@@ -709,9 +710,9 @@ def _count_templates_per_category() -> dict[str, int]:
 
 
 def get_config_readiness() -> dict[str, Any]:
-	"""How completion is gated today, plus the unfinished features. Read-only: the mode
-	is not editable until the settings fields exist, and until they do nothing on the
-	server refuses a blocked session - which is what the warning says."""
+	"""How completion is gated today, plus the unfinished features. Read-only: the mode is
+	edited on the Derma Settings singleton. A site missing the fields cannot choose a mode,
+	so it stays on Warn - which is what the warning says."""
 	readiness = get_readiness_settings()
 	toggles = get_feature_toggles()
 	return {
@@ -2997,16 +2998,22 @@ def complete_derma_session(
 	appointment: str | None = None,
 	patient: str | None = None,
 	submit_invoice: int = 0,
+	override_reason: str | None = None,
 ):
 	"""Finalize a derma visit: complete draft procedures, sync billables, raise/update
 	the patient invoice, and submit the encounter."""
 	_ensure_clinical_access()
+	from do_derma.readiness.session import get_session_readiness
+
 	context = _get_visit_context(patient=patient, appointment=appointment, encounter=encounter)
 	appointment_id = context["appointment_id"]
 	encounter_id = context["encounter_id"]
 	patient_id = context["patient_id"]
 	if not encounter_id:
 		frappe.throw(_("No encounter found for this session."))
+
+	readiness = get_session_readiness(patient_id, appointment=appointment_id, encounter=encounter_id)
+	_gate_session_completion(readiness, encounter_id, override_reason)
 
 	procedure_completion = _complete_derma_procedures_for_session(patient_id, encounter_id)
 
@@ -3040,7 +3047,42 @@ def complete_derma_session(
 		"procedures_failed": procedure_completion["failed"],
 		"billing_sync": billing_sync,
 		"invoice": invoice,
+		"readiness": readiness,
 	}
+
+
+def _gate_session_completion(readiness: dict[str, Any], encounter: str, override_reason: str | None) -> None:
+	"""Refuse a session the clinic's settings say is not ready, unless the clinician says
+	why. Runs before anything is submitted, so a refused session submits nothing."""
+	from do_derma.readiness.session import is_completion_blocked
+
+	if not is_completion_blocked(readiness):
+		return
+
+	blockers = readiness["blockers"]
+	reason = (override_reason or "").strip()
+	if not reason:
+		frappe.throw(
+			_("{0} blockers must be resolved, or the session completed with a reason.").format(len(blockers))
+		)
+	_record_completion_override(encounter, reason, blockers)
+
+
+def _record_completion_override(encounter: str, reason: str, blockers: list[dict[str, Any]]) -> None:
+	"""Why a blocked session was completed anyway: on the encounter, and in its timeline.
+
+	The Comment is the record that always survives - the field is written only on a site
+	whose schema has converged, which `ensure_derma_schema` does on every migrate."""
+	if _has_field("Patient Encounter", COMPLETION_OVERRIDE_FIELD):
+		frappe.db.set_value("Patient Encounter", encounter, COMPLETION_OVERRIDE_FIELD, reason)
+
+	titles = [str(blocker.get("title") or _("Readiness")) for blocker in blockers]
+	frappe.get_doc("Patient Encounter", encounter).add_comment(
+		"Comment",
+		_("Session completed by {0} with {1} unresolved blockers ({2}). Reason: {3}").format(
+			frappe.session.user, len(titles), ", ".join(titles), reason
+		),
+	)
 
 
 def _ensure_body_template_allowed(

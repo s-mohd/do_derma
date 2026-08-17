@@ -8,7 +8,7 @@ from frappe import _
 
 from do_derma import api
 from do_derma.readiness import followup, inventory
-from do_derma.settings import get_readiness_settings
+from do_derma.settings import ENFORCEMENT_BLOCK, get_readiness_settings
 
 
 def get_session_readiness(
@@ -29,6 +29,11 @@ def get_session_readiness(
 		"blockers": [item for item in items if item.get("blocking")],
 		"enforcement": settings["enforcement"],
 	}
+
+
+def is_completion_blocked(readiness: dict[str, Any]) -> bool:
+	"""Whether the clinic's settings refuse to complete this session as it stands."""
+	return bool(readiness["blockers"]) and readiness["enforcement"] == ENFORCEMENT_BLOCK
 
 
 def _as_item(row: dict[str, Any], source: str) -> dict[str, Any]:
