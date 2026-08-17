@@ -27,8 +27,8 @@ SOAP_FIELDS = (
 	"custom_derma_soap_plan",
 )
 
-# The Structured Assessment defaults, per CONTEXT.md. Seeded into Derma Settings
-# once; a clinic that edits the list keeps its edit across migrates.
+# The Structured Assessment defaults. Seeded into Derma Settings once; a clinic
+# that edits the list keeps its edit across migrates.
 DEFAULT_STRUCTURED_FIELDS = (
 	"symptoms",
 	"custom_symptom_duration",

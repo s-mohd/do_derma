@@ -4,12 +4,10 @@ Chart has something real in it. Run via::
     bench --site dermaone.localhost execute do_derma.demo_seed.setup_demo_data
     bench --site dermaone.localhost execute do_derma.demo_seed.teardown_demo_data
 
-This is **not** the Playwright fixture set. ``e2e_seed.py`` is deliberately
-minimal because 40 specs assert exact counts against it; anything added there to
-make manual testing nicer breaks them. Everything here is prefixed ``DEMO `` so
-the two sets can never be confused, and ``teardown_demo_data`` removes all of it.
+Everything here is prefixed ``DEMO `` so seeded rows can never be confused with a
+clinic's own data, and ``teardown_demo_data`` removes all of it.
 
-Two properties, mirroring ``e2e_seed.py`` and ``patches.txt``:
+Two properties, mirroring ``patches.txt``:
 
 1. **Idempotent.** Every helper is check-then-act, so re-running creates no
    duplicates and repairs a half-finished run.
@@ -28,13 +26,14 @@ from __future__ import annotations
 
 import base64
 import json
+import struct
+import zlib
 from typing import Any
 
 import frappe
 from frappe.utils import add_days, nowdate, nowtime
 
 import do_derma.api as api
-from do_derma.e2e_seed import solid_png
 
 DEMO_PREFIX = "DEMO "
 
@@ -844,6 +843,33 @@ def _existing_annotation(parenttype: str, parent: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Files and teardown
 # ---------------------------------------------------------------------------
+
+
+def solid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+	"""Minimal single-colour PNG encoder.
+
+	Keeps a real image out of the repo. Excalidraw needs an image with genuine
+	dimensions to scale the body template against, so a 1x1 pixel will not do.
+	"""
+
+	row = b"\x00" + bytes(rgb) * width
+	raw = row * height
+
+	def chunk(tag: bytes, payload: bytes) -> bytes:
+		return (
+			struct.pack(">I", len(payload))
+			+ tag
+			+ payload
+			+ struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+		)
+
+	header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+	return (
+		b"\x89PNG\r\n\x1a\n"
+		+ chunk(b"IHDR", header)
+		+ chunk(b"IDAT", zlib.compress(raw, 9))
+		+ chunk(b"IEND", b"")
+	)
 
 
 def _ensure_png(filename: str, width: int, height: int, rgb: tuple[int, int, int]) -> str | None:

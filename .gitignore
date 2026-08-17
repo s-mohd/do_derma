@@ -11,11 +11,3 @@ __pycache__/
 *.swp
 tags
 .claude/
-.superpowers/
-.playwright-mcp/
-
-# Playwright E2E
-e2e/.auth/
-playwright-report/
-test-results/
-.playwright/
