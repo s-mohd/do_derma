@@ -693,6 +693,15 @@ class TestProcedureOwnedConsumables(
 		self.assertTrue(self.procedure.consume_stock)
 		self.assertEqual([row["item_code"] for row in result["consumables"]], [self.item])
 
+	def test_emptying_the_list_stops_the_procedure_consuming_stock(self):
+		api.save_consumables("Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}])
+
+		api.save_consumables("Clinical Procedure", self.procedure.name, [])
+
+		self.procedure.reload()
+		self.assertEqual(self.procedure.items, [])
+		self.assertFalse(self.procedure.consume_stock)
+
 	def test_a_saved_row_arrives_in_the_chart_payload(self):
 		api.save_consumables("Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}])
 

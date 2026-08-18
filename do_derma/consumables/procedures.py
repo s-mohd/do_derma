@@ -57,8 +57,10 @@ def save(procedure_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 	procedure_doc = frappe.get_doc("Clinical Procedure", procedure_name)
 	_ensure_editable(procedure_doc)
 	procedure_doc.set("items", rows)
-	if rows and api._has_field("Clinical Procedure", "consume_stock"):
-		procedure_doc.consume_stock = 1
+	if api._has_field("Clinical Procedure", "consume_stock"):
+		# The list and the flag are one statement about this procedure, so a list the
+		# clinician emptied must not leave the flag saying stock still moves.
+		procedure_doc.consume_stock = 1 if rows else 0
 	procedure_doc.save(ignore_permissions=True)
 	return get_payload(procedure_doc)
 
