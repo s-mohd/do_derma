@@ -15,6 +15,9 @@ SOURCE = "inventory"
 # What produced a row's quantity, so the chart can point the clinician at the field to fix.
 DOSE_CONTRIBUTOR = "dose"
 CONSUMABLE_CONTRIBUTOR = "consumable"
+# Which list on a group names the documents that asked for it.
+MARK_CARRIERS = "marks"
+PROCEDURE_CARRIERS = "procedures"
 PRODUCT_FIELDS = ["product_item", "product_name", "dose", "dose_unit", "lot_no", "expiry_date"]
 TEMPLATE_FIELDS = [
 	"name",
@@ -25,20 +28,23 @@ TEMPLATE_FIELDS = [
 ]
 
 
-def build(marks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build(
+	marks: list[dict[str, Any]], procedures: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
 	"""One row per product/lot/expiry/unit group, each saying whether it blocks."""
-	if not marks:
+	if not marks and not procedures:
 		return []
 
-	rows = [_resolve_row_status(row) for row in _group_marks(marks)]
+	rows = [_resolve_row_status(row) for row in _group_consumption(marks, procedures or [])]
 	return sorted(rows, key=lambda row: (row["blocking"] is False, row.get("product_name") or ""))
 
 
-def _group_marks(marks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-	"""The marks that consume product, gathered by what they consume.
+def _group_consumption(marks: list[dict[str, Any]], procedures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+	"""Everything that consumes product, gathered by what it consumes.
 
 	A dose field and a consumable row for the same item and stock identity are one
-	demand on the clinic, so they land in one group and their quantities add.
+	demand on the clinic, so they land in one group and their quantities add. A procedure
+	no annotation covers carries its consumables itself and has no dose of its own.
 	"""
 	templates = templates_for_marks(marks, TEMPLATE_FIELDS)
 	grouped: dict[str, dict[str, Any]] = {}
@@ -46,6 +52,9 @@ def _group_marks(marks: list[dict[str, Any]]) -> list[dict[str, Any]]:
 		_add_dose(grouped, mark, templates.get(mark.get("procedure_template")) or {})
 		for consumable in mark.get("consumables") or []:
 			_add_consumable(grouped, mark, consumable)
+	for procedure in procedures:
+		for consumable in procedure.get("consumables") or []:
+			_add_consumable(grouped, procedure, consumable, PROCEDURE_CARRIERS)
 	return list(grouped.values())
 
 
@@ -69,7 +78,10 @@ def _add_dose(grouped: dict[str, dict[str, Any]], mark: dict[str, Any], template
 
 
 def _add_consumable(
-	grouped: dict[str, dict[str, Any]], mark: dict[str, Any], consumable: dict[str, Any]
+	grouped: dict[str, dict[str, Any]],
+	carrier: dict[str, Any],
+	consumable: dict[str, Any],
+	carrier_field: str = MARK_CARRIERS,
 ) -> None:
 	item_code = consumable.get("item_code")
 	if not item_code:
@@ -85,14 +97,17 @@ def _add_consumable(
 	else:
 		# Recorded in a unit the item does not convert: the balance cannot be compared.
 		row["is_stock_qty_known"] = False
-	_record_contribution(row, mark, CONSUMABLE_CONTRIBUTOR)
+	_record_contribution(row, carrier, CONSUMABLE_CONTRIBUTOR, carrier_field)
 
 
-def _record_contribution(row: dict[str, Any], mark: dict[str, Any], contributor: str) -> None:
+def _record_contribution(
+	row: dict[str, Any], carrier: dict[str, Any], contributor: str, carrier_field: str = MARK_CARRIERS
+) -> None:
 	if contributor not in row["contributors"]:
 		row["contributors"].append(contributor)
-	if mark.get("name") and mark.get("name") not in row["marks"]:
-		row["marks"].append(mark.get("name"))
+	name = carrier.get("name")
+	if name and name not in row[carrier_field]:
+		row[carrier_field].append(name)
 
 
 def _new_dose_group(
@@ -159,6 +174,7 @@ def _new_group(
 		"is_stock_qty_known": True,
 		"contributors": [],
 		"marks": [],
+		"procedures": [],
 		"message": "",
 	}
 
@@ -172,10 +188,22 @@ def _resolve_row_status(row: dict[str, Any]) -> dict[str, Any]:
 		**row,
 		"available_qty": available_qty,
 		"blocking": bool(blockers),
+		"is_hard_blocking": _is_batch_missing(row),
 		"status": "blocked" if blockers else ("warning" if messages else "ready"),
 		"severity": "high" if blockers else ("medium" if messages else "low"),
 		"message": " ".join(messages) if messages else _("Ready for product consumption review."),
 	}
+
+
+def _is_batch_missing(row: dict[str, Any]) -> bool:
+	"""A consumable of a batch-tracked item with no batch, which stock can never post.
+
+	No completion reason makes this passable, so completion refuses it outright rather
+	than letting the clinic override its way into a stock entry ERPNext will reject.
+	"""
+	if CONSUMABLE_CONTRIBUTOR not in row["contributors"]:
+		return False
+	return bool(row.get("is_lot_required")) and not row.get("lot_no")
 
 
 def _blocking_messages(row: dict[str, Any], available_qty: float | None) -> list[str]:

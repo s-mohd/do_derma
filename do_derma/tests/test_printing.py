@@ -315,8 +315,8 @@ class TestConsumablesPrintBlock(ConsumableHelpers, ConfigTemplateHelpers, Printi
 		batch = self._make_batch(item)
 		template = self._make_consuming_template([])
 		mark = self._make_mark(procedure_template=template, encounter=self.encounter.name)
-		api.save_mark_consumables(
-			mark.name, [{"item_code": item, "qty": 3, "uom": "Nos", "batch_no": batch}]
+		api.save_consumables(
+			"Derma Chart Mark", mark.name, [{"item_code": item, "qty": 3, "uom": "Nos", "batch_no": batch}]
 		)
 
 		html = render.derma_consumables_html(self.encounter)

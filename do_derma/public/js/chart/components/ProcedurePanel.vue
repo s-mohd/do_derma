@@ -283,7 +283,7 @@
                     <span>{{ __("Insurance") }}</span>
                   </span>
                   <button
-                    v-if="hasConsumablePanel(row)"
+                    v-if="consumableOwners(row).length"
                     type="button"
                     class="detail-chip detail-chip-button"
                     data-test="procedure-toggle-consumables"
@@ -422,18 +422,19 @@
             </tr>
             <tr v-if="isConsumablesOpen(row)" class="consumables-row" data-test="procedure-consumables-row">
               <td colspan="8">
-                <MarkConsumables
-                  v-for="mark in marksOf(row)"
-                  :key="mark.name"
-                  :mark-name="mark.name"
-                  :mark-label="markConsumablesLabel(mark)"
-                  :rows="consumablesOf(mark).consumables"
-                  :removed="consumablesOf(mark).removed_consumables"
-                  :defaults="consumablesOf(mark).default_consumables"
-                  :read-only="readOnly"
-                  :saving="!!savingConsumables[mark.name]"
-                  :error="consumableErrors[mark.name] || ''"
-                  @change="saveConsumables(mark.name, $event)"
+                <ConsumablesEditor
+                  v-for="owner in consumableOwners(row)"
+                  :key="owner.name"
+                  :owner-doctype="owner.doctype"
+                  :owner-name="owner.name"
+                  :label="owner.label"
+                  :rows="consumablesOf(owner.source).consumables"
+                  :removed="consumablesOf(owner.source).removed_consumables"
+                  :defaults="consumablesOf(owner.source).default_consumables"
+                  :read-only="readOnly || !owner.editable"
+                  :saving="!!savingConsumables[owner.name]"
+                  :error="consumableErrors[owner.name] || ''"
+                  @change="saveConsumables(owner, $event)"
                 />
               </td>
             </tr>
@@ -475,7 +476,7 @@
 
 <script setup>
 import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
-import MarkConsumables from "./consumables/MarkConsumables.vue"
+import ConsumablesEditor from "./consumables/ConsumablesEditor.vue"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -952,14 +953,14 @@ function displayPrice(row) {
 // Consumables belong to the mark, not to the procedure row that shows them. The server
 // decides what counts as a deviation from the template; nothing here recomputes it.
 const expandedConsumables = ref({})
-const consumablesByMark = ref({})
+const consumablesByOwner = ref({})
 const consumableErrors = ref({})
 const savingConsumables = ref({})
 
 watch(
   () => props.groups,
   () => {
-    consumablesByMark.value = {}
+    consumablesByOwner.value = {}
     consumableErrors.value = {}
   }
 )
@@ -968,22 +969,46 @@ function marksOf(row) {
   return row?.derma_marks || []
 }
 
-function consumablesOf(mark) {
+function consumablesOf(owner) {
   return (
-    consumablesByMark.value[mark?.name] || {
-      consumables: mark?.consumables || [],
-      removed_consumables: mark?.removed_consumables || [],
-      default_consumables: mark?.default_consumables || [],
+    consumablesByOwner.value[owner?.name] || {
+      consumables: owner?.consumables || [],
+      removed_consumables: owner?.removed_consumables || [],
+      default_consumables: owner?.default_consumables || [],
     }
   )
 }
 
-function consumableCount(row) {
-  return marksOf(row).reduce((total, mark) => total + consumablesOf(mark).consumables.length, 0)
+// A procedure records its materials on its annotations when it has any, and on itself when
+// it has none, so exactly one owner is ever on screen for a row.
+function consumableOwners(row) {
+  const marks = marksOf(row)
+  if (marks.length) {
+    return marks.map((mark) => ({
+      doctype: "Derma Chart Mark",
+      name: mark.name,
+      label: markConsumablesLabel(mark),
+      source: mark,
+      editable: true,
+    }))
+  }
+  if (!isPersistedRow(row)) return []
+  return [
+    {
+      doctype: "Clinical Procedure",
+      name: row.name,
+      label: row.title || row.procedure_template || "",
+      source: row,
+      editable: isEditable(row),
+    },
+  ]
 }
 
-function hasConsumablePanel(row) {
-  return marksOf(row).length > 0
+function consumableCount(row) {
+  return consumableOwners(row).reduce(
+    (total, owner) => total + consumablesOf(owner.source).consumables.length,
+    0
+  )
 }
 
 function isConsumablesOpen(row) {
@@ -1001,18 +1026,25 @@ function markConsumablesLabel(mark) {
   return mark.region_label || mark.body_region || mark.category || mark.name
 }
 
-async function saveConsumables(markName, rows) {
-  savingConsumables.value = { ...savingConsumables.value, [markName]: true }
-  consumableErrors.value = { ...consumableErrors.value, [markName]: "" }
+async function saveConsumables(owner, rows) {
+  const name = owner.name
+  savingConsumables.value = { ...savingConsumables.value, [name]: true }
+  consumableErrors.value = { ...consumableErrors.value, [name]: "" }
   try {
-    const resp = await frappe.call("do_derma.api.save_mark_consumables", { mark: markName, rows })
+    // Silent: a refused save already reports itself on the line it came from, and the
+    // modal on top of it only buries the row the clinician is fixing.
+    const resp = await frappe.call({
+      method: "do_derma.api.save_consumables",
+      args: { owner_doctype: owner.doctype, owner_name: name, rows },
+      silent: true,
+    })
     if (resp?.message) {
-      consumablesByMark.value = { ...consumablesByMark.value, [markName]: resp.message }
+      consumablesByOwner.value = { ...consumablesByOwner.value, [name]: resp.message }
     }
   } catch (err) {
-    consumableErrors.value = { ...consumableErrors.value, [markName]: consumableErrorText(err) }
+    consumableErrors.value = { ...consumableErrors.value, [name]: consumableErrorText(err) }
   } finally {
-    savingConsumables.value = { ...savingConsumables.value, [markName]: false }
+    savingConsumables.value = { ...savingConsumables.value, [name]: false }
   }
 }
 

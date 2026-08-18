@@ -13,6 +13,7 @@ from frappe.utils.file_manager import save_file
 from do_derma import assessment
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.consumables import marks as consumable_marks
+from do_derma.consumables import procedures as consumable_procedures
 from do_derma.schema import COMPLETION_OVERRIDE_FIELD
 from do_derma.settings import (
 	ENFORCEMENT_WARN,
@@ -1423,6 +1424,8 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 			row["annotation_count"] = max(cint(row.get("annotation_count") or 0), annotation_count)
 			row["derma_artifact_text"] = _procedure_artifact_text(row)
 
+	consumable_procedures.hydrate(rows)
+
 
 def _procedure_history_detail(
 	row: dict[str, Any], marks: list[dict[str, Any]], treatments: list[dict[str, Any]]
@@ -1810,7 +1813,12 @@ def get_inventory_readiness(
 		patient = frappe.db.get_value("Patient Encounter", encounter, "patient")
 	if not patient:
 		return []
-	return inventory.build(_get_marks(patient, appointment=appointment, encounter=encounter))
+	return inventory.build(
+		_get_marks(patient, appointment=appointment, encounter=encounter),
+		consumable_procedures.get_carriers(
+			_get_derma_procedures(patient, appointment=appointment, encounter=encounter)
+		),
+	)
 
 
 def _get_previous_marks(patient: str, current_encounter: str | None = None) -> list[dict[str, Any]]:
@@ -2111,9 +2119,20 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 	if _has_field("Clinical Procedure", "custom_derma_notes") and procedure_notes:
 		procedure.custom_derma_notes = procedure_notes
 	source_mark = values.get("mark")
-	if source_mark and frappe.db.exists("Derma Chart Mark", source_mark):
-		consumable_marks.apply_to_procedure(procedure, frappe.get_doc("Derma Chart Mark", source_mark))
+	mark_doc = (
+		frappe.get_doc("Derma Chart Mark", source_mark)
+		if source_mark and frappe.db.exists("Derma Chart Mark", source_mark)
+		else None
+	)
+	if mark_doc:
+		consumable_marks.apply_to_procedure(procedure, mark_doc)
 	procedure.insert(ignore_permissions=True)
+
+	if mark_doc:
+		# The mark that gave the procedure its materials owns them from here, and only the
+		# link on the mark says so.
+		mark_doc.clinical_procedure = procedure.name
+		mark_doc.save(ignore_permissions=True)
 
 	treatment = None
 	if _has_doctype("Derma Treatment Entry") and _has_derma_treatment_data(values):
@@ -3068,6 +3087,7 @@ def _gate_session_completion(readiness: dict[str, Any], encounter: str, override
 	why. Runs before anything is submitted, so a refused session submits nothing."""
 	from do_derma.readiness.session import is_completion_blocked
 
+	_ensure_consumable_batches(readiness)
 	if not is_completion_blocked(readiness):
 		return
 
@@ -3078,6 +3098,23 @@ def _gate_session_completion(readiness: dict[str, Any], encounter: str, override
 			_("{0} blockers must be resolved, or the session completed with a reason.").format(len(blockers))
 		)
 	_record_completion_override(encounter, reason, blockers)
+
+
+def _ensure_consumable_batches(readiness: dict[str, Any]) -> None:
+	"""A material of a batch-tracked item with no batch stops completion outright.
+
+	Unlike the readiness blockers around it, no override reason gets past this: the stock
+	entry it would produce cannot be posted at all.
+	"""
+	names = [
+		str(item.get("product_name") or item.get("product_item") or _("Material"))
+		for item in readiness["items"]
+		if item.get("is_hard_blocking")
+	]
+	if names:
+		frappe.throw(
+			_("These materials are tracked by batch and none is chosen: {0}.").format(", ".join(names))
+		)
 
 
 def _record_completion_override(encounter: str, reason: str, blockers: list[dict[str, Any]]) -> None:
@@ -3170,24 +3207,44 @@ def save_chart_mark(values: str | dict[str, Any]):
 	return doc.as_dict()
 
 
+CONSUMABLE_OWNERS = {
+	"Derma Chart Mark": consumable_marks,
+	"Clinical Procedure": consumable_procedures,
+}
+
+
 @frappe.whitelist()
-def save_mark_consumables(mark: str, rows: str | list[dict[str, Any]] | None = None) -> dict[str, Any]:
-	"""Replace one mark's consumables outright and answer what the chart should now show."""
+def save_consumables(
+	owner_doctype: str, owner_name: str, rows: str | list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+	"""Replace one owner's consumables outright and answer what the chart should now show."""
 	_ensure_clinical_access()
 	from do_derma.consumables import rows as consumable_rows
 
-	if not mark:
-		frappe.throw(_("Chart mark is required."))
-	if not consumable_marks.is_available():
+	owner = CONSUMABLE_OWNERS.get(owner_doctype)
+	if not owner:
+		frappe.throw(_("Materials cannot be recorded on {0}.").format(owner_doctype or _("nothing")))
+	if not owner_name:
+		frappe.throw(_("{0} is required.").format(_(owner_doctype)))
+	if not owner.is_available():
 		frappe.throw(_("Consumables are not available on this site."))
 
-	mark_doc = frappe.get_doc("Derma Chart Mark", mark)
-	_ensure_encounter_open(mark_doc.encounter)
 	# Every row is validated before the first write, so a bad third row cannot leave the
 	# first two stored against a list the clinician never confirmed.
-	mark_doc.set("consumables", consumable_rows.clean_rows(_parse_payload(rows) or []))
-	mark_doc.save(ignore_permissions=True)
-	return consumable_marks.get_mark_payload(mark_doc)
+	return owner.save(owner_name, consumable_rows.clean_rows(_parse_payload(rows) or []))
+
+
+@frappe.whitelist()
+def get_consumable_item_options(
+	item_code: str, owner_doctype: str | None = None, owner_name: str | None = None
+) -> dict[str, Any]:
+	"""The units and batches one item offers this owner, for the chart's add row."""
+	_ensure_clinical_access()
+	from do_derma.consumables import items as consumable_items
+
+	if not item_code:
+		frappe.throw(_("Every consumable line needs an item."))
+	return consumable_items.get_options(item_code, owner_doctype, owner_name)
 
 
 def _ensure_encounter_open(encounter: str | None) -> None:

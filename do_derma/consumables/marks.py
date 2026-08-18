@@ -28,16 +28,45 @@ def hydrate(mark_rows: list[dict[str, Any]]) -> None:
 		mark["default_consumables"] = defaults
 
 
-def get_mark_payload(mark_doc) -> dict[str, Any]:
+def get_payload(mark_doc) -> dict[str, Any]:
 	"""The shape both the chart read and a save answer with, so the panel can swap state."""
 	frozen = snapshot.load(mark_doc.default_consumables_json)
 	compared = snapshot.compare(select_fields(mark_doc.consumables), frozen)
 	return {
-		"mark": mark_doc.name,
+		"owner_doctype": "Derma Chart Mark",
+		"owner_name": mark_doc.name,
 		"consumables": compared["consumables"],
 		"removed_consumables": compared["removed"],
 		"default_consumables": frozen,
 	}
+
+
+def save(mark_name: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+	"""Replace one mark's consumables outright and answer what the chart should now show."""
+	from do_derma import api
+
+	mark_doc = frappe.get_doc("Derma Chart Mark", mark_name)
+	api._ensure_encounter_open(mark_doc.encounter)
+	mark_doc.set("consumables", rows)
+	_apply_batch_identity(mark_doc, rows)
+	mark_doc.save(ignore_permissions=True)
+	return get_payload(mark_doc)
+
+
+def _apply_batch_identity(mark_doc, rows: list[dict[str, Any]]) -> None:
+	"""One batch on the list is the mark's lot too, so the same box is not typed twice.
+
+	Two batches describe no single lot, so the mark is left saying nothing rather than
+	naming one of them, and a lot the clinician typed is never overwritten.
+	"""
+	batches = [row.get("batch_no") for row in rows if row.get("batch_no")]
+	if len(batches) != 1:
+		return
+	expiry = frappe.db.get_value("Batch", batches[0], "expiry_date")
+	if not mark_doc.get("lot_no"):
+		mark_doc.lot_no = batches[0]
+	if expiry and not mark_doc.get("expiry_date"):
+		mark_doc.expiry_date = expiry
 
 
 def apply_to_procedure(procedure, mark_doc) -> None:

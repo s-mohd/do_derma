@@ -33,23 +33,29 @@ def clean_row(row: Any) -> dict[str, Any]:
 	if quantity <= 0:
 		frappe.throw(_("Quantity for {0} must be greater than zero.").format(item_code))
 
-	batch_no = _validated_batch(item_code, item, (row.get("batch_no") or "").strip())
 	uom = (row.get("uom") or "").strip() or item.stock_uom
 	return {
 		"item_code": item_code,
 		"item_name": item.item_name,
 		"qty": quantity,
 		"uom": uom,
-		"conversion_factor": conversion_factor(item_code, uom, item.stock_uom),
+		"conversion_factor": validated_conversion_factor(item_code, uom, item.stock_uom),
 		"stock_uom": item.stock_uom,
-		"batch_no": batch_no,
+		# A batch-tracked item without a batch is saved and reported as a blocker, so the
+		# line the clinician typed survives while they go and find the box.
+		"batch_no": _validated_batch(item_code, (row.get("batch_no") or "").strip()),
 	}
 
 
-def _validated_batch(item_code: str, item: dict[str, Any], batch_no: str) -> str | None:
+def is_batch_missing(row: dict[str, Any]) -> bool:
+	"""Whether this row names an item that cannot leave stock without a batch."""
+	if row.get("batch_no"):
+		return False
+	return bool(frappe.db.get_value("Item", row.get("item_code"), "has_batch_no"))
+
+
+def _validated_batch(item_code: str, batch_no: str) -> str | None:
 	if not batch_no:
-		if item.get("has_batch_no"):
-			frappe.throw(_("Item {0} is tracked by batch, so a batch is required.").format(item_code))
 		return None
 	batch_item = frappe.db.get_value("Batch", batch_no, "item")
 	if not batch_item:
@@ -59,13 +65,20 @@ def _validated_batch(item_code: str, item: dict[str, Any], batch_no: str) -> str
 	return batch_no
 
 
-def conversion_factor(item_code: str, uom: str | None, stock_uom: str | None) -> float:
-	"""How many stock units one row unit is worth, or 0 when the item does not say."""
+def validated_conversion_factor(item_code: str, uom: str | None, stock_uom: str | None) -> float:
+	"""How many stock units one row unit is worth, refused when the item cannot convert."""
 	if not uom or uom == stock_uom:
 		return 1.0
-	value = frappe.db.get_value(
-		"UOM Conversion Detail",
-		{"parent": item_code, "parenttype": "Item", "uom": uom},
-		"conversion_factor",
+	factor = flt(
+		frappe.db.get_value(
+			"UOM Conversion Detail",
+			{"parent": item_code, "parenttype": "Item", "uom": uom},
+			"conversion_factor",
+		)
 	)
-	return flt(value)
+	if not factor:
+		# Stock would move at zero, so the unit is refused here rather than at completion.
+		frappe.throw(
+			_("{0} is recorded in {1}, which does not convert to its stock unit.").format(item_code, uom)
+		)
+	return factor

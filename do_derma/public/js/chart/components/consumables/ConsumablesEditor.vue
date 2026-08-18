@@ -1,7 +1,7 @@
 <template>
   <div class="mark-consumables" data-test="mark-consumables">
     <div class="mark-consumables-head">
-      <strong>{{ markLabel }}</strong>
+      <strong>{{ label }}</strong>
       <span v-if="saving" class="text-muted">{{ __("Saving...") }}</span>
     </div>
 
@@ -43,23 +43,32 @@
             />
           </td>
           <td>
-            <div v-if="isEditingLink(index, 'uom')" ref="linkHost" class="consumable-link-host"></div>
-            <button v-else-if="!readOnly" type="button" class="link-cell" @click="editLink(index, 'uom')">
-              {{ row.uom || __("Set unit") }}
-            </button>
+            <select
+              v-if="!readOnly"
+              class="inline-input consumable-select"
+              data-test="consumable-uom"
+              :value="row.uom"
+              :disabled="unitOptions(row).length < 2"
+              @change="commitField(index, 'uom', $event.target.value)"
+            >
+              <option v-for="unit in unitOptions(row)" :key="unit" :value="unit">{{ unit }}</option>
+            </select>
             <span v-else>{{ row.uom || "-" }}</span>
           </td>
           <td>
-            <div v-if="isEditingLink(index, 'batch_no')" ref="linkHost" class="consumable-link-host"></div>
-            <button
-              v-else-if="!readOnly"
-              type="button"
-              class="link-cell"
+            <select
+              v-if="!readOnly && isBatchTracked(row.item_code)"
+              class="inline-input consumable-select"
               data-test="consumable-batch"
-              @click="editLink(index, 'batch_no')"
+              :class="{ 'consumable-missing': !row.batch_no }"
+              :value="row.batch_no || ''"
+              @change="commitField(index, 'batch_no', $event.target.value)"
             >
-              {{ row.batch_no || __("Set batch") }}
-            </button>
+              <option value="">{{ __("Pick a batch") }}</option>
+              <option v-for="batch in batchOptions(row)" :key="batch.name" :value="batch.name">
+                {{ batchLabel(batch) }}
+              </option>
+            </select>
             <span v-else>{{ row.batch_no || "-" }}</span>
           </td>
           <td v-if="!readOnly">
@@ -112,11 +121,34 @@
     </div>
 
     <div v-if="adding && !readOnly" class="consumables-add" data-test="consumable-add-row">
-      <div v-if="isEditingLink(NEW_ROW, 'item_code')" ref="linkHost" class="consumable-link-host"></div>
-      <button v-else type="button" class="link-cell" @click="editLink(NEW_ROW, 'item_code')">
+      <div v-if="pickingItem" ref="itemHost" class="consumable-link-host"></div>
+      <button v-else type="button" class="link-cell" @click="pickItem">
         {{ draftNew.item_code || __("Pick an item") }}
       </button>
-      <input v-model="draftNew.qty" type="number" min="0" step="any" class="inline-input" />
+      <input v-model="draftNew.qty" type="number" min="0" step="any" class="inline-input consumable-qty" />
+      <select
+        v-if="draftNew.item_code"
+        v-model="draftNew.uom"
+        class="inline-input consumable-select"
+        data-test="consumable-new-uom"
+        :disabled="unitOptions(draftNew).length < 2"
+      >
+        <option v-for="unit in unitOptions(draftNew)" :key="unit" :value="unit">{{ unit }}</option>
+      </select>
+      <select
+        v-if="isBatchTracked(draftNew.item_code)"
+        v-model="draftNew.batch_no"
+        class="inline-input consumable-select"
+        data-test="consumable-new-batch"
+      >
+        <option value="">{{ __("Pick a batch") }}</option>
+        <option v-for="batch in batchOptions(draftNew)" :key="batch.name" :value="batch.name">
+          {{ batchLabel(batch) }}
+        </option>
+      </select>
+      <span v-if="isBatchTracked(draftNew.item_code) && !batchOptions(draftNew).length" class="consumables-error">
+        {{ __("No batch of this item has stock left.") }}
+      </span>
       <button type="button" class="ghost small" :disabled="!canAdd" @click="confirmAdd">{{ __("Add") }}</button>
       <button type="button" class="ghost small" @click="cancelAdd">{{ __("Cancel") }}</button>
     </div>
@@ -124,14 +156,14 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from "vue"
+import { computed, nextTick, onMounted, ref, watch } from "vue"
 
 const __ = window.__ || ((txt) => txt)
-const NEW_ROW = -1
 
 const props = defineProps({
-  markName: { type: String, required: true },
-  markLabel: { type: String, default: "" },
+  ownerDoctype: { type: String, required: true },
+  ownerName: { type: String, required: true },
+  label: { type: String, default: "" },
   rows: { type: Array, default: () => [] },
   removed: { type: Array, default: () => [] },
   defaults: { type: Array, default: () => [] },
@@ -147,28 +179,80 @@ const emit = defineEmits(["change"])
 const draftRows = ref(clone(props.rows))
 const draftNew = ref(emptyDraft())
 const adding = ref(false)
-const linkEditor = ref(null)
-const linkHost = ref(null)
+const pickingItem = ref(false)
+const itemHost = ref(null)
+// Units and batches per item, fetched once the panel is open and reused by every row.
+const itemOptions = ref({})
 // Which line the last change came from, so a refused save reports itself where it happened.
 const failedIndex = ref(null)
-let linkControl = null
+let itemControl = null
 
 watch(
   () => props.rows,
   (value) => {
     draftRows.value = clone(value)
     failedIndex.value = null
+    loadOptionsForRows()
   }
 )
 
-const canAdd = computed(() => !!draftNew.value.item_code && Number(draftNew.value.qty) > 0)
+onMounted(loadOptionsForRows)
+
+const canAdd = computed(() => {
+  const draft = draftNew.value
+  if (!draft.item_code || Number(draft.qty) <= 0) return false
+  return !isBatchTracked(draft.item_code) || !!draft.batch_no
+})
 
 function clone(rows) {
   return (rows || []).map((row) => ({ ...row }))
 }
 
 function emptyDraft() {
-  return { item_code: "", qty: 1 }
+  return { item_code: "", qty: 1, uom: "", batch_no: "" }
+}
+
+function optionsOf(itemCode) {
+  return itemOptions.value[itemCode] || null
+}
+
+function unitOptions(row) {
+  const options = optionsOf(row?.item_code)
+  const units = options?.uoms || []
+  if (row?.uom && !units.includes(row.uom)) return [row.uom, ...units]
+  return units.length ? units : [row?.uom].filter(Boolean)
+}
+
+function batchOptions(row) {
+  return optionsOf(row?.item_code)?.batches || []
+}
+
+function isBatchTracked(itemCode) {
+  return !!optionsOf(itemCode)?.has_batch_no
+}
+
+function batchLabel(batch) {
+  const expiry = batch.expiry_date ? ` · ${__("exp")} ${batch.expiry_date}` : ""
+  return `${batch.name} (${batch.qty})${expiry}`
+}
+
+function loadOptionsForRows() {
+  if (props.readOnly) return
+  for (const itemCode of new Set(draftRows.value.map((row) => row.item_code).filter(Boolean))) {
+    loadOptions(itemCode)
+  }
+}
+
+async function loadOptions(itemCode) {
+  if (!itemCode || itemOptions.value[itemCode]) return null
+  const resp = await frappe.call({
+    method: "do_derma.api.get_consumable_item_options",
+    args: { item_code: itemCode, owner_doctype: props.ownerDoctype, owner_name: props.ownerName },
+    silent: true,
+  })
+  if (!resp?.message) return null
+  itemOptions.value = { ...itemOptions.value, [itemCode]: resp.message }
+  return resp.message
 }
 
 function submit(rows, index = null) {
@@ -192,6 +276,12 @@ function commitQty(index, value) {
   replaceRow(index, { qty: quantity })
 }
 
+function commitField(index, field, value) {
+  const row = draftRows.value[index]
+  if (!row || value === (row[field] || "")) return
+  replaceRow(index, { [field]: value })
+}
+
 function removeRow(index) {
   submit(draftRows.value.filter((_, position) => position !== index))
 }
@@ -207,87 +297,66 @@ function resetToTemplate() {
 function startAdd() {
   draftNew.value = emptyDraft()
   adding.value = true
-  editLink(NEW_ROW, "item_code")
+  pickItem()
 }
 
 function cancelAdd() {
   adding.value = false
-  closeLinkEditor()
+  closeItemPicker()
 }
 
 function confirmAdd() {
   if (!canAdd.value) return
-  const row = { item_code: draftNew.value.item_code, qty: Number(draftNew.value.qty) }
+  const draft = draftNew.value
+  const row = {
+    item_code: draft.item_code,
+    qty: Number(draft.qty),
+    uom: draft.uom,
+    batch_no: draft.batch_no || null,
+  }
   adding.value = false
-  closeLinkEditor()
+  closeItemPicker()
   submit([...draftRows.value, row])
 }
 
-function isEditingLink(index, field) {
-  return linkEditor.value?.index === index && linkEditor.value?.field === field
-}
-
-function editLink(index, field) {
+function pickItem() {
   if (props.readOnly) return
-  linkEditor.value = { index, field }
-  nextTick(mountLinkControl)
+  pickingItem.value = true
+  nextTick(mountItemControl)
 }
 
-function closeLinkEditor() {
-  linkEditor.value = null
-  linkControl = null
+function closeItemPicker() {
+  pickingItem.value = false
+  itemControl = null
 }
 
-const LINK_FIELDS = {
-  item_code: { options: "Item", label: __("Item") },
-  uom: { options: "UOM", label: __("Unit") },
-  batch_no: { options: "Batch", label: __("Batch") },
-}
+function mountItemControl() {
+  const host = Array.isArray(itemHost.value) ? itemHost.value[0] : itemHost.value
+  if (!host || !window.frappe?.ui?.form?.make_control) return
 
-function mountLinkControl() {
-  const editor = linkEditor.value
-  const host = Array.isArray(linkHost.value) ? linkHost.value[0] : linkHost.value
-  if (!editor || !host || !window.frappe?.ui?.form?.make_control) return
-
-  const spec = LINK_FIELDS[editor.field]
-  const current = editor.index === NEW_ROW ? draftNew.value : draftRows.value[editor.index] || {}
   host.innerHTML = ""
-  linkControl = frappe.ui.form.make_control({
+  itemControl = frappe.ui.form.make_control({
     parent: host,
     df: {
       fieldtype: "Link",
-      fieldname: editor.field,
-      options: spec.options,
-      label: spec.label,
-      placeholder: spec.label,
+      fieldname: "item_code",
+      options: "Item",
+      label: __("Item"),
+      placeholder: __("Item"),
       only_select: 1,
-      get_query: () => ({ filters: linkFilters(editor, current) }),
-      change: () => applyLink(linkControl?.get_value()),
+      change: () => applyItem(itemControl?.get_value()),
     },
     render_input: true,
   })
-  linkControl.set_value(current[editor.field] || "")
-  linkControl.$input?.focus()
+  itemControl.$input?.focus()
 }
 
-function linkFilters(editor, row) {
-  if (editor.field !== "batch_no") return {}
-  return row.item_code ? { item: row.item_code } : {}
-}
-
-function applyLink(value) {
-  const editor = linkEditor.value
-  if (!editor || !value) return
-  if (editor.index === NEW_ROW) {
-    draftNew.value = { ...draftNew.value, item_code: value }
-    closeLinkEditor()
-    return
-  }
-  const row = draftRows.value[editor.index]
-  const index = editor.index
-  closeLinkEditor()
-  if (!row || value === row[editor.field]) return
-  replaceRow(index, { [editor.field]: value })
+async function applyItem(itemCode) {
+  if (!itemCode || itemCode === draftNew.value.item_code) return
+  closeItemPicker()
+  const options = await loadOptions(itemCode)
+  const known = options || optionsOf(itemCode)
+  draftNew.value = { ...draftNew.value, item_code: itemCode, uom: known?.stock_uom || "", batch_no: "" }
 }
 </script>
 
@@ -336,6 +405,14 @@ function applyLink(value) {
 
 .consumable-qty {
   width: 80px;
+}
+
+.consumable-select {
+  min-width: 110px;
+}
+
+.consumable-missing {
+  border-color: var(--red-400, #f87171);
 }
 
 .link-cell {

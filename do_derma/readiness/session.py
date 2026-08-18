@@ -7,6 +7,7 @@ from typing import Any
 from frappe import _
 
 from do_derma import api
+from do_derma.consumables import procedures as procedure_consumables
 from do_derma.readiness import followup, inventory
 from do_derma.settings import ENFORCEMENT_BLOCK, get_readiness_settings
 
@@ -17,8 +18,11 @@ def get_session_readiness(
 	"""Every readiness item for one session, plus what completion should do about them."""
 	settings = get_readiness_settings()
 	marks = api._get_marks(patient, appointment=appointment, encounter=encounter) if patient else []
+	procedures = procedure_consumables.get_carriers(
+		api._get_derma_procedures(patient, appointment=appointment, encounter=encounter) if patient else []
+	)
 	items = [
-		*[_as_item(row, inventory.SOURCE) for row in inventory.build(marks)],
+		*[_as_item(row, inventory.SOURCE) for row in inventory.build(marks, procedures)],
 		*[_as_item(row, followup.SOURCE) for row in followup.build(marks)],
 	]
 	if settings["todo_downgrades_blockers"]:
