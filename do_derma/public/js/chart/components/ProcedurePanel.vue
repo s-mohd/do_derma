@@ -1716,7 +1716,7 @@ function rowAllowsSurfaces(row) {
 function deleteRow(row) {
   if (!row?.name) return
   const procedure = row.clinical_procedure || row.name
-  const label = __("Delete the procedure?")
+  const label = __("Delete the procedure with its marks and drawings?")
   frappe.confirm(label, () => {
     const doctype = "Clinical Procedure"
     const name = procedure

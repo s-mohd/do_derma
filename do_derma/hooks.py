@@ -27,6 +27,14 @@ doctype_js = {
 	"Clinical Procedure": "public/js/doctype/clinical_procedure.js",
 }
 
+# A procedure's marks, treatment entries, findings and drawings are this app's records,
+# so deleting the procedure deletes them instead of being refused by Frappe's link check.
+doc_events = {
+	"Clinical Procedure": {
+		"on_trash": "do_derma.teardown.procedure.delete_derma_records",
+	}
+}
+
 fixtures = [
 	{"dt": "Custom Field", "filters": {"module": "Do Derma"}},
 	{"dt": "Property Setter", "filters": {"module": "Do Derma"}},
