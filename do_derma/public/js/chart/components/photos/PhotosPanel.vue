@@ -58,20 +58,21 @@
         </div>
       </section>
 
-      <button
-        v-if="hasOlderGroups"
-        type="button"
-        class="ghost small"
-        data-test="photo-load-older"
-        @click="revealedOlderGroups += VISIBLE_GROUP_STEP"
-      >
-        {{ __("Load older visits") }}
-      </button>
     </div>
 
-    <p v-else class="panel-muted" data-test="photo-empty-state">
+    <p v-if="!visibleGroups.length" class="panel-muted" data-test="photo-empty-state">
       {{ __("No photos in this scope yet. Upload to start the visual record.") }}
     </p>
+
+    <button
+      v-if="hasOlderGroups"
+      type="button"
+      class="ghost small"
+      data-test="photo-load-older"
+      @click="revealedOlderGroups += VISIBLE_GROUP_STEP"
+    >
+      {{ __("Load older visits") }}
+    </button>
 
     <PhotoViewer
       v-if="openPhotoRow && !isPicking"
@@ -150,15 +151,18 @@ const scopedPhotos = computed(() => {
 
 const photoGroups = computed(() => groupByDate(scopedPhotos.value))
 
+const currentGroups = computed(() => photoGroups.value.filter((group) => !group.isPrevious))
 const olderGroups = computed(() => photoGroups.value.filter((group) => group.isPrevious))
 
-// This visit reads in full; earlier ones wait to be asked for.
-const visibleGroups = computed(() => [
-  ...photoGroups.value.filter((group) => !group.isPrevious),
-  ...olderGroups.value.slice(0, revealedOlderGroups.value),
-])
+// This visit reads in full and earlier ones wait to be asked for, unless there is no
+// current visit to read - then the first batch of older ones stands in for it.
+const revealedOlder = computed(() =>
+  currentGroups.value.length ? revealedOlderGroups.value : Math.max(revealedOlderGroups.value, VISIBLE_GROUP_STEP)
+)
 
-const hasOlderGroups = computed(() => olderGroups.value.length > revealedOlderGroups.value)
+const visibleGroups = computed(() => [...currentGroups.value, ...olderGroups.value.slice(0, revealedOlder.value)])
+
+const hasOlderGroups = computed(() => olderGroups.value.length > revealedOlder.value)
 
 const photoCountText = computed(() => `${scopedPhotos.value.length} ${__("photo(s)")}`)
 
@@ -274,6 +278,8 @@ function requestDelete() {
 
 function formatDate(value) {
   if (!value) return ""
-  return window.frappe?.datetime?.str_to_user?.(value) || String(value).slice(0, 10)
+  // Sets carry a timestamp; the roll groups by the day it was taken.
+  const day = String(value).slice(0, 10)
+  return window.frappe?.datetime?.str_to_user?.(day) || day
 }
 </script>

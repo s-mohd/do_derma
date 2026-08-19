@@ -838,8 +838,15 @@ const procedurePhotoSets = computed(() => {
   )
 })
 
+// The requirement belongs to the procedure being charted, not to whatever template
+// the picker happens to be showing.
+const activeProcedureTemplate = computed(() => {
+  const name = activeProcedure.value?.procedure_template
+  return procedureTemplates.value.find((row) => row.name === name) || selectedTemplate.value
+})
+
 const requiresBeforeAfterPhotos = computed(() =>
-  Boolean(selectedTemplate.value?.custom_derma_before_after_photo_required && activeProcedure.value)
+  Boolean(activeProcedure.value && activeProcedureTemplate.value?.custom_derma_before_after_photo_required)
 )
 
 watch(
