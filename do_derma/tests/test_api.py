@@ -197,6 +197,19 @@ class DermaTestHelpers:
 			.name
 		)
 
+	def _make_user_with_role(self, role):
+		email = f"derma-{role.lower().replace(' ', '-')}-{frappe.generate_hash(length=6)}@example.com"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": role,
+				"send_welcome_email": 0,
+			}
+		).insert(ignore_permissions=True)
+		user.add_roles(role)
+		return email
+
 	def _make_limited_user(self):
 		email = f"derma-no-access-{frappe.generate_hash(length=6)}@example.com"
 		if not frappe.db.exists("User", email):
@@ -1044,3 +1057,287 @@ class TestDermaNoteTemplate(IntegrationTestCase):
 			"Area cleaned and prepped. Aftercare leaflet handed over.",
 		)
 		self.assertFalse(frappe.db.get_value("Derma Note Template", name, "disabled"))
+
+
+class DermaPhotoHelpers(DermaTestHelpers):
+	def _make_photo_set(self, **payload):
+		return api.create_photo_set(
+			{
+				"patient": self.patient,
+				"encounter": self.encounter.name,
+				"photos": [{"image": "/files/derma-a.png"}],
+				**payload,
+			}
+		)
+
+	def _photo_types(self, photo_set):
+		return [photo.get("photo_type") for photo in photo_set["photos"]]
+
+
+class TestPhotoStageDerivation(DermaPhotoHelpers, IntegrationTestCase):
+	"""Capture asks the clinician nothing, so the server decides the stage from the
+	state of the visit."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def test_a_photo_taken_outside_a_procedure_is_a_visit_photo(self):
+		photo_set = self._make_photo_set()
+
+		self.assertEqual(self._photo_types(photo_set), ["Visit"])
+		self.assertEqual(photo_set["set_type"], "Visit")
+
+	def test_a_photo_taken_before_the_procedure_starts_is_a_before_photo(self):
+		procedure = self._make_clinical_procedure(self.patient)
+
+		photo_set = self._make_photo_set(clinical_procedure=procedure.name)
+
+		self.assertEqual(self._photo_types(photo_set), ["Before"])
+		self.assertEqual(photo_set["set_type"], "Before/After")
+
+	def test_a_photo_taken_once_the_procedure_runs_is_an_after_photo(self):
+		procedure = self._make_clinical_procedure(self.patient)
+		frappe.db.set_value("Clinical Procedure", procedure.name, "status", "In Progress")
+
+		photo_set = self._make_photo_set(clinical_procedure=procedure.name)
+
+		self.assertEqual(self._photo_types(photo_set), ["After"])
+
+	def test_a_photo_taken_after_the_procedure_completes_is_an_after_photo(self):
+		procedure = self._make_clinical_procedure(self.patient)
+		frappe.db.set_value("Clinical Procedure", procedure.name, "status", "Completed")
+
+		photo_set = self._make_photo_set(clinical_procedure=procedure.name)
+
+		self.assertEqual(self._photo_types(photo_set), ["After"])
+
+	def test_an_explicit_stage_is_left_alone(self):
+		"""The desk form and older callers still name the stage themselves."""
+		photo_set = self._make_photo_set(photos=[{"image": "/files/derma-a.png", "photo_type": "Dermoscopy"}])
+
+		self.assertEqual(self._photo_types(photo_set), ["Dermoscopy"])
+
+	def test_derivation_leaves_the_links_intact(self):
+		procedure = self._make_clinical_procedure(self.patient)
+		mark = self._save_mark(self.patient, encounter=self.encounter.name)
+
+		photo_set = self._make_photo_set(clinical_procedure=procedure.name, chart_mark=mark["name"])
+
+		self.assertEqual(photo_set["clinical_procedure"], procedure.name)
+		self.assertEqual(photo_set["encounter"], self.encounter.name)
+		self.assertEqual(
+			frappe.db.get_value("Derma Chart Mark", mark["name"], "photo_set"), photo_set["name"]
+		)
+
+
+class TestPhotoSetAttachments(DermaPhotoHelpers, IntegrationTestCase):
+	"""A private upload is only readable if Frappe can see what it belongs to."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _make_private_file(self, **extra):
+		return frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": f"derma-{frappe.generate_hash(length=8)}.png",
+				"content": PIXEL_PNG.split(",", 1)[1],
+				"decode": True,
+				"is_private": 1,
+				**extra,
+			}
+		).insert(ignore_permissions=True)
+
+	def test_attaches_an_unattached_upload_to_the_set(self):
+		uploaded = self._make_private_file()
+
+		photo_set = self._make_photo_set(photos=[{"image": uploaded.file_url}])
+
+		attached = frappe.db.get_value(
+			"File", uploaded.name, ["attached_to_doctype", "attached_to_name"], as_dict=True
+		)
+		self.assertEqual(attached.attached_to_doctype, "Derma Photo Set")
+		self.assertEqual(attached.attached_to_name, photo_set["name"])
+
+	def test_leaves_a_file_that_already_belongs_to_something_else(self):
+		encounter = self._make_encounter(self.patient)
+		uploaded = self._make_private_file(
+			attached_to_doctype="Patient Encounter", attached_to_name=encounter.name
+		)
+
+		self._make_photo_set(photos=[{"image": uploaded.file_url}])
+
+		self.assertEqual(frappe.db.get_value("File", uploaded.name, "attached_to_name"), encounter.name)
+
+	def test_ignores_an_image_no_file_record_owns(self):
+		photo_set = self._make_photo_set(photos=[{"image": "https://example.com/not-ours.png"}])
+
+		self.assertEqual(len(photo_set["photos"]), 1)
+
+
+class TestPhotoSetBodyView(DermaPhotoHelpers, IntegrationTestCase):
+	"""The chart offers body templates by title; the set stores a fixed Select."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def test_keeps_a_view_the_doctype_offers(self):
+		photo_set = self._make_photo_set(body_view="Face Front")
+
+		self.assertEqual(photo_set["body_view"], "Face Front")
+
+	def test_maps_a_body_template_title_onto_an_offered_view(self):
+		photo_set = self._make_photo_set(body_view="Face Left (Female)")
+
+		self.assertEqual(photo_set["body_view"], "Face Left")
+
+	def test_records_a_title_the_select_has_no_room_for_as_custom(self):
+		"""A body template the Select cannot name must not cost the clinician the upload."""
+		photo_set = self._make_photo_set(body_view="Legs (Female)")
+
+		self.assertEqual(photo_set["body_view"], "Custom")
+		self.assertEqual(len(photo_set["photos"]), 1)
+
+
+class TestUpdatePhotoStage(DermaPhotoHelpers, IntegrationTestCase):
+	"""A derived stage is a guess, so the clinician can correct it - on this visit only."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def test_retags_a_photo_on_the_current_encounter(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+
+		result = api.update_photo_stage(photo, "Before")
+
+		self.assertEqual(self._photo_types(result), ["Before"])
+		self.assertEqual(frappe.db.get_value("Derma Photo", photo, "photo_type"), "Before")
+
+	def test_refuses_a_photo_from_an_earlier_encounter(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		self._make_encounter(self.patient)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.update_photo_stage(photo, "After")
+
+		self.assertEqual(frappe.db.get_value("Derma Photo", photo, "photo_type"), "Visit")
+
+	def test_refuses_a_stage_the_doctype_does_not_offer(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+
+		with self.assertRaises(frappe.ValidationError):
+			api.update_photo_stage(photo, "Sideways")
+
+	def test_refuses_a_photo_that_does_not_exist(self):
+		with self.assertRaises(frappe.ValidationError):
+			api.update_photo_stage("DP-does-not-exist", "Before")
+
+	def test_is_gated(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			api.update_photo_stage(photo, "Before")
+
+	def test_refuses_a_reader_who_cannot_write_photo_sets(self):
+		"""A Nursing User reads the chart; the gate lets them in and the doctype stops them."""
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		frappe.set_user(self._make_user_with_role("Nursing User"))
+
+		with self.assertRaises(frappe.PermissionError):
+			api.update_photo_stage(photo, "Before")
+
+	def test_refuses_a_photo_set_with_no_visit(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		frappe.db.set_value("Derma Photo Set", photo_set["name"], "encounter", None)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.update_photo_stage(photo, "Before")
+
+
+class TestDeletePhoto(DermaPhotoHelpers, IntegrationTestCase):
+	"""A mis-shot photo is removed from the visit that took it, and never from an
+	earlier one."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def test_removes_one_photo_and_keeps_the_set(self):
+		photo_set = self._make_photo_set(
+			photos=[{"image": "/files/derma-a.png"}, {"image": "/files/derma-b.png"}]
+		)
+		photo = photo_set["photos"][0]["name"]
+
+		result = api.delete_photo(photo)
+
+		self.assertEqual(result["photo_set"], photo_set["name"])
+		self.assertFalse(result["set_deleted"])
+		self.assertTrue(frappe.db.exists("Derma Photo Set", photo_set["name"]))
+		self.assertFalse(frappe.db.exists("Derma Photo", photo))
+
+	def test_removes_the_set_once_its_last_photo_goes(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+
+		result = api.delete_photo(photo)
+
+		self.assertTrue(result["set_deleted"])
+		self.assertFalse(frappe.db.exists("Derma Photo Set", photo_set["name"]))
+
+	def test_refuses_a_photo_from_an_earlier_encounter(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		self._make_encounter(self.patient)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.delete_photo(photo)
+
+		self.assertTrue(frappe.db.exists("Derma Photo", photo))
+
+	def test_releases_what_pointed_at_the_set_it_deletes(self):
+		mark = self._save_mark(self.patient, encounter=self.encounter.name)
+		photo_set = self._make_photo_set(chart_mark=mark["name"])
+		photo = photo_set["photos"][0]["name"]
+
+		api.delete_photo(photo)
+
+		self.assertFalse(frappe.db.exists("Derma Photo Set", photo_set["name"]))
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "photo_set"))
+
+	def test_ignores_a_photo_that_is_already_gone(self):
+		"""Discarding follows discard_chart_marks: a second click is not an error."""
+		result = api.delete_photo("DP-does-not-exist")
+
+		self.assertEqual(result, {"photo_set": "", "set_deleted": False})
+
+	def test_is_gated(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			api.delete_photo(photo)
+
+	def test_refuses_a_reader_who_cannot_write_photo_sets(self):
+		photo_set = self._make_photo_set()
+		photo = photo_set["photos"][0]["name"]
+		frappe.set_user(self._make_user_with_role("Nursing User"))
+
+		with self.assertRaises(frappe.PermissionError):
+			api.delete_photo(photo)

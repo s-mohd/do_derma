@@ -160,6 +160,13 @@ SAFETY_FLAG_REQUIRED_SOURCES = {PRODUCT_TRACKING_SOURCE, DEVICE_SETTINGS_SOURCE}
 
 VARIABLE_FIELDTYPES = ["Data", "Select", "Float", "Int", "Small Text", "Date", "Check"]
 
+PHOTO_STAGE_BEFORE = "Before"
+PHOTO_STAGE_AFTER = "After"
+PHOTO_STAGE_VISIT = "Visit"
+CHART_PHOTO_STAGES = (PHOTO_STAGE_BEFORE, PHOTO_STAGE_AFTER, PHOTO_STAGE_VISIT)
+BEFORE_AFTER_SET_TYPE = "Before/After"
+STARTED_PROCEDURE_STATUSES = {"In Progress", "Completed"}
+
 CONFIG_CATEGORY_FIELDS = [
 	"name",
 	"title",
@@ -3567,6 +3574,9 @@ def create_photo_set(values: str | dict[str, Any]):
 		payload.setdefault("treatment_entry", mark_doc.treatment_entry)
 	if payload.get("body_region"):
 		payload["body_region"] = _normalize_derma_body_region(payload.get("body_region"))
+	payload["body_view"] = _normalize_derma_body_view(payload.get("body_view"))
+	stage = _derive_photo_stage(payload.get("clinical_procedure"))
+	payload.setdefault("set_type", PHOTO_STAGE_VISIT if stage == PHOTO_STAGE_VISIT else BEFORE_AFTER_SET_TYPE)
 	for field in [
 		"patient",
 		"appointment",
@@ -3583,8 +3593,9 @@ def create_photo_set(values: str | dict[str, Any]):
 			doc.set(field, payload[field])
 	_set_patient_name(doc)
 	for photo in payload.get("photos") or []:
-		doc.append("photos", photo)
+		doc.append("photos", {**photo, "photo_type": photo.get("photo_type") or stage})
 	doc.save(ignore_permissions=True)
+	_attach_photo_files(doc)
 	if mark_doc:
 		mark_doc.photo_set = doc.name
 		mark_doc.save(ignore_permissions=True)
@@ -3605,6 +3616,116 @@ def _first_treatment_for_procedure(clinical_procedure: str | None) -> str | None
 	if not clinical_procedure or not _has_doctype("Derma Treatment Entry"):
 		return None
 	return frappe.db.get_value("Derma Treatment Entry", {"clinical_procedure": clinical_procedure}, "name")
+
+
+def _attach_photo_files(doc) -> None:
+	"""Uploads arrive private and unowned; reading one has to follow reading the set."""
+	images = [photo.image for photo in doc.photos if photo.image]
+	if not images:
+		return
+	unowned = frappe.get_all(
+		"File",
+		filters={"file_url": ["in", images], "attached_to_doctype": ["in", ["", None]]},
+		pluck="name",
+	)
+	for name in unowned:
+		frappe.db.set_value(
+			"File",
+			name,
+			{"attached_to_doctype": doc.doctype, "attached_to_name": doc.name},
+			update_modified=False,
+		)
+
+
+def _normalize_derma_body_view(value: Any) -> str | None:
+	"""The chart names body templates freely; the set stores one of a fixed set of views."""
+	view = str(value or "").strip()
+	if not view:
+		return None
+	options = frappe.get_meta("Derma Photo Set").get_field("body_view").options.split("\n")
+	offered = [option for option in options if option]
+	for option in offered:
+		if view.lower() == option.lower():
+			return option
+	for option in offered:
+		if option != "Custom" and option.lower() in view.lower():
+			return option
+	# The chart's own body templates are named freely; "Custom" is what the set has for them.
+	return "Custom"
+
+
+def _derive_photo_stage(clinical_procedure: str | None) -> str:
+	"""Capture asks the clinician nothing, so the visit's own state names the stage."""
+	if not clinical_procedure:
+		return PHOTO_STAGE_VISIT
+	status = frappe.db.get_value("Clinical Procedure", clinical_procedure, "status")
+	return PHOTO_STAGE_AFTER if status in STARTED_PROCEDURE_STATUSES else PHOTO_STAGE_BEFORE
+
+
+def _get_editable_photo_set(photo: str) -> str:
+	"""A photo is editable from the visit that captured it, by someone who may write it."""
+	parent = frappe.db.get_value("Derma Photo", photo, ["parent", "parenttype"], as_dict=True)
+	if not parent or parent.parenttype != "Derma Photo Set":
+		frappe.throw(_("This photo no longer exists."))
+	photo_set = frappe.db.get_value(
+		"Derma Photo Set", parent.parent, ["name", "patient", "encounter"], as_dict=True
+	)
+	if not photo_set:
+		frappe.throw(_("This photo no longer exists."))
+	frappe.has_permission("Derma Photo Set", "write", doc=photo_set.name, throw=True)
+	if not photo_set.encounter:
+		frappe.throw(_("This photo is not linked to a visit, so the chart cannot change it."))
+	_ensure_encounter_open(photo_set.encounter)
+	_ensure_current_encounter(photo_set.patient, photo_set.encounter)
+	return photo_set.name
+
+
+def _ensure_current_encounter(patient: str | None, encounter: str) -> None:
+	"""The open visit is the patient's newest one, ordered as _ensure_encounter orders it."""
+	if not patient:
+		return
+	current = frappe.db.get_value(
+		"Patient Encounter",
+		{"patient": patient, "docstatus": ["<", 2]},
+		"name",
+		order_by="creation desc",
+	)
+	if current and current != encounter:
+		frappe.throw(_("Photos from an earlier visit can no longer be changed."))
+
+
+@frappe.whitelist()
+def update_photo_stage(photo: str, stage: str):
+	"""Correct the stage the upload guessed."""
+	_ensure_clinical_access()
+	if stage not in CHART_PHOTO_STAGES:
+		frappe.throw(_("{0} is not a stage the chart can set.").format(stage))
+	photo_set = _get_editable_photo_set(photo)
+	frappe.db.set_value("Derma Photo", photo, "photo_type", stage, update_modified=True)
+	return _hydrate_photo_sets([frappe.get_doc("Derma Photo Set", photo_set).as_dict()])[0]
+
+
+@frappe.whitelist()
+def delete_photo(photo: str):
+	"""Drop one photo, and the set it leaves empty."""
+	_ensure_clinical_access()
+	if not frappe.db.exists("Derma Photo", photo):
+		return {"photo_set": "", "set_deleted": False}
+	doc = frappe.get_doc("Derma Photo Set", _get_editable_photo_set(photo))
+	doc.photos = [row for row in doc.photos if row.name != photo]
+	if not doc.photos:
+		_release_photo_set_links(doc.name)
+		frappe.delete_doc("Derma Photo Set", doc.name, ignore_permissions=True)
+		return {"photo_set": doc.name, "set_deleted": True}
+	doc.save(ignore_permissions=True)
+	return {"photo_set": doc.name, "set_deleted": False}
+
+
+def _release_photo_set_links(photo_set: str) -> None:
+	"""Frappe refuses to delete a set that anything still links to."""
+	for doctype in ("Derma Chart Mark", "Derma Treatment Entry"):
+		if _has_doctype(doctype) and _has_field(doctype, "photo_set"):
+			frappe.db.set_value(doctype, {"photo_set": photo_set}, "photo_set", None)
 
 
 @frappe.whitelist()
