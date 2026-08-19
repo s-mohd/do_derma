@@ -1132,6 +1132,32 @@ class TestPhotoStageDerivation(DermaPhotoHelpers, IntegrationTestCase):
 		)
 
 
+class TestPhotoSetBodyView(DermaPhotoHelpers, IntegrationTestCase):
+	"""The chart offers body templates by title; the set stores a fixed Select."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def test_keeps_a_view_the_doctype_offers(self):
+		photo_set = self._make_photo_set(body_view="Face Front")
+
+		self.assertEqual(photo_set["body_view"], "Face Front")
+
+	def test_maps_a_body_template_title_onto_an_offered_view(self):
+		photo_set = self._make_photo_set(body_view="Face Left (Female)")
+
+		self.assertEqual(photo_set["body_view"], "Face Left")
+
+	def test_records_a_title_the_select_has_no_room_for_as_custom(self):
+		"""A body template the Select cannot name must not cost the clinician the upload."""
+		photo_set = self._make_photo_set(body_view="Legs (Female)")
+
+		self.assertEqual(photo_set["body_view"], "Custom")
+		self.assertEqual(len(photo_set["photos"]), 1)
+
+
 class TestUpdatePhotoStage(DermaPhotoHelpers, IntegrationTestCase):
 	"""A derived stage is a guess, so the clinician can correct it - on this visit only."""
 

@@ -1022,17 +1022,22 @@ function uploadPhotos() {
     return
   }
   const uploaded = []
-  new frappe.ui.FileUploader({
+  const uploader = new frappe.ui.FileUploader({
     allow_multiple: true,
     restrictions: { allowed_file_types: ["image/*"] },
     on_success(file) {
       if (file?.file_url) uploaded.push(file.file_url)
     },
-    on_close: async () => {
-      if (!uploaded.length) return
-      await createPhotoSetFromImages(uploaded)
-    },
   })
+  // FileUploader takes no close callback, so the batch is saved when its dialog hides.
+  if (!uploader.dialog) {
+    frappe.msgprint(__("File uploads are unavailable in this session. Reload the page and try again."))
+    return
+  }
+  uploader.dialog.onhide = () => {
+    if (!uploaded.length) return
+    createPhotoSetFromImages(uploaded.splice(0))
+  }
 }
 
 async function createPhotoSetFromImages(images) {

@@ -3574,6 +3574,7 @@ def create_photo_set(values: str | dict[str, Any]):
 		payload.setdefault("treatment_entry", mark_doc.treatment_entry)
 	if payload.get("body_region"):
 		payload["body_region"] = _normalize_derma_body_region(payload.get("body_region"))
+	payload["body_view"] = _normalize_derma_body_view(payload.get("body_view"))
 	stage = _derive_photo_stage(payload.get("clinical_procedure"))
 	payload.setdefault("set_type", PHOTO_STAGE_VISIT if stage == PHOTO_STAGE_VISIT else BEFORE_AFTER_SET_TYPE)
 	for field in [
@@ -3614,6 +3615,23 @@ def _first_treatment_for_procedure(clinical_procedure: str | None) -> str | None
 	if not clinical_procedure or not _has_doctype("Derma Treatment Entry"):
 		return None
 	return frappe.db.get_value("Derma Treatment Entry", {"clinical_procedure": clinical_procedure}, "name")
+
+
+def _normalize_derma_body_view(value: Any) -> str | None:
+	"""The chart names body templates freely; the set stores one of a fixed set of views."""
+	view = str(value or "").strip()
+	if not view:
+		return None
+	options = frappe.get_meta("Derma Photo Set").get_field("body_view").options.split("\n")
+	offered = [option for option in options if option]
+	for option in offered:
+		if view.lower() == option.lower():
+			return option
+	for option in offered:
+		if option != "Custom" and option.lower() in view.lower():
+			return option
+	# The chart's own body templates are named freely; "Custom" is what the set has for them.
+	return "Custom"
 
 
 def _derive_photo_stage(clinical_procedure: str | None) -> str:
