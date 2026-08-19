@@ -3595,6 +3595,7 @@ def create_photo_set(values: str | dict[str, Any]):
 	for photo in payload.get("photos") or []:
 		doc.append("photos", {**photo, "photo_type": photo.get("photo_type") or stage})
 	doc.save(ignore_permissions=True)
+	_attach_photo_files(doc)
 	if mark_doc:
 		mark_doc.photo_set = doc.name
 		mark_doc.save(ignore_permissions=True)
@@ -3615,6 +3616,25 @@ def _first_treatment_for_procedure(clinical_procedure: str | None) -> str | None
 	if not clinical_procedure or not _has_doctype("Derma Treatment Entry"):
 		return None
 	return frappe.db.get_value("Derma Treatment Entry", {"clinical_procedure": clinical_procedure}, "name")
+
+
+def _attach_photo_files(doc) -> None:
+	"""Uploads arrive private and unowned; reading one has to follow reading the set."""
+	images = [photo.image for photo in doc.photos if photo.image]
+	if not images:
+		return
+	unowned = frappe.get_all(
+		"File",
+		filters={"file_url": ["in", images], "attached_to_doctype": ["in", ["", None]]},
+		pluck="name",
+	)
+	for name in unowned:
+		frappe.db.set_value(
+			"File",
+			name,
+			{"attached_to_doctype": doc.doctype, "attached_to_name": doc.name},
+			update_modified=False,
+		)
 
 
 def _normalize_derma_body_view(value: Any) -> str | None:

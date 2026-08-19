@@ -1132,6 +1132,53 @@ class TestPhotoStageDerivation(DermaPhotoHelpers, IntegrationTestCase):
 		)
 
 
+class TestPhotoSetAttachments(DermaPhotoHelpers, IntegrationTestCase):
+	"""A private upload is only readable if Frappe can see what it belongs to."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _make_private_file(self, **extra):
+		return frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": f"derma-{frappe.generate_hash(length=8)}.png",
+				"content": PIXEL_PNG.split(",", 1)[1],
+				"decode": True,
+				"is_private": 1,
+				**extra,
+			}
+		).insert(ignore_permissions=True)
+
+	def test_attaches_an_unattached_upload_to_the_set(self):
+		uploaded = self._make_private_file()
+
+		photo_set = self._make_photo_set(photos=[{"image": uploaded.file_url}])
+
+		attached = frappe.db.get_value(
+			"File", uploaded.name, ["attached_to_doctype", "attached_to_name"], as_dict=True
+		)
+		self.assertEqual(attached.attached_to_doctype, "Derma Photo Set")
+		self.assertEqual(attached.attached_to_name, photo_set["name"])
+
+	def test_leaves_a_file_that_already_belongs_to_something_else(self):
+		encounter = self._make_encounter(self.patient)
+		uploaded = self._make_private_file(
+			attached_to_doctype="Patient Encounter", attached_to_name=encounter.name
+		)
+
+		self._make_photo_set(photos=[{"image": uploaded.file_url}])
+
+		self.assertEqual(frappe.db.get_value("File", uploaded.name, "attached_to_name"), encounter.name)
+
+	def test_ignores_an_image_no_file_record_owns(self):
+		photo_set = self._make_photo_set(photos=[{"image": "https://example.com/not-ours.png"}])
+
+		self.assertEqual(len(photo_set["photos"]), 1)
+
+
 class TestPhotoSetBodyView(DermaPhotoHelpers, IntegrationTestCase):
 	"""The chart offers body templates by title; the set stores a fixed Select."""
 
