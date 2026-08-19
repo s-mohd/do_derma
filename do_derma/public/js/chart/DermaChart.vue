@@ -188,140 +188,17 @@
                 :label="__('photos')"
                 @retry="refresh"
               />
-            <section class="section-panel photo-section-panel">
-              <header>
-                <div>
-                  <strong>{{ __("Photos & Comparison") }}</strong>
-                  <small>{{ activeProcedure ? __("Photos will link to the active procedure.") : __("Photos will save as encounter evidence.") }}</small>
-                </div>
-                <button type="button" class="primary small" data-test="photos-upload" @click="uploadPhotos(activeProcedure ? 'Procedure' : 'Visit')">{{ __("Upload Photo") }}</button>
-              </header>
-              <DermaEvidencePanel
+              <PhotosPanel
+                :photo-sets="photoSets"
+                :previous-photo-sets="previousPhotoSets"
                 :active-procedure="activeProcedure"
-                :annotation-count="currentAnnotationHistory.length"
-                :photo-set-count="relevantPhotoSets.length"
-                :summary="procedureArtifactText"
-                :photo-summary="photoPanelSummary"
-                :photo-compare="photoCompare"
-                :photo-sets="relevantPhotoSets"
-                :selected-photo-set-name="selectedPhotoSetName"
-                @select-photo-set="(name) => (selectedPhotoSetName = name)"
+                :active-procedure-treatments="activeProcedureTreatments"
+                :requires-before-after="requiresBeforeAfterPhotos"
+                :read-only="isEncounterLocked"
+                @upload="uploadPhotos"
+                @retag="retagPhoto"
+                @delete="deletePhoto"
               />
-            </section>
-
-            <section class="derma-compare-workspace">
-              <header>
-                <div>
-                  <strong>{{ __("Before / After Compare") }}</strong>
-                  <small>{{ comparePhotoOptions.length ? __("{0} image(s) available").replace("{0}", comparePhotoOptions.length) : __("Upload or link photos to compare progress") }}</small>
-                </div>
-                <div class="compare-actions">
-                  <button type="button" class="ghost small" @click="swapCompareImages" :disabled="!compareLeftImage || !compareRightImage">
-                    {{ __("Swap") }}
-                  </button>
-                  <button type="button" class="ghost small" @click="uploadPhotos('Visit')">
-                    {{ __("Upload Today") }}
-                  </button>
-                </div>
-              </header>
-
-              <div class="compare-filter-row">
-                <label>
-                  <span>{{ __("Category") }}</span>
-                  <select v-model="compareCategoryFilter">
-                    <option value="all">{{ __("All") }}</option>
-                    <option v-for="category in compareCategories" :key="category" :value="category">{{ category }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>{{ __("Photo Type") }}</span>
-                  <select v-model="compareTypeFilter">
-                    <option value="all">{{ __("All") }}</option>
-                    <option v-for="type in comparePhotoTypes" :key="type" :value="type">{{ type }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>{{ __("Left") }}</span>
-                  <select v-model="compareLeftId">
-                    <option value="">{{ __("Auto") }}</option>
-                    <option v-for="photo in filteredComparePhotoOptions" :key="photo.id" :value="photo.id">{{ photo.label }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>{{ __("Right") }}</span>
-                  <select v-model="compareRightId">
-                    <option value="">{{ __("Auto") }}</option>
-                    <option v-for="photo in filteredComparePhotoOptions" :key="photo.id" :value="photo.id">{{ photo.label }}</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="compare-viewer">
-                <figure>
-                  <div class="compare-image-frame">
-                    <img v-if="compareLeftImage" :src="compareLeftImage.image" :alt="compareLeftImage.label" />
-                    <span v-else>{{ __("No previous image") }}</span>
-                  </div>
-                  <figcaption>
-                    <strong>{{ compareLeftImage?.label || __("Previous") }}</strong>
-                    <small>{{ compareLeftImage?.meta || __("Select a previous/before photo") }}</small>
-                  </figcaption>
-                </figure>
-
-                <figure>
-                  <div class="compare-image-frame">
-                    <img v-if="compareRightImage" :src="compareRightImage.image" :alt="compareRightImage.label" />
-                    <span v-else>{{ __("No current image") }}</span>
-                  </div>
-                  <figcaption>
-                    <strong>{{ compareRightImage?.label || __("Today") }}</strong>
-                    <small>{{ compareRightImage?.meta || __("Select a current/after photo") }}</small>
-                  </figcaption>
-                </figure>
-              </div>
-
-              <div class="compare-bottom-row">
-                <section class="compare-response-panel">
-                  <header>
-                    <strong>{{ __("Clinical Response") }}</strong>
-                    <small>{{ selectedMark ? markLabel(selectedMark) : __("Select a chart mark to save response") }}</small>
-                  </header>
-                  <div class="response-chip-row">
-                    <button
-                      v-for="status in COMPARE_RESPONSE_STATUSES"
-                      :key="status"
-                      type="button"
-                      :class="{ active: compareResponseStatus === status || selectedMark?.status === status }"
-                      @click="setCompareResponse(status)"
-                    >
-                      {{ status }}
-                    </button>
-                  </div>
-                </section>
-
-                <section class="compare-photo-list">
-                  <header>
-                    <strong>{{ __("Photo Sets") }}</strong>
-                    <small>{{ filteredComparePhotoOptions.length }} {{ __("matching image(s)") }}</small>
-                  </header>
-                  <div>
-                    <button
-                      v-for="photo in filteredComparePhotoOptions.slice(0, 8)"
-                      :key="photo.id"
-                      type="button"
-                      :class="{ active: photo.id === compareLeftImage?.id || photo.id === compareRightImage?.id }"
-                      @click="chooseComparePhoto(photo)"
-                    >
-                      <img :src="photo.image" :alt="photo.label" loading="lazy" />
-                      <span>
-                        <b>{{ photo.label }}</b>
-                        <small>{{ photo.meta }}</small>
-                      </span>
-                    </button>
-                  </div>
-                </section>
-              </div>
-            </section>
             </div>
           </template>
 
@@ -407,9 +284,6 @@
                       <small>{{ selectedTimelineVisit.summary }}</small>
                     </div>
                     <div class="timeline-detail-actions">
-                      <button type="button" class="ghost small" @click="compareTimelineVisit(selectedTimelineVisit)">
-                        {{ __("Compare with Today") }}
-                      </button>
                       <button type="button" class="primary small" @click="overlayTimelineVisit(selectedTimelineVisit)">
                         {{ __("Overlay Marks") }}
                       </button>
@@ -543,9 +417,11 @@
                   </div>
                   <p>{{ item.message }}</p>
                   <footer>
-                    <button type="button" class="ghost small" :disabled="!item.marks?.length" @click="selectMarkFromItem(item)">
-                      {{ __("Select Mark") }}
-                    </button>
+                    <MarkResponseChips
+                      :statuses="MARK_RESPONSE_STATUSES"
+                      :mark="markForItem(item)"
+                      @set="(status) => setItemResponse(item, status)"
+                    />
                     <button type="button" class="ghost small" :disabled="!item.product_item" @click="openItem(item.product_item)">
                       {{ __("Open Item") }}
                     </button>
@@ -599,9 +475,11 @@
                     {{ __("Warns instead of blocking: a follow-up task is already open.") }}
                   </p>
                   <footer>
-                    <button type="button" class="ghost small" :disabled="!item.mark" @click="selectMarkFromItem(item)">
-                      {{ __("Select Mark") }}
-                    </button>
+                    <MarkResponseChips
+                      :statuses="MARK_RESPONSE_STATUSES"
+                      :mark="markForItem(item)"
+                      @set="(status) => setItemResponse(item, status)"
+                    />
                     <button type="button" class="ghost small" v-if="item.clinical_procedure" @click="openClinicalProcedure({ name: item.clinical_procedure })">
                       {{ __("Open Procedure") }}
                     </button>
@@ -635,8 +513,9 @@ import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
 import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
-import DermaEvidencePanel from "./components/DermaEvidencePanel.vue"
+import PhotosPanel from "./components/photos/PhotosPanel.vue"
 import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
+import MarkResponseChips from "./components/MarkResponseChips.vue"
 import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 
@@ -666,7 +545,7 @@ const STATUS_PILLS = [
   { key: "Cancelled", label: __("Cancelled") },
 ]
 
-const COMPARE_RESPONSE_STATUSES = ["Improving", "Stable", "Worse", "Resolved", "Monitoring"]
+const MARK_RESPONSE_STATUSES = ["Improving", "Stable", "Worse", "Resolved", "Monitoring"]
 
 // Readiness is the server's; the chart only says which engine an item came from.
 const READINESS_INVENTORY = "inventory"
@@ -719,13 +598,7 @@ const selectedBodyTemplate = ref(null)
 const activeWorkspaceTab = ref("procedure_history")
 const activeSection = ref(loadStoredDermaSection())
 const selectedMarkName = ref("")
-const selectedPhotoSetName = ref("")
 const selectedTimelineVisitKey = ref("")
-const compareLeftId = ref("")
-const compareRightId = ref("")
-const compareCategoryFilter = ref("all")
-const compareTypeFilter = ref("all")
-const compareResponseStatus = ref("")
 const chartOverlayMode = ref("today")
 const selectedPriceList = ref("")
 const defaultPriceList = ref("")
@@ -814,7 +687,6 @@ const activeProcedureAnnotations = computed(() => {
   const name = activeProcedure.value?.name || activeProcedureName.value
   return name ? (procedureAnnotations.value[name] || []) : []
 })
-const currentAnnotationHistory = computed(() => annotations.value)
 const contextReady = computed(() => Boolean(patient.value.name || props.context?.patient || props.context?.encounter || props.context?.appointment))
 const hasSessionContext = computed(() => Boolean(encounter.value.name))
 const currentPractitionerName = computed(() => encounter.value.practitioner_name || appointment.value.practitioner_name || sessionProvider.value || "")
@@ -853,20 +725,6 @@ function readinessContributorLabel(item) {
   return (item.contributors || []).map((source) => CONTRIBUTOR_LABELS[source] || source).join(" + ")
 }
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
-const procedureArtifactText = computed(() => {
-  if (!activeProcedure.value) {
-    const parts = [
-      annotations.value.length ? __("{0} drawing(s)").replace("{0}", annotations.value.length) : "",
-      photoSets.value.length ? __("{0} photo set(s)").replace("{0}", photoSets.value.length) : "",
-    ].filter(Boolean)
-    return parts.join(" · ") || __("Encounter evidence")
-  }
-  const parts = [
-    activeProcedureAnnotations.value.length ? __("{0} drawing(s)").replace("{0}", activeProcedureAnnotations.value.length) : "",
-    relevantPhotoSets.value.length ? __("{0} photo set(s)").replace("{0}", relevantPhotoSets.value.length) : "",
-  ].filter(Boolean)
-  return parts.join(" · ") || activeProcedure.value.derma_artifact_text || __("No evidence yet")
-})
 const patientAllergyText = computed(() => {
   return patient.value.custom_allergies || patient.value.allergies || patient.value.allergy || ""
 })
@@ -891,7 +749,7 @@ const encounterAlertItems = computed(() => {
       tone: "warning",
     })
   }
-  if (selectedTemplate.value?.custom_derma_before_after_photo_required && activeProcedure.value && !relevantPhotoSets.value.length) {
+  if (requiresBeforeAfterPhotos.value && !procedurePhotoSets.value.length) {
     alerts.push({
       key: "photos",
       label: __("Photo Required"),
@@ -971,122 +829,18 @@ const selectedMark = computed(() => marks.value.find((mark) => mark.name === sel
 
 const selectedTimelineVisit = computed(() => visitTimeline.value.find((visit) => visit.key === selectedTimelineVisitKey.value) || visitTimeline.value[0] || null)
 
-const relevantPhotoSets = computed(() => {
-  if (activeProcedure.value?.name) {
-    const treatmentNames = new Set(activeProcedureTreatments.value.map((row) => row.name).filter(Boolean))
-    return photoSets.value
-      .filter((set) =>
-        set.clinical_procedure === activeProcedure.value.name ||
-        (set.treatment_entry && treatmentNames.has(set.treatment_entry))
-      )
-      .map((set) => ({ ...set, _period: "today" }))
-  }
-  const selected = selectedMark.value
-  const bodyView = selected?.body_view || selectedBodyTemplate.value?.title || selectedBodyTemplate.value?.name
-  const bodyRegion = selected?.body_region || selected?.body_template || selectedBodyTemplate.value?.template_type
-  const current = photoSets.value.filter((set) => photoSetMatchesContext(set, selected, bodyView, bodyRegion)).map((set) => ({ ...set, _period: "today" }))
-  const previous = previousPhotoSets.value.filter((set) => photoSetMatchesContext(set, selected, bodyView, bodyRegion)).map((set) => ({ ...set, _period: "previous" }))
-  return [...current, ...previous]
-})
-
-const selectedPhotoSet = computed(() => {
-  return relevantPhotoSets.value.find((set) => set.name === selectedPhotoSetName.value) || relevantPhotoSets.value[0] || null
-})
-
-const photoCompare = computed(() => {
-  const current = photoSets.value.find((set) => photoSetImages(set).length && relevantPhotoSets.value.some((row) => row.name === set.name)) || null
-  const previous = previousPhotoSets.value.find((set) => photoSetImages(set).length && relevantPhotoSets.value.some((row) => row.name === set.name)) || null
-  const selectedImages = selectedPhotoSet.value ? photoSetImages(selectedPhotoSet.value) : []
-  const beforeImage = previous ? photoSetImages(previous)[0] : selectedImages.find((photo) => String(photo.photo_type || "").toLowerCase() === "before")
-  const afterImage = current ? photoSetImages(current)[0] : selectedImages.find((photo) => ["after", "visit", "procedure"].includes(String(photo.photo_type || "").toLowerCase())) || selectedImages[0]
-  return {
-    before: beforeImage ? { image: beforeImage.image, label: previous ? `${__("Previous")} · ${formatDate(previous.creation)}` : beforeImage.photo_type || __("Before") } : null,
-    after: afterImage ? { image: afterImage.image, label: current ? `${__("Today")} · ${formatDate(current.creation)}` : afterImage.photo_type || __("Today") } : null,
-  }
-})
-
-const photoPanelSummary = computed(() => {
-  if (activeProcedure.value?.name) {
-    const count = relevantPhotoSets.value.reduce((total, set) => total + photoSetImages(set).length, 0)
-    return `${count} ${__("procedure image(s)")}`
-  }
-  const currentCount = photoSets.value.reduce((total, set) => total + photoSetImages(set).length, 0)
-  const previousCount = previousPhotoSets.value.reduce((total, set) => total + photoSetImages(set).length, 0)
-  return `${currentCount} ${__("today")} · ${previousCount} ${__("previous")}`
-})
-
-const comparePhotoOptions = computed(() => {
-  const rows = []
-  const sets = [
-    ...previousPhotoSets.value.map((set) => ({ ...set, _period: "previous" })),
-    ...photoSets.value.map((set) => ({ ...set, _period: "today" })),
-  ]
-  for (const set of sets) {
-    const photos = photoSetImages(set)
-    const linkedMark = findMarkForPhotoSet(set)
-    photos.forEach((photo, index) => {
-      const type = photo.photo_type || set.set_type || __("Visit")
-      const date = formatDate(set.creation || set.modified)
-      const location = set.body_view || set.body_region || linkedMark?.body_view || linkedMark?.body_region || ""
-      rows.push({
-        id: `${set.name}-${photo.name || index}`,
-        image: photo.image,
-        photo,
-        set,
-        period: set._period,
-        type,
-        category: linkedMark?.category || "",
-        visit_key: timelineKeyForRow(set),
-        label: `${set._period === "today" ? __("Today") : __("Previous")} · ${type}`,
-        meta: [date, location, linkedMark?.category].filter(Boolean).join(" · "),
-      })
-    })
-  }
-  return rows
-})
-
-const compareCategories = computed(() => {
-  const categories = new Set(comparePhotoOptions.value.map((photo) => photo.category).filter(Boolean))
-  for (const mark of [...marks.value, ...previousMarks.value]) {
-    if (mark.category) categories.add(mark.category)
-  }
-  return [...categories].sort()
-})
-
-const comparePhotoTypes = computed(() => [...new Set(comparePhotoOptions.value.map((photo) => photo.type).filter(Boolean))].sort())
-
-const filteredComparePhotoOptions = computed(() => {
-  return comparePhotoOptions.value.filter((photo) => {
-    if (compareCategoryFilter.value !== "all" && photo.category !== compareCategoryFilter.value) return false
-    if (compareTypeFilter.value !== "all" && photo.type !== compareTypeFilter.value) return false
-    if (selectedTimelineVisitKey.value && photo.period === "previous" && photo.visit_key !== selectedTimelineVisitKey.value) return false
-    return true
-  })
-})
-
-const compareLeftImage = computed(() => {
-  if (compareLeftId.value) return comparePhotoOptions.value.find((photo) => photo.id === compareLeftId.value) || null
-  return (
-    filteredComparePhotoOptions.value.find((photo) => photo.period === "previous") ||
-    filteredComparePhotoOptions.value.find((photo) => String(photo.type || "").toLowerCase() === "before") ||
-    null
+const procedurePhotoSets = computed(() => {
+  const procedure = activeProcedure.value?.name
+  if (!procedure) return []
+  const treatmentNames = new Set(activeProcedureTreatments.value.map((row) => row.name).filter(Boolean))
+  return photoSets.value.filter(
+    (set) => set.clinical_procedure === procedure || (set.treatment_entry && treatmentNames.has(set.treatment_entry))
   )
 })
 
-const compareRightImage = computed(() => {
-  if (compareRightId.value) return comparePhotoOptions.value.find((photo) => photo.id === compareRightId.value) || null
-  return (
-    filteredComparePhotoOptions.value.find((photo) => photo.period === "today" && photo.id !== compareLeftImage.value?.id) ||
-    filteredComparePhotoOptions.value.find((photo) => ["after", "visit", "procedure"].includes(String(photo.type || "").toLowerCase()) && photo.id !== compareLeftImage.value?.id) ||
-    filteredComparePhotoOptions.value.find((photo) => photo.id !== compareLeftImage.value?.id) ||
-    null
-  )
-})
-
-function findMarkForPhotoSet(set) {
-  if (!set?.name) return null
-  return [...marks.value, ...previousMarks.value].find((mark) => mark.photo_set === set.name || (set.treatment_entry && mark.treatment_entry === set.treatment_entry)) || null
-}
+const requiresBeforeAfterPhotos = computed(() =>
+  Boolean(selectedTemplate.value?.custom_derma_before_after_photo_required && activeProcedure.value)
+)
 
 watch(
   () => props.context,
@@ -1225,7 +979,6 @@ async function load(context = props.context) {
 	    }
 	    ensureSelectedBodyTemplate()
     if (selectedMarkName.value && !marks.value.some((mark) => mark.name === selectedMarkName.value)) selectedMarkName.value = ""
-    if (selectedPhotoSetName.value && !relevantPhotoSets.value.some((set) => set.name === selectedPhotoSetName.value)) selectedPhotoSetName.value = ""
     Object.keys(loadedTabs).forEach((key) => (loadedTabs[key] = false))
     await hydrateDermaSectionPreference()
     await ensureSectionData(activeSection.value, activeWorkspaceTab.value)
@@ -1252,39 +1005,13 @@ function refresh() {
   return load(props.context)
 }
 
-function photoSetImages(set) {
-  return (set?.photos || []).filter((photo) => photo?.image)
-}
-
-function photoSetMatchesContext(set, mark, bodyView, bodyRegion) {
-  if (!set) return false
-  if (!mark && !bodyView && !bodyRegion) return true
-  if (mark?.treatment_entry && set.treatment_entry && set.treatment_entry === mark.treatment_entry) return true
-  if (mark?.photo_set && set.name === mark.photo_set) return true
-  if (bodyView && set.body_view && set.body_view === bodyView) return true
-  if (bodyRegion && set.body_region && set.body_region === bodyRegion) return true
-  return !set.body_view && !set.body_region && !set.treatment_entry
-}
-
-function openPhotoSetForm() {
-  if (selectedPhotoSet.value?.name) {
-    frappe.msgprint({
-      title: __("Photo Set"),
-      message: `<p><b>${selectedPhotoSet.value.name}</b></p><p>${__("Use Upload Photo to add more encounter or procedure evidence without leaving this page.")}</p>`,
-      indicator: "blue",
-    })
-    return
-  }
-  frappe.msgprint(__("Use Upload Photo to create a photo set from this encounter page."))
-}
-
-function uploadPhotos(photoType = "Visit") {
+function uploadPhotos() {
   if (!patient.value.name || !encounter.value.name) {
     frappe.msgprint(__("A patient encounter is required before uploading photos."))
     return
   }
   if (!window.frappe?.ui?.FileUploader) {
-    openPhotoSetForm()
+    frappe.msgprint(__("File uploads are unavailable in this session. Reload the page and try again."))
     return
   }
   const uploaded = []
@@ -1296,12 +1023,12 @@ function uploadPhotos(photoType = "Visit") {
     },
     on_close: async () => {
       if (!uploaded.length) return
-      await createPhotoSetFromImages(uploaded, photoType)
+      await createPhotoSetFromImages(uploaded)
     },
   })
 }
 
-async function createPhotoSetFromImages(images, photoType = "Visit") {
+async function createPhotoSetFromImages(images) {
   const response = await frappe.call({
     method: "do_derma.api.create_photo_set",
     args: {
@@ -1311,14 +1038,12 @@ async function createPhotoSetFromImages(images, photoType = "Visit") {
 	        encounter: encounter.value.name,
 	        clinical_procedure: activeProcedure.value?.name || "",
 	        chart_mark: selectedMark.value?.name,
-	        set_type: photoType === "Before" || photoType === "After" ? "Before/After" : photoType,
 	        body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
 	        body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
 	        treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
 	        notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
 	        photos: images.map((image) => ({
 	          image,
-	          photo_type: photoType,
 	          view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
 	          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
 	          treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
@@ -1334,11 +1059,37 @@ async function createPhotoSetFromImages(images, photoType = "Visit") {
         ? marks.value.map((mark) => (mark.name === selectedMark.value.name ? { ...mark, photo_set: response.message.name } : mark))
         : marks.value,
     }
-	    selectedPhotoSetName.value = response.message.name
 	    frappe.show_alert({ message: __("Photos linked to chart"), indicator: "green" })
 	    await refresh()
 	  }
 	}
+
+async function retagPhoto({ photo, stage }) {
+  if (!photo || !stage) return
+  const response = await frappe.call({
+    method: "do_derma.api.update_photo_stage",
+    args: { photo, stage },
+  })
+  if (response.message?.name) {
+    frappe.show_alert({ message: __("Photo stage updated"), indicator: "green" })
+    await refresh()
+  }
+}
+
+async function deletePhoto({ photo }) {
+  if (!photo) return
+  const confirmed = await new Promise((resolve) => {
+    frappe.confirm(
+      __("Delete this photo? This cannot be undone."),
+      () => resolve(true),
+      () => resolve(false)
+    )
+  })
+  if (!confirmed) return
+  await frappe.call({ method: "do_derma.api.delete_photo", args: { photo } })
+  frappe.show_alert({ message: __("Photo deleted"), indicator: "green" })
+  await refresh()
+}
 
 function selectTimelineVisit(visit) {
   if (!visit?.key) return
@@ -1357,21 +1108,9 @@ function overlayTimelineVisit(visit = selectedTimelineVisit.value) {
   frappe.show_alert({ message: __("Previous visit marks overlaid"), indicator: "blue" })
 }
 
-function compareTimelineVisit(visit = selectedTimelineVisit.value) {
-  if (!visit?.key) return
-  selectedTimelineVisitKey.value = visit.key
-  compareLeftId.value = ""
-  compareRightId.value = ""
-  setActiveSection("photos")
-}
-
 function clearTimelineOverlay() {
   selectedTimelineVisitKey.value = ""
   chartOverlayMode.value = "today"
-}
-
-function timelineKeyForRow(row) {
-  return row?.encounter || row?.appointment || String(row?.creation || row?.modified || "").slice(0, 10) || "Unlinked"
 }
 
 function openClinicalProcedure(procedure) {
@@ -1397,7 +1136,7 @@ function handleEncounterAlert(alert) {
     return
   }
   if (alert.key === "photos") {
-    uploadPhotos(activeProcedure.value ? "Procedure" : "Visit")
+    uploadPhotos()
     return
   }
   if (alert.tab) {
@@ -1409,40 +1148,19 @@ function openItem(itemCode) {
   if (itemCode) frappe.msgprint({ title: __("Inventory Item"), message: escapeHtml(itemCode), indicator: "blue" })
 }
 
-function chooseComparePhoto(photo) {
-  if (!photo?.id) return
-  if (!compareLeftId.value || compareLeftId.value === photo.id) {
-    compareLeftId.value = photo.id
-    return
-  }
-  compareRightId.value = photo.id
-}
-
-function swapCompareImages() {
-  const left = compareLeftImage.value?.id || ""
-  const right = compareRightImage.value?.id || ""
-  compareLeftId.value = right
-  compareRightId.value = left
-}
-
-async function setCompareResponse(status) {
-  compareResponseStatus.value = status
-  if (!selectedMark.value) {
-    frappe.msgprint(__("Select a chart mark before saving the clinical response."))
-    return
-  }
-  await updateSelectedMarkStatus(status)
-}
-
-function selectMarkFromItem(item) {
+function markForItem(item) {
   const markName = item?.mark || item?.marks?.[0]
-  const mark = marks.value.find((row) => row.name === markName)
+  return marks.value.find((row) => row.name === markName) || null
+}
+
+async function setItemResponse(item, status) {
+  const mark = markForItem(item)
   if (!mark) {
     frappe.msgprint(__("This item is not linked to a current chart mark."))
     return
   }
   selectMark(mark)
-  setActiveSection("photos")
+  await updateSelectedMarkStatus(status)
 }
 
 async function createFollowupTask(item) {
