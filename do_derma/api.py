@@ -2554,6 +2554,32 @@ def _sync_chart_marks_for_annotation(
 
 
 @frappe.whitelist()
+def delete_derma_annotation(annotation_name: str, doctype: str, docname: str):
+	_ensure_clinical_access()
+	if doctype not in ANNOTATION_SUMMARY_PARENTS:
+		frappe.throw(_("Annotations are only kept on an encounter or a procedure."))
+	if not annotation_name or not frappe.db.exists("Health Annotation", annotation_name):
+		frappe.throw(_("Annotation not found."))
+	if not docname or not frappe.db.exists(doctype, docname):
+		frappe.throw(_("{0} not found.").format(doctype))
+
+	frappe.db.delete(
+		"Health Annotation Table",
+		{"annotation": annotation_name, "parent": docname, "parenttype": doctype},
+	)
+
+	has_other_table_row = bool(
+		frappe.db.exists("Health Annotation Table", {"annotation": annotation_name})
+	)
+	if not has_other_table_row:
+		from do_derma.teardown import annotations as annotation_teardown
+
+		if not annotation_teardown.has_live_links(annotation_name):
+			annotation_teardown.clear_preview(annotation_name)
+			frappe.delete_doc("Health Annotation", annotation_name, ignore_permissions=True)
+
+
+@frappe.whitelist()
 def save_derma_annotation(payload: str | dict[str, Any]):
 	_ensure_clinical_access()
 	values = json.loads(payload) if isinstance(payload, str) else dict(payload or {})

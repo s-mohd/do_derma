@@ -461,14 +461,32 @@
   border-radius: 5px;
   background: var(--derma-bg);
   color: var(--derma-text-strong);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
-  padding: 3px 6px;
+  padding: 3px 5px;
 }
 
 .chart-annotation-edit:hover {
   border-color: var(--derma-brand);
   color: var(--derma-brand);
+}
+
+.chart-annotation-delete {
+  position: absolute;
+  top: 5px;
+  right: 30px;
+  border: 1px solid var(--derma-border);
+  border-radius: 5px;
+  background: var(--derma-bg);
+  color: var(--derma-text-muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 5px;
+}
+
+.chart-annotation-delete:hover {
+  border-color: var(--red-4, #e03131);
+  color: var(--red-4, #e03131);
 }
 
 .chart-annotation-list b {

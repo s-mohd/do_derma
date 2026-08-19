@@ -138,9 +138,20 @@
                         type="button"
                         class="chart-annotation-edit"
                         data-test="annotation-resume"
+                        :title="__('Edit')"
                         @click="openAnnotationStudio({ annotation })"
                       >
-                        {{ __("Edit") }}
+                        <span aria-hidden="true">✎</span>
+                      </button>
+                      <button
+                        v-if="isResumableAnnotation(annotation) && !isEncounterLocked"
+                        type="button"
+                        class="chart-annotation-delete"
+                        data-test="annotation-delete"
+                        :title="__('Delete')"
+                        @click="deleteAnnotation(annotation, 'Patient Encounter', encounter.name)"
+                      >
+                        <span aria-hidden="true">✕</span>
                       </button>
                     </div>
                   </div>
@@ -1551,6 +1562,20 @@ function annotateProcedure(row) {
   openProcedureAnnotationPicker({ ...anchor, annotations: existing })
 }
 
+async function deleteAnnotation(annotation, doctype, docname) {
+  frappe.confirm(__("Delete this drawing permanently?"), async () => {
+    try {
+      await frappe.call({
+        method: "do_derma.api.delete_derma_annotation",
+        args: { annotation_name: annotation.name, doctype, docname },
+      })
+      await refresh()
+    } catch (error) {
+      frappe.show_alert({ message: error.message || __("Unable to delete annotation"), indicator: "red" })
+    }
+  })
+}
+
 /** A procedure can hold several drawings: resume one deliberately, or start fresh. */
 function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, procedureTemplate, annotations }) {
   const anchor = { clinicalProcedure, procedureLabel, procedureTemplate }
@@ -1583,6 +1608,7 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
             <button type="button" class="btn btn-sm btn-default" data-test="annotation-picker-edit" data-index="${index}">
               ${__("Edit")}
             </button>
+            ${!isEncounterLocked.value ? `<button type="button" class="btn btn-sm btn-danger" data-test="annotation-picker-delete" data-delete-index="${index}">${__("Delete")}</button>` : ""}
           </div>
           ${annotation.annotation_data ? `<div class="derma-annotation-pick-data">${annotation.annotation_data}</div>` : ""}
         </div>
@@ -1595,6 +1621,22 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
     const index = Number(event.currentTarget.getAttribute("data-index"))
     dialog.hide()
     openAnnotationStudio({ ...anchor, annotation: annotations[index] || null })
+  })
+  $wrapper.find('[data-test="annotation-picker-delete"]').on("click", (event) => {
+    const index = Number(event.currentTarget.getAttribute("data-delete-index"))
+    const target = annotations[index]
+    frappe.confirm(__("Delete this drawing permanently?"), async () => {
+      try {
+        await frappe.call({
+          method: "do_derma.api.delete_derma_annotation",
+          args: { annotation_name: target.name, doctype: "Clinical Procedure", docname: clinicalProcedure },
+        })
+        dialog.hide()
+        await refresh()
+      } catch (error) {
+        frappe.show_alert({ message: error.message || __("Unable to delete annotation"), indicator: "red" })
+      }
+    })
   })
   dialog.show()
 }
