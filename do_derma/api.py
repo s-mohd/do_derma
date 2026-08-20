@@ -149,6 +149,28 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_note_template",
 ]
 
+# What the config panel's detail view edits, keyed by the name it uses in the payload.
+# Everything else on Clinical Procedure Template - consumables, sample collection, medical
+# coding, the marker preset - stays in the desk form.
+EDITOR_TEXT_FIELDS = {
+	"description": "description",
+	"item_group": "item_group",
+	"medical_department": "medical_department",
+	"category": "custom_derma_category",
+	"marker_behavior": "custom_derma_marker_behavior",
+	"marker_color": "custom_derma_marker_color",
+	"note_template": "custom_derma_note_template",
+}
+EDITOR_CHECK_FIELDS = {
+	"is_billable": "is_billable",
+	"disabled": "disabled",
+	"consent_required": "custom_derma_consent_required",
+	"before_after_photo_required": "custom_derma_before_after_photo_required",
+	"product_tracking_required": "custom_derma_product_tracking_required",
+	"device_settings_required": "custom_derma_device_settings_required",
+}
+EDITOR_ROW_FIELDS = [*EDITOR_TEXT_FIELDS.values(), *EDITOR_CHECK_FIELDS.values(), "rate", "modified"]
+
 # Required fields the two safety flags append to whatever a template declares. A
 # variables row cannot call one of these optional - the procedure-creation gate
 # re-checks them, so the template would promise what the server refuses.
@@ -608,10 +630,25 @@ def _config_procedure_template(row: dict[str, Any]) -> dict[str, Any]:
 		"template": row.get("template") or row.get("name"),
 		"category": row.get("custom_derma_category") or "",
 		"marker_behavior": row.get("custom_derma_marker_behavior") or "",
+		"effective_marker": _effective_marker(row),
+		"has_marker_preset": bool(str(row.get("custom_derma_marker_preset_json") or "").strip()),
 		"disabled": cint(row.get("disabled")),
 		"variable_count": len(variables),
 		"required_fields": required,
 		"warnings": warnings,
+	}
+
+
+def _effective_marker(row: dict[str, Any]) -> dict[str, Any]:
+	"""The mark the chart will actually stamp. `save_chart_mark` falls back to the category,
+	so a card drawing the template's own empty field would draw the wrong thing."""
+	defaults = _category_defaults(row.get("custom_derma_category"))
+	behavior = row.get("custom_derma_marker_behavior") or ""
+	color = row.get("custom_derma_marker_color") or ""
+	return {
+		"behavior": behavior or defaults.get("marker_behavior") or "",
+		"color": color or defaults.get("marker_color") or "",
+		"inherited": bool(not behavior and defaults.get("marker_behavior")),
 	}
 
 
@@ -765,7 +802,18 @@ def get_derma_config_overview():
 		"categories": _safe_derma_context("categories", [], get_config_categories, errors),
 		"readiness": _safe_derma_context("readiness", {}, get_config_readiness, errors),
 	}
-	return {**sections, "health": get_config_health(sections), "errors": errors}
+	return {
+		**sections,
+		"health": get_config_health(sections),
+		"errors": errors,
+		"can_write": _can_write_procedure_templates(),
+	}
+
+
+def _can_write_procedure_templates() -> bool:
+	"""The doctype's own permission, not the role gate: the panel renders read-only rather
+	than offering edits a save would refuse."""
+	return bool(frappe.has_permission("Clinical Procedure Template", "write"))
 
 
 @frappe.whitelist()
@@ -856,62 +904,150 @@ def _apply_part_variables(doc, rows: Any) -> None:
 
 
 @frappe.whitelist()
-def get_derma_template_variables(template: str):
-	"""One procedure template's variable set, as the builder edits it."""
+def get_derma_procedure_template(template: str = ""):
+	"""One procedure template as the config panel's detail view edits it. No template means
+	the panel is creating one, so it gets the same payload with nothing filled in."""
 	_ensure_clinical_access()
-	return _template_variable_payload(_derma_template_row(template))
+	if not template:
+		return _procedure_template_payload({})
+	return _procedure_template_payload(_derma_template_row(template))
 
 
 @frappe.whitelist()
-def save_derma_template_variables(template: str, variables: str | list[dict[str, Any]]):
-	"""Rewrite a template's variable set, validated the way the chart reads it.
+def save_derma_procedure_template(template: str, values: str | dict[str, Any]):
+	"""Write one procedure template from the config panel - basics, derma behaviour and
+	variables in a single document save. An empty `template` creates one.
 
 	No ignore_permissions: unlike the Health Annotation writes elsewhere in this module,
 	Clinical Procedure Template's own DocPerms are consistent, so they run on top of the
 	role gate.
 	"""
 	_ensure_clinical_access()
-	row = _derma_template_row(template)
+	payload = values if isinstance(values, dict) else _parse_json(values, None)
+	if not isinstance(payload, dict):
+		frappe.throw(_("Values must be an object."))
 	if not _has_field("Clinical Procedure Template", "custom_derma_variables_json"):
 		frappe.throw(_("This site has no derma template fields yet. Run bench migrate first."))
+	_ensure_template_write_access(template)
 
-	locked = _locked_required_sources(row)
+	doc = _procedure_template_doc(template, payload)
+	_apply_template_values(doc, payload)
+	if "variables" in payload:
+		_apply_template_variables(doc, payload["variables"])
+	doc.save()
+	return _procedure_template_payload(_derma_template_row(doc.name))
+
+
+def _ensure_template_write_access(template: str) -> None:
+	if not frappe.has_permission("Clinical Procedure Template", "write", doc=template or None):
+		frappe.throw(_("You are not permitted to change procedure templates."), frappe.PermissionError)
+
+
+def _procedure_template_doc(template: str, payload: dict[str, Any]):
+	if template:
+		doc = frappe.get_doc("Clinical Procedure Template", _derma_template_row(template)["name"])
+		if payload.get("modified"):
+			# Frappe compares this against the stored timestamp and refuses a stale write
+			# rather than overwriting whoever saved in the meantime.
+			doc.modified = payload["modified"]
+		return doc
+
+	name = str(payload.get("template") or "").strip()
+	if not name:
+		frappe.throw(_("A new procedure template needs a name."))
+	doc = frappe.new_doc("Clinical Procedure Template")
+	doc.template = name
+	doc.item_code = str(payload.get("item_code") or name).strip()
+	return doc
+
+
+def _apply_template_values(doc, payload: dict[str, Any]) -> None:
+	"""Only what the payload carries. The panel sends every field, but a caller that sends
+	one is editing one."""
+	for key, fieldname in EDITOR_TEXT_FIELDS.items():
+		if key in payload and _has_field("Clinical Procedure Template", fieldname):
+			doc.set(fieldname, str(payload[key] or "").strip())
+	for key, fieldname in EDITOR_CHECK_FIELDS.items():
+		if key in payload and _has_field("Clinical Procedure Template", fieldname):
+			doc.set(fieldname, cint(payload[key]))
+	if "rate" in payload:
+		doc.rate = flt(payload["rate"])
+	if "allowed_body_templates" in payload and _has_field(
+		"Clinical Procedure Template", "custom_derma_allowed_body_templates"
+	):
+		doc.custom_derma_allowed_body_templates = _joined_body_templates(payload["allowed_body_templates"])
+
+
+def _apply_template_variables(doc, variables: Any) -> None:
+	"""Validated the way the chart reads them, and the required list derived from the
+	result: the variables and the safety flags own it, never the client."""
+	locked = _locked_required_sources(doc.as_dict())
 	rows = _validated_variable_rows(variables, set(locked))
-	doc = frappe.get_doc("Clinical Procedure Template", row["name"])
 	doc.custom_derma_variables_json = json.dumps(rows, indent=2)
 	if _has_field("Clinical Procedure Template", "custom_derma_required_fields"):
 		doc.custom_derma_required_fields = json.dumps(
 			[field["fieldname"] for field in rows if field.get("required")]
 		)
-	doc.save()
-	return _template_variable_payload(_derma_template_row(row["name"]))
+
+
+def _joined_body_templates(value: Any) -> str:
+	"""Back to the comma-separated string `_ensure_body_template_allowed` reads. Empty
+	still means every map."""
+	entries = value if isinstance(value, list) else _split_csv(str(value or ""))
+	return ",".join(str(entry).strip() for entry in entries if str(entry).strip())
 
 
 def _derma_template_row(template: str) -> dict[str, Any]:
 	if not template or not frappe.db.exists("Clinical Procedure Template", template):
 		frappe.throw(_("Clinical Procedure Template {0} does not exist.").format(template))
-	fields = _select_existing_fields("Clinical Procedure Template", DERMA_TEMPLATE_FIELDS)
+	fields = _select_existing_fields(
+		"Clinical Procedure Template", [*DERMA_TEMPLATE_FIELDS, *EDITOR_ROW_FIELDS]
+	)
 	return frappe.db.get_value("Clinical Procedure Template", template, fields, as_dict=True) or {}
 
 
-def _template_variable_payload(template_row: dict[str, Any]) -> dict[str, Any]:
-	locked = _locked_required_sources(template_row)
-	return {
-		"template": template_row.get("name"),
-		"title": template_row.get("template") or template_row.get("name"),
+def _procedure_template_payload(template_row: dict[str, Any]) -> dict[str, Any]:
+	variables = _editor_variable_rows(template_row)
+	payload = {
+		"name": template_row.get("name"),
+		"template": template_row.get("template") or template_row.get("name"),
+		"rate": flt(template_row.get("rate")),
+		"allowed_body_templates": _split_csv(template_row.get("custom_derma_allowed_body_templates")),
+		"effective_marker": _effective_marker(template_row),
+		"has_marker_preset": bool(str(template_row.get("custom_derma_marker_preset_json") or "").strip()),
+		"variables": variables,
+		"required_fields": _required_fields_with_owners(template_row, _get_template_variables(template_row)),
+		"marker_behaviors": _marker_behavior_options(),
 		"fieldtypes": VARIABLE_FIELDTYPES,
-		"variables": [
-			{
-				"fieldname": variable["fieldname"],
-				"label": variable["label"],
-				"fieldtype": variable["fieldtype"],
-				"options": variable["options"],
-				"required": bool(variable["required"]),
-				"locked_by": locked.get(variable["fieldname"], ""),
-			}
-			for variable in _get_template_variables(template_row)
-		],
+		"modified": str(template_row.get("modified") or ""),
+		"can_write": _can_write_procedure_templates(),
 	}
+	payload.update({key: template_row.get(fieldname) or "" for key, fieldname in EDITOR_TEXT_FIELDS.items()})
+	payload.update({key: cint(template_row.get(fieldname)) for key, fieldname in EDITOR_CHECK_FIELDS.items()})
+	return payload
+
+
+def _editor_variable_rows(template_row: dict[str, Any]) -> list[dict[str, Any]]:
+	locked = _locked_required_sources(template_row)
+	return [
+		{
+			"fieldname": variable["fieldname"],
+			"label": variable["label"],
+			"fieldtype": variable["fieldtype"],
+			"options": variable["options"],
+			"required": bool(variable["required"]),
+			"locked_by": locked.get(variable["fieldname"], ""),
+		}
+		for variable in _get_template_variables(template_row)
+	]
+
+
+def _marker_behavior_options() -> list[str]:
+	"""From meta, because `add_derma_freehand_marker_behavior` appends options through a
+	property setter - a literal list here would go stale at the next patch."""
+	field = frappe.get_meta("Clinical Procedure Template").get_field("custom_derma_marker_behavior")
+	options = str(getattr(field, "options", "") or "") if field else ""
+	return [option.strip() for option in options.split("\n") if option.strip()]
 
 
 def _validated_variable_rows(value: Any, locked: set[str]) -> list[dict[str, Any]]:
@@ -2568,9 +2704,7 @@ def delete_derma_annotation(annotation_name: str, doctype: str, docname: str):
 		{"annotation": annotation_name, "parent": docname, "parenttype": doctype},
 	)
 
-	has_other_table_row = bool(
-		frappe.db.exists("Health Annotation Table", {"annotation": annotation_name})
-	)
+	has_other_table_row = bool(frappe.db.exists("Health Annotation Table", {"annotation": annotation_name}))
 	if not has_other_table_row:
 		from do_derma.teardown import annotations as annotation_teardown
 

@@ -7,6 +7,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
+from do_derma.config.marker_preview import marker_preview_behaviors
 from do_derma.patches.ensure_derma_body_template_editor_page import (
 	execute as ensure_body_template_editor_page,
 )
@@ -65,6 +66,17 @@ class TestConfigOverview(DermaTestHelpers, IntegrationTestCase):
 		self.assertIn("procedure templates", overview["errors"])
 		self.assertTrue(self._template_row(overview, template))
 		self.assertIsInstance(overview["categories"], list)
+
+	def test_reports_that_this_session_may_write_templates(self):
+		self.assertTrue(api.get_derma_config_overview()["can_write"])
+
+	def test_a_session_without_write_permission_gets_a_read_only_payload(self):
+		"""The panel hides its edit affordances from this, rather than offering edits the
+		save would refuse."""
+		with patch.object(frappe, "has_permission", return_value=False):
+			overview = api.get_derma_config_overview()
+
+		self.assertFalse(overview["can_write"])
 
 
 class ConfigTemplateHelpers:
@@ -251,6 +263,253 @@ class TestConfigProcedureTemplates(ConfigTemplateHelpers, IntegrationTestCase):
 
 		self.assertEqual(row["variable_count"], 2)
 		self.assertNotIn("unreadable_variables", row["warnings"])
+
+	def test_draws_the_category_marker_when_the_template_has_none(self):
+		"""The card shows what the chart will stamp, and the chart falls back to the
+		category, so a template with no marker of its own is not drawn blank."""
+		category = self._make_category("Editor Inherits", marker_behavior="hatch", marker_color="#b91c1c")
+		# Explicitly empty: Frappe fills a Select with its first option when the field is
+		# left out entirely, which is what "inherit" has to survive.
+		template = self._make_derma_template(custom_derma_category=category, custom_derma_marker_behavior="")
+
+		marker = self._procedure_row(api.get_derma_config_overview(), template)["effective_marker"]
+
+		self.assertEqual(marker, {"behavior": "hatch", "color": "#b91c1c", "inherited": True})
+
+	def test_a_template_with_its_own_marker_inherits_nothing(self):
+		category = self._make_category("Editor Owns", marker_behavior="hatch")
+		template = self._make_derma_template(
+			custom_derma_category=category, custom_derma_marker_behavior="x_mark"
+		)
+
+		marker = self._procedure_row(api.get_derma_config_overview(), template)["effective_marker"]
+
+		self.assertEqual(marker["behavior"], "x_mark")
+		self.assertFalse(marker["inherited"])
+
+	def test_reports_a_marker_preset_that_overrides_the_shape(self):
+		template = self._make_derma_template(
+			custom_derma_marker_behavior="numbered_dot",
+			custom_derma_marker_preset_json=json.dumps([{"type": "ellipse"}]),
+		)
+
+		self.assertTrue(self._procedure_row(api.get_derma_config_overview(), template)["has_marker_preset"])
+
+
+class TestProcedureTemplateEditor(ConfigTemplateHelpers, IntegrationTestCase):
+	"""One read and one save behind the config panel's detail view. The doctype's own
+	permissions and timestamp check run on top of the role gate - the panel never
+	elevates and never merges."""
+
+	def _stored(self, template, fieldname):
+		return frappe.db.get_value("Clinical Procedure Template", template, fieldname)
+
+	def test_reads_the_fields_the_panel_edits(self):
+		category = self._make_category("Editor Reads")
+		template = self._make_derma_template(
+			custom_derma_category=category,
+			custom_derma_marker_behavior="x_mark",
+			custom_derma_marker_color="#b91c1c",
+			custom_derma_allowed_body_templates="Face Front, Scalp",
+			custom_derma_note_template="Lesion excised.",
+			custom_derma_consent_required=1,
+		)
+
+		payload = api.get_derma_procedure_template(template)
+
+		self.assertEqual(payload["name"], template)
+		self.assertEqual(payload["category"], category)
+		self.assertEqual(payload["marker_behavior"], "x_mark")
+		self.assertEqual(payload["marker_color"], "#b91c1c")
+		self.assertEqual(payload["allowed_body_templates"], ["Face Front", "Scalp"])
+		self.assertEqual(payload["note_template"], "Lesion excised.")
+		self.assertEqual(payload["consent_required"], 1)
+		self.assertTrue(payload["modified"])
+
+	def test_refuses_an_unknown_template(self):
+		with self.assertRaises(frappe.ValidationError):
+			api.get_derma_procedure_template("does-not-exist")
+
+	def test_reads_an_empty_template_for_the_panel_to_create_one(self):
+		"""New mode renders the same detail view, so it asks for the same payload."""
+		payload = api.get_derma_procedure_template("")
+
+		self.assertFalse(payload["name"])
+		self.assertEqual(payload["variables"], [])
+		self.assertTrue(payload["marker_behaviors"])
+
+	def test_offers_the_marker_behaviours_this_site_configured(self):
+		"""A behaviour added by property setter has to reach the panel without a code
+		change, so the options come from meta rather than a literal list."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+		field = frappe.get_meta("Clinical Procedure Template").get_field("custom_derma_marker_behavior")
+
+		payload = api.get_derma_procedure_template(template)
+
+		self.assertEqual(
+			payload["marker_behaviors"],
+			[option.strip() for option in (field.options or "").split("\n") if option.strip()],
+		)
+
+	def test_names_the_owner_of_every_required_field_it_reads(self):
+		template = self._make_derma_template(
+			custom_derma_variables_json=json.dumps([{"label": "Dose", "required": True}]),
+			custom_derma_product_tracking_required=1,
+		)
+
+		payload = api.get_derma_procedure_template(template)
+
+		self.assertEqual(
+			{field["fieldname"]: field["source"] for field in payload["required_fields"]},
+			{
+				"product_name": "product_tracking",
+				"lot_no": "product_tracking",
+				"expiry_date": "product_tracking",
+				"dose": "variables_json",
+			},
+		)
+
+	def test_writes_the_core_basics(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		api.save_derma_procedure_template(
+			template, {"description": "Updated by the panel.", "rate": 250, "disabled": 1}
+		)
+
+		self.assertEqual(self._stored(template, "description"), "Updated by the panel.")
+		self.assertEqual(self._stored(template, "rate"), 250)
+		self.assertEqual(self._stored(template, "disabled"), 1)
+
+	def test_writes_the_derma_fields(self):
+		category = self._make_category("Editor Writes")
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		api.save_derma_procedure_template(
+			template,
+			{
+				"category": category,
+				"marker_behavior": "target",
+				"marker_color": "#0891b2",
+				"note_template": "Cryotherapy applied.",
+				"consent_required": 1,
+				"device_settings_required": 1,
+			},
+		)
+
+		self.assertEqual(self._stored(template, "custom_derma_category"), category)
+		self.assertEqual(self._stored(template, "custom_derma_marker_behavior"), "target")
+		self.assertEqual(self._stored(template, "custom_derma_marker_color"), "#0891b2")
+		self.assertEqual(self._stored(template, "custom_derma_note_template"), "Cryotherapy applied.")
+		self.assertEqual(self._stored(template, "custom_derma_consent_required"), 1)
+		self.assertEqual(self._stored(template, "custom_derma_device_settings_required"), 1)
+
+	def test_an_empty_marker_hands_the_decision_back_to_the_category(self):
+		category = self._make_category("Editor Clears", marker_behavior="hatch", marker_color="#b91c1c")
+		template = self._make_derma_template(
+			custom_derma_category=category, custom_derma_marker_behavior="x_mark"
+		)
+
+		payload = api.save_derma_procedure_template(template, {"marker_behavior": ""})
+
+		self.assertEqual(self._stored(template, "custom_derma_marker_behavior"), "")
+		self.assertEqual(
+			payload["effective_marker"], {"behavior": "hatch", "color": "#b91c1c", "inherited": True}
+		)
+
+	def test_stores_allowed_body_templates_the_way_the_chart_gate_reads_them(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		api.save_derma_procedure_template(template, {"allowed_body_templates": ["Face Front", "Scalp"]})
+
+		self.assertEqual(self._stored(template, "custom_derma_allowed_body_templates"), "Face Front,Scalp")
+
+	def test_allowing_no_body_template_restricts_nothing(self):
+		template = self._make_derma_template(
+			custom_derma_marker_behavior="numbered_dot",
+			custom_derma_allowed_body_templates="Face Front",
+		)
+
+		api.save_derma_procedure_template(template, {"allowed_body_templates": []})
+
+		self.assertEqual(self._stored(template, "custom_derma_allowed_body_templates"), "")
+
+	def test_the_required_list_is_derived_rather_than_taken_from_the_client(self):
+		"""The variables and the safety flags own it. A client that sends its own list
+		cannot make the chart demand a field nothing records."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		api.save_derma_procedure_template(
+			template,
+			{
+				"custom_derma_required_fields": json.dumps(["invented"]),
+				"required_fields": ["invented"],
+				"variables": [{"label": "Dose", "required": True}],
+			},
+		)
+
+		self.assertEqual(json.loads(self._stored(template, "custom_derma_required_fields")), ["dose"])
+
+	def test_refuses_a_save_that_started_from_a_stale_read(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+		stale = api.get_derma_procedure_template(template)["modified"]
+		frappe.db.set_value("Clinical Procedure Template", template, "description", "Changed elsewhere.")
+
+		with self.assertRaises(frappe.TimestampMismatchError):
+			api.save_derma_procedure_template(template, {"description": "Changed here.", "modified": stale})
+
+		self.assertEqual(self._stored(template, "description"), "Changed elsewhere.")
+
+	def test_refuses_a_caller_who_cannot_write_the_doctype(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		with patch.object(frappe, "has_permission", return_value=False):
+			with self.assertRaises(frappe.PermissionError):
+				api.save_derma_procedure_template(template, {"description": "Not mine to change."})
+
+	def test_creates_a_template_the_overview_then_lists(self):
+		category = self._make_category("Editor Creates")
+		token = frappe.generate_hash(length=8)
+
+		payload = api.save_derma_procedure_template(
+			"",
+			{
+				"template": f"Derma{token}",
+				"item_code": f"Derma{token}",
+				"item_group": frappe.db.get_value("Item Group", {}, "name"),
+				"description": "Created from the config panel.",
+				"category": category,
+				"is_billable": 0,
+			},
+		)
+
+		self.assertEqual(payload["name"], f"Derma{token}")
+		self.assertEqual(
+			self._procedure_row(api.get_derma_config_overview(), payload["name"])["category"], category
+		)
+
+	def test_refuses_a_new_template_with_no_name(self):
+		with self.assertRaises(frappe.ValidationError):
+			api.save_derma_procedure_template("", {"description": "Nameless."})
+
+	def test_reads_a_json_encoded_payload(self):
+		"""frappe.call sends the values as a JSON string."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		api.save_derma_procedure_template(template, json.dumps({"description": "Encoded."}))
+
+		self.assertEqual(self._stored(template, "description"), "Encoded.")
+
+
+class TestMarkerPreviewCoverage(IntegrationTestCase):
+	"""The config page draws each marker itself, in a plain Vue bundle, because the chart's
+	shapes are Excalidraw element factories in the React bundle. Nothing but this test
+	notices when a behaviour is added to the field and not to the preview."""
+
+	def test_every_configured_behaviour_has_a_preview_shape(self):
+		field = frappe.get_meta("Clinical Procedure Template").get_field("custom_derma_marker_behavior")
+		options = {option.strip() for option in (field.options or "").split("\n") if option.strip()}
+
+		self.assertTrue(options <= set(marker_preview_behaviors()))
 
 
 class TestConfigCategories(ConfigTemplateHelpers, IntegrationTestCase):

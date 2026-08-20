@@ -13,3 +13,14 @@ export const REQUIRED_FIELD_SOURCE_LABELS = {
   device_settings: "Device settings",
   variables_json: "Variables JSON",
 }
+
+/** A marker behaviour as a clinic reads it. The options come from meta at runtime, so this
+ * humanises whatever arrives instead of carrying a list that would go stale. */
+export function markerBehaviorLabel(behavior) {
+  const key = String(behavior || "").trim()
+  if (!key) return __("No marker")
+  return key
+    .split("_")
+    .map((word) => (word.length > 2 ? word[0].toUpperCase() + word.slice(1) : word.toUpperCase()))
+    .join(" ")
+}

@@ -257,18 +257,18 @@ class TestClinicalAccessGate(DermaTestHelpers, IntegrationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			api.get_derma_config_overview()
 
-	def test_template_variable_writes_are_gated(self):
+	def test_procedure_template_writes_are_gated(self):
 		"""It rewrites what every clinician is asked to record for a procedure, and the
 		config page keeps roles: [], so this check is the only thing in front of it."""
 		frappe.set_user(self._make_limited_user())
 		with self.assertRaises(frappe.PermissionError):
-			api.save_derma_template_variables("does-not-matter", [])
+			api.save_derma_procedure_template("does-not-matter", {})
 
-	def test_template_variable_reads_are_gated(self):
+	def test_procedure_template_reads_are_gated(self):
 		"""The builder's reader returns how the clinic is configured, one template at a time."""
 		frappe.set_user(self._make_limited_user())
 		with self.assertRaises(frappe.PermissionError):
-			api.get_derma_template_variables("does-not-matter")
+			api.get_derma_procedure_template("does-not-matter")
 
 	def test_inventory_readiness_is_gated(self):
 		"""The readiness engines live outside api.py now, so this wrapper's gate is the

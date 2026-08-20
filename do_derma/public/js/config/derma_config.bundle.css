@@ -268,3 +268,255 @@
   display: inline-block;
   margin: 4px 0 0;
 }
+
+.derma-config-page .config-head-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.derma-config-page .config-search {
+  width: 220px;
+}
+
+.derma-config-page .config-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 16px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: #475569;
+}
+
+.derma-config-page .config-card-group {
+  margin-bottom: 18px;
+}
+
+.derma-config-page .config-card-group-head {
+  padding: 6px 0;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.derma-config-page .config-card-group-head span {
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+.derma-config-page .config-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.derma-config-page .config-template-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.derma-config-page .config-template-card:hover {
+  border-color: #0f766e;
+  box-shadow: 0 1px 6px rgba(15, 118, 110, 0.12);
+}
+
+.derma-config-page .config-template-card.retired {
+  opacity: 0.6;
+}
+
+.derma-config-page .config-template-card-marker {
+  display: flex;
+  flex: 0 0 74px;
+  width: 74px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.derma-config-page .config-marker svg {
+  display: block;
+}
+
+.derma-config-page .config-marker-name {
+  font-size: 10px;
+  color: #64748b;
+  text-align: center;
+  word-break: break-word;
+}
+
+.derma-config-page .config-marker-name em {
+  display: block;
+  font-style: normal;
+  color: #94a3b8;
+}
+
+.derma-config-page .config-template-card-body h5 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.derma-config-page .config-template-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.derma-config-page .config-template-card-meta .config-badge {
+  margin-left: 0;
+}
+
+.derma-config-page .config-badge-button {
+  border: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.derma-config-page .config-detail-link {
+  font-size: 11px;
+  align-self: center;
+}
+
+.derma-config-page .config-detail-section {
+  padding: 14px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.derma-config-page .config-detail-section h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.derma-config-page .config-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+
+.derma-config-page .config-field-grid label,
+.derma-config-page .config-field-block {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #64748b;
+}
+
+.derma-config-page .config-field-grid .form-control,
+.derma-config-page .config-field-block .form-control {
+  margin-top: 4px;
+  color: #172033;
+}
+
+.derma-config-page .config-readonly-value {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #172033;
+}
+
+.derma-config-page .config-field-label {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.derma-config-page .config-field-label em {
+  font-style: normal;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #94a3b8;
+}
+
+.derma-config-page .config-marker-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.derma-config-page .config-marker-tile {
+  display: flex;
+  width: 96px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 11px;
+  color: #475569;
+  word-break: break-word;
+}
+
+.derma-config-page .config-marker-tile.active {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px #ccfbf1;
+  color: #0f766e;
+}
+
+.derma-config-page .config-marker-tile em {
+  display: block;
+  font-style: normal;
+  color: #94a3b8;
+}
+
+.derma-config-page .config-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.derma-config-page .config-swatch {
+  width: 24px;
+  height: 24px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+}
+
+.derma-config-page .config-swatch.active {
+  border-color: #0f172a;
+}
+
+.derma-config-page .config-hex {
+  width: 110px;
+}
+
+.derma-config-page .config-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.derma-config-page .config-chip-button {
+  padding: 3px 10px;
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 12px;
+  color: #475569;
+}
+
+.derma-config-page .config-chip-button.active {
+  border-color: #0f766e;
+  background: #ecfdf5;
+  color: #0f766e;
+}
