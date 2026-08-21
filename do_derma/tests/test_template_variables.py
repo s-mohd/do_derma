@@ -166,7 +166,7 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 			custom_derma_variables_json=json.dumps([{"label": "Dose", "type": "Float"}])
 		)
 
-		payload = api.get_derma_template_variables(template)
+		payload = api.get_derma_procedure_template(template)
 
 		self.assertEqual(payload["template"], template)
 		self.assertEqual(
@@ -185,24 +185,26 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 	def test_names_the_flag_that_locks_a_variable(self):
 		template = self._make_derma_template(custom_derma_product_tracking_required=1)
 
-		payload = api.get_derma_template_variables(template)
+		payload = api.get_derma_procedure_template(template)
 
 		self.assertEqual(self._variable(payload, "lot_no")["locked_by"], api.PRODUCT_TRACKING_SOURCE)
 		self.assertTrue(self._variable(payload, "lot_no")["required"])
 
 	def test_refuses_an_unknown_template(self):
 		with self.assertRaises(frappe.ValidationError):
-			api.get_derma_template_variables("does-not-exist")
+			api.get_derma_procedure_template("does-not-exist")
 
 	def test_writes_variables_the_chart_then_reads(self):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
-		api.save_derma_template_variables(
+		api.save_derma_procedure_template(
 			template,
-			[
-				{"label": "Dose", "fieldtype": "Float", "required": True},
-				{"label": "Plane", "fieldtype": "Select", "options": "Intradermal\nSubdermal"},
-			],
+			{
+				"variables": [
+					{"label": "Dose", "fieldtype": "Float", "required": True},
+					{"label": "Plane", "fieldtype": "Select", "options": "Intradermal\nSubdermal"},
+				],
+			},
 		)
 
 		row = frappe.db.get_value(
@@ -219,7 +221,9 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 	def test_returns_what_the_builder_should_render_next(self):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
-		payload = api.save_derma_template_variables(template, [{"label": "Dose", "required": True}])
+		payload = api.save_derma_procedure_template(
+			template, {"variables": [{"label": "Dose", "required": True}]}
+		)
 
 		self.assertEqual([variable["fieldname"] for variable in payload["variables"]], ["dose"])
 
@@ -227,7 +231,9 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
 		with self.assertRaises(frappe.ValidationError) as caught:
-			api.save_derma_template_variables(template, [{"label": "Lot No"}, {"label": "Lot  no."}])
+			api.save_derma_procedure_template(
+				template, {"variables": [{"label": "Lot No"}, {"label": "Lot  no."}]}
+			)
 
 		self.assertIn("Lot No", str(caught.exception))
 		self.assertIn("lot_no", str(caught.exception))
@@ -236,27 +242,31 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
 		with self.assertRaises(frappe.ValidationError):
-			api.save_derma_template_variables(template, [{"label": "  "}])
+			api.save_derma_procedure_template(template, {"variables": [{"label": "  "}]})
 
 	def test_refuses_a_select_with_no_options(self):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
 		with self.assertRaises(frappe.ValidationError) as caught:
-			api.save_derma_template_variables(template, [{"label": "Plane", "fieldtype": "Select"}])
+			api.save_derma_procedure_template(
+				template, {"variables": [{"label": "Plane", "fieldtype": "Select"}]}
+			)
 
 		self.assertIn("Plane", str(caught.exception))
 
 	def test_a_flag_owned_variable_cannot_be_saved_optional(self):
 		template = self._make_derma_template(custom_derma_product_tracking_required=1)
 
-		payload = api.save_derma_template_variables(template, [{"label": "Lot No", "required": False}])
+		payload = api.save_derma_procedure_template(
+			template, {"variables": [{"label": "Lot No", "required": False}]}
+		)
 
 		self.assertTrue(self._variable(payload, "lot_no")["required"])
 
 	def test_a_deleted_flag_owned_variable_comes_back(self):
 		template = self._make_derma_template(custom_derma_device_settings_required=1)
 
-		payload = api.save_derma_template_variables(template, [{"label": "Dose"}])
+		payload = api.save_derma_procedure_template(template, {"variables": [{"label": "Dose"}]})
 
 		self.assertEqual(
 			[variable["fieldname"] for variable in payload["variables"]], ["dose", "device", "settings"]
@@ -267,7 +277,7 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 		would keep them required after the flag is switched off."""
 		template = self._make_derma_template(custom_derma_product_tracking_required=1)
 
-		api.save_derma_template_variables(template, [{"label": "Dose", "required": True}])
+		api.save_derma_procedure_template(template, {"variables": [{"label": "Dose", "required": True}]})
 
 		self.assertEqual(
 			json.loads(
@@ -279,8 +289,8 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 	def test_accepts_a_fieldname_outside_the_known_table(self):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
-		payload = api.save_derma_template_variables(
-			template, [{"label": "Needle Gauge", "fieldtype": "Data"}]
+		payload = api.save_derma_procedure_template(
+			template, {"variables": [{"label": "Needle Gauge", "fieldtype": "Data"}]}
 		)
 
 		self.assertEqual(self._variable(payload, "needle_gauge")["label"], "Needle Gauge")
@@ -291,7 +301,7 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 			custom_derma_required_fields=json.dumps(["dose"]),
 		)
 
-		payload = api.save_derma_template_variables(template, [])
+		payload = api.save_derma_procedure_template(template, {"variables": []})
 
 		self.assertEqual(payload["variables"], [])
 		self.assertEqual(
@@ -303,7 +313,7 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 		"""frappe.call sends the list as a JSON string."""
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
-		payload = api.save_derma_template_variables(template, json.dumps([{"label": "Dose"}]))
+		payload = api.save_derma_procedure_template(template, {"variables": json.dumps([{"label": "Dose"}])})
 
 		self.assertEqual([variable["fieldname"] for variable in payload["variables"]], ["dose"])
 
@@ -313,10 +323,10 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 		)
 
 		with self.assertRaises(frappe.ValidationError):
-			api.save_derma_template_variables(template, "{not json")
+			api.save_derma_procedure_template(template, {"variables": "{not json"})
 
 		self.assertEqual(
-			[variable["fieldname"] for variable in api.get_derma_template_variables(template)["variables"]],
+			[variable["fieldname"] for variable in api.get_derma_procedure_template(template)["variables"]],
 			["dose"],
 		)
 
@@ -327,8 +337,8 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 			custom_derma_variables_json=json.dumps([{"label": "Dose"}]),
 		)
 
-		payload = api.save_derma_template_variables(
-			template, [{"fieldname": "dose", "label": "Dose / Quantity"}]
+		payload = api.save_derma_procedure_template(
+			template, {"variables": [{"fieldname": "dose", "label": "Dose / Quantity"}]}
 		)
 
 		self.assertEqual(self._variable(payload, "dose")["label"], "Dose / Quantity")
