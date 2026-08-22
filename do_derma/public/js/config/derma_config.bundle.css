@@ -496,6 +496,29 @@
   border-color: #0f172a;
 }
 
+.derma-config-page .config-marker-size {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.derma-config-page .config-marker-size input[type="range"] {
+  width: 160px;
+  accent-color: #0f766e;
+}
+
+.derma-config-page .config-marker-sample {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  min-height: 44px;
+  border: 1px dashed #cbd5f5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .derma-config-page .config-hex {
   width: 110px;
 }

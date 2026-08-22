@@ -165,6 +165,60 @@
           </button>
         </div>
 
+        <div class="config-field-label">{{ __("Size") }}</div>
+        <div class="config-marker-size" data-test="config-marker-size" :data-size="markerSize">
+          <button
+            type="button"
+            class="btn btn-default btn-xs"
+            data-test="config-marker-size-down"
+            :disabled="!canWrite || markerSize <= MARKER_SIZE_MIN"
+            :aria-label="__('Smaller mark')"
+            @click="setMarkerSize(markerSize - MARKER_SIZE_STEP)"
+          >
+            −
+          </button>
+          <input
+            type="range"
+            :min="MARKER_SIZE_MIN"
+            :max="MARKER_SIZE_MAX"
+            :step="MARKER_SIZE_STEP"
+            :value="markerSize"
+            :disabled="!canWrite"
+            data-test="config-marker-size-slider"
+            :aria-label="__('Mark size')"
+            @input="setMarkerSize($event.target.value)"
+          />
+          <button
+            type="button"
+            class="btn btn-default btn-xs"
+            data-test="config-marker-size-up"
+            :disabled="!canWrite || markerSize >= MARKER_SIZE_MAX"
+            :aria-label="__('Larger mark')"
+            @click="setMarkerSize(markerSize + MARKER_SIZE_STEP)"
+          >
+            +
+          </button>
+          <strong>{{ `${markerSize}×` }}</strong>
+          <button
+            type="button"
+            class="btn btn-default btn-xs"
+            data-test="config-marker-size-reset"
+            :disabled="!canWrite || !draft.marker_size"
+            @click="draft.marker_size = 0"
+          >
+            {{ __("Default") }}
+          </button>
+          <span class="config-marker-sample" data-test="config-marker-sample">
+            <MarkerPreview
+              :behavior="effectiveBehavior"
+              :color="markerColor"
+              :size="60"
+              :scale="markerSize"
+              :frame="MARKER_SIZE_MAX"
+            />
+          </span>
+        </div>
+
         <p v-if="payload.has_marker_preset" class="config-status warning" data-test="config-marker-preset-notice">
           {{ __("A marker preset on this template overrides the shape above. It is edited in the full form.") }}
         </p>
@@ -252,6 +306,13 @@ import { computed, ref, watch } from "vue"
 import MarkerPreview from "./MarkerPreview.vue"
 import VariablesSection from "./VariablesSection.vue"
 import { MARKER_COLOR_PRESETS, SAFETY_FLAGS, blankTemplateDraft, templateDraft } from "./template_draft.js"
+import {
+  MARKER_SIZE_MAX,
+  MARKER_SIZE_MIN,
+  MARKER_SIZE_STEP,
+  markerSizeOf,
+  steppedMarkerSize,
+} from "../../../shared/marker_size.js"
 import { variableIssues } from "./variable_issues.js"
 import { REQUIRED_FIELD_SOURCE_LABELS, labelFor, markerBehaviorLabel } from "../../labels"
 
@@ -281,6 +342,14 @@ const markerColor = computed(() => draft.value.marker_color || payload.value.eff
 const inheritedBehavior = computed(() =>
   categoryOf(draft.value.category)?.marker_behavior || ""
 )
+const effectiveBehavior = computed(() => draft.value.marker_behavior || inheritedBehavior.value)
+// An unset size is stored as 0 so "never set" stays distinct from a deliberate 1.0, and the
+// sample still has a multiplier to draw at.
+const markerSize = computed(() => markerSizeOf(draft.value.marker_size))
+
+function setMarkerSize(value) {
+  draft.value.marker_size = steppedMarkerSize(value)
+}
 
 function categoryOf(name) {
   return props.categories.find((category) => category.name === name)

@@ -1,5 +1,6 @@
 import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react"
 import { createRoot } from "react-dom/client"
+import { markerSizeOf, scaledStrokeWidth } from "../../shared/marker_size"
 
 const GENERATED_BY_MARKS = "render_chart_marks"
 const MIN_DRAWN_MARK_SIZE = 6
@@ -56,6 +57,7 @@ function parseAnnotation(annotation) {
 	const hostRef = useRef(null)
 	const chartTemplateRef = useRef(bodyTemplate || null)
 	const procedureVariablesRef = useRef(procedureVariables || {})
+	const markerSizeRef = useRef(markerSizeOf(null))
 	const marksRef = useRef(marks || [])
 	// Set while a saved annotation is being imported. insertTemplateImage() replaces the whole
 	// scene, so it must not run against a canvas that is about to receive - or has just
@@ -135,6 +137,10 @@ function parseAnnotation(annotation) {
 	    setProcedureVariables: (variables) => {
 	      procedureVariablesRef.current = variables || {}
 	    },
+	    setMarkerSize: (size) => {
+	      markerSizeRef.current = markerSizeOf(size)
+	    },
+	    resizeMarkElements: (payload) => resizeMarkElements(api, payload),
 	    setMarks: (nextMarks) => {
 	      marksRef.current = nextMarks || []
 	    },
@@ -341,9 +347,12 @@ function parseAnnotation(annotation) {
 	          }
 	          if (!origin) return
 	          stampSequence.current += 1
-		          const stamp = insertProcedureStamp(api, template, origin, stampSequence.current, procedureVariablesRef.current)
+		          const markerSize = markerSizeRef.current
+		          const stamp = insertProcedureStamp(api, template, origin, stampSequence.current, procedureVariablesRef.current, markerSize)
 		          if (stamp?.elementIds?.length) {
-		            onMarkPlaced?.(buildPlacementPayload(api, template, chartTemplate, origin, stamp, procedureVariablesRef.current, hitRegion))
+		            onMarkPlaced?.(
+		              buildPlacementPayload(api, template, chartTemplate, origin, stamp, procedureVariablesRef.current, hitRegion, markerSize)
+		            )
 		          }
 	        }}
 	        onChange={(elements, appState) => {
@@ -428,6 +437,8 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
     setBodyTemplate: (template) => bridgeRef.current?.setBodyTemplate?.(template),
     setProcedureVariables: (variables) => bridgeRef.current?.setProcedureVariables?.(variables),
     setMarks: (marks) => bridgeRef.current?.setMarks?.(marks),
+    setMarkerSize: (size) => bridgeRef.current?.setMarkerSize?.(size),
+    resizeMarkElements: (payload) => bridgeRef.current?.resizeMarkElements?.(payload),
     loadTemplateImage: (template) => bridgeRef.current?.loadTemplateImage?.(template),
     linkMarkElements: (payload) => bridgeRef.current?.linkMarkElements?.(payload),
     selectMark: (markName) => bridgeRef.current?.selectMark?.(markName),
@@ -461,11 +472,11 @@ function setDermaTool(api, tool, template) {
   })
 }
 
-function insertProcedureStamp(api, template, origin, sequence, procedureVariables = {}) {
+function insertProcedureStamp(api, template, origin, sequence, procedureVariables = {}, size = 1) {
   const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
   const color = template?.custom_derma_marker_color || "#0f766e"
   const groupId = makeId("derma-mark-group")
-  const elements = createStampElements({ behavior, color, origin, sequence, groupId, template, procedureVariables })
+  const elements = createStampElements({ behavior, color, origin, sequence, groupId, template, procedureVariables, size })
   if (!elements.length) return null
   api.updateScene({
     elements: [...api.getSceneElements(), ...elements],
@@ -479,7 +490,7 @@ function insertProcedureStamp(api, template, origin, sequence, procedureVariable
   return { elementIds: elements.map((element) => element.id), groupId }
 }
 
-function buildPlacementPayload(api, template, chartTemplate, origin, stamp, procedureVariables = {}, region = null) {
+function buildPlacementPayload(api, template, chartTemplate, origin, stamp, procedureVariables = {}, region = null, markerSize = 1) {
   const bounds = getTemplateBounds(api)
   const xPercent = bounds ? clamp(((origin.x - bounds.x) / bounds.width) * 100, 0, 100) : 50
   const yPercent = bounds ? clamp(((origin.y - bounds.y) / bounds.height) * 100, 0, 100) : 50
@@ -494,6 +505,7 @@ function buildPlacementPayload(api, template, chartTemplate, origin, stamp, proc
     category: template?.custom_derma_category,
     marker_behavior: template?.custom_derma_marker_behavior,
     marker_color: template?.custom_derma_marker_color,
+    marker_size: markerSize,
     body_template: chartTemplate?.name,
     body_view: chartTemplate?.title,
     body_region: region?.part_name || region?.partName,
@@ -595,6 +607,80 @@ function updateMarkVariables(api, payload = {}) {
   api.updateScene({ elements, commitToHistory: false })
 }
 
+function ownsMark(element, markName) {
+  const custom = element.customData || {}
+  return custom.mark_name === markName || custom.derma_chart_mark === markName
+}
+
+/**
+ * Redraw one placed mark at a new size. The stamp it replaces carries everything needed to
+ * rebuild it - behaviour, colour, variables and the group it belongs to - so the mark keeps
+ * its identity and only its geometry changes.
+ */
+function resizeMarkElements(api, payload = {}) {
+  const markName = payload?.markName
+  if (!api || !markName) return
+  const elements = api.getSceneElements()
+  const owned = elements.filter((element) => !element.isDeleted && ownsMark(element, markName))
+  if (!owned.length) return
+  const custom = owned[0].customData || {}
+  const behavior = String(custom.marker_behavior || "").toLowerCase()
+  const color = custom.marker_color || "#0f766e"
+  const groupId = owned[0].groupIds?.[0] || makeId("derma-mark-group")
+  const replacements = createStampElements({
+    behavior,
+    color,
+    origin: stampOrigin(custom, owned),
+    sequence: custom.sequence || "",
+    groupId,
+    template: {
+      name: custom.procedure_template,
+      custom_derma_category: custom.category,
+      custom_derma_marker_behavior: custom.marker_behavior,
+      custom_derma_marker_color: color,
+    },
+    procedureVariables: custom.procedure_variables || {},
+    size: payload.size,
+  }).map((element) => ({
+    ...element,
+    locked: owned[0].locked,
+    opacity: owned[0].opacity,
+    customData: { ...element.customData, ...markOwnership(custom) },
+  }))
+  if (!replacements.length) return
+  api.updateScene({
+    elements: [...elements.filter((element) => !ownsMark(element, markName)), ...replacements],
+    commitToHistory: true,
+  })
+}
+
+/** What ties a stamp back to its Derma Chart Mark, kept across a redraw. */
+function markOwnership(custom = {}) {
+  return {
+    generated_by: custom.generated_by,
+    mark_name: custom.mark_name,
+    derma_chart_mark: custom.derma_chart_mark,
+    sequence: custom.sequence,
+    clinical_procedure: custom.clinical_procedure,
+  }
+}
+
+/** Where the stamp was placed. Marks stamped before sizes existed fall back to their bounds. */
+function stampOrigin(custom = {}, elements = []) {
+  const x = Number(custom.origin_x)
+  const y = Number(custom.origin_y)
+  if (Number.isFinite(x) && Number.isFinite(y)) return { x, y }
+  return elementsCentre(elements)
+}
+
+function elementsCentre(elements = []) {
+  const left = Math.min(...elements.map((element) => element.x))
+  const top = Math.min(...elements.map((element) => element.y))
+  const right = Math.max(...elements.map((element) => element.x + (element.width || 0)))
+  const bottom = Math.max(...elements.map((element) => element.y + (element.height || 0)))
+  return { x: (left + right) / 2, y: (top + bottom) / 2 }
+}
+
 function linkMarkElements(api, payload = {}) {
   if (!api || !payload?.mark?.name) return
   const elementIds = new Set(payload.elementIds || payload.temp_element_ids || [])
@@ -674,6 +760,7 @@ function renderChartMarks(api, marks = []) {
       groupId,
       template,
       procedureVariables,
+      size: mark.marker_size,
     }).map((element) => ({
       ...element,
       id: `${element.id}-${mark.name}`,
@@ -853,19 +940,31 @@ function withAlpha(color, opacity = 1) {
   return `#${hex}${alpha}`
 }
 
-function createStampElements({ behavior, color, origin, sequence, groupId, template, procedureVariables }) {
-  const preset = createPresetElements(template, origin, color, groupId, procedureVariables)
-  if (preset.length) return preset
-  if (behavior.includes("x")) return createXMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("target")) return createTargetMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("hatch") || behavior.includes("five_lines")) return createHatchMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("area")) return createAreaMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("triangle")) return createTriangleCluster(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("finding_dot") || behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables)
-  return createNumberedDot(origin, color, groupId, template, sequence, procedureVariables)
+function createStampElements({ behavior, color, origin, sequence, groupId, template, procedureVariables, size }) {
+  const scale = markerSizeOf(size)
+  const elements = stampShapeElements({ behavior, color, origin, sequence, groupId, template, procedureVariables, scale })
+  // The badge layer reads the size from here. The origin travels with the stamp because a
+  // cluster is not centred on it - resizing from the bounding box would walk the mark.
+  return elements.map((element) => ({
+    ...element,
+    customData: { ...(element.customData || {}), marker_size: scale, origin_x: origin.x, origin_y: origin.y },
+  }))
 }
 
-function createPresetElements(template, origin, color, groupId, procedureVariables) {
+function stampShapeElements({ behavior, color, origin, sequence, groupId, template, procedureVariables, scale }) {
+  const preset = createPresetElements(template, origin, color, groupId, procedureVariables, scale)
+  if (preset.length) return preset
+  if (behavior.includes("x")) return createXMark(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("target")) return createTargetMark(origin, color, groupId, template, procedureVariables, scale)
+  // Dragged behaviours take their geometry from the gesture, so their shape stays unscaled.
+  if (behavior.includes("hatch") || behavior.includes("five_lines")) return createHatchMark(origin, color, groupId, template, procedureVariables)
+  if (behavior.includes("area")) return createAreaMark(origin, color, groupId, template, procedureVariables)
+  if (behavior.includes("triangle")) return createTriangleCluster(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("finding_dot") || behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables, scale)
+  return createNumberedDot(origin, color, groupId, template, sequence, procedureVariables, scale)
+}
+
+function createPresetElements(template, origin, color, groupId, procedureVariables, scale = 1) {
   if (!template?.custom_derma_marker_preset_json) return []
   try {
     const preset = JSON.parse(template.custom_derma_marker_preset_json)
@@ -874,15 +973,15 @@ function createPresetElements(template, origin, color, groupId, procedureVariabl
       ...element,
       ...baseElement(
         element.type || "ellipse",
-        origin.x + Number(element.x || 0),
-        origin.y + Number(element.y || 0),
-        Number(element.width || 12),
-        Number(element.height || 12),
+        origin.x + Number(element.x || 0) * scale,
+        origin.y + Number(element.y || 0) * scale,
+        Number(element.width || 12) * scale,
+        Number(element.height || 12) * scale,
         element.strokeColor || color,
         groupId,
         template,
         procedureVariables,
-        element
+        { ...element, strokeWidth: scaledStrokeWidth(element.strokeWidth || 2, scale) }
       ),
       id: makeId(`derma-${element.type || "preset"}`),
       groupIds: [groupId],
@@ -906,18 +1005,32 @@ function createPresetElements(template, origin, color, groupId, procedureVariabl
  * mark's own `sequence` - printed twice and could disagree with the legend. `sequence` still
  * reaches customData through renderChartMarks, which the fan-out and badge collector read.
  */
-function createNumberedDot(origin, color, groupId, template, sequence, procedureVariables) {
-  return [ellipseElement(origin.x - 8, origin.y - 8, 16, 16, color, groupId, template, procedureVariables, { backgroundColor: color })]
+function createNumberedDot(origin, color, groupId, template, sequence, procedureVariables, scale = 1) {
+  const radius = 8 * scale
+  return [
+    ellipseElement(origin.x - radius, origin.y - radius, radius * 2, radius * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: color,
+      strokeWidth: scaledStrokeWidth(2, scale),
+    }),
+  ]
 }
 
-function createDotCluster(origin, color, groupId, template, procedureVariables) {
+function createDotCluster(origin, color, groupId, template, procedureVariables, scale = 1) {
   const offsets = [[0, -12], [-12, 8], [12, 8]]
-  return offsets.map(([x, y]) => ellipseElement(origin.x + x - 5, origin.y + y - 5, 10, 10, color, groupId, template, procedureVariables, { backgroundColor: color }))
+  const radius = 5 * scale
+  return offsets.map(([x, y]) =>
+    ellipseElement(origin.x + x * scale - radius, origin.y + y * scale - radius, radius * 2, radius * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: color,
+      strokeWidth: scaledStrokeWidth(2, scale),
+    })
+  )
 }
 
-function createTriangleCluster(origin, color, groupId, template, procedureVariables) {
+function createTriangleCluster(origin, color, groupId, template, procedureVariables, scale = 1) {
   const offsets = [[0, -14], [-14, 10], [14, 10]]
-  return offsets.flatMap(([x, y]) => triangleElements(origin.x + x, origin.y + y, 16, color, groupId, template, procedureVariables))
+  return offsets.flatMap(([x, y]) =>
+    triangleElements(origin.x + x * scale, origin.y + y * scale, 16 * scale, color, groupId, template, procedureVariables, scale)
+  )
 }
 
 function createHatchMark(origin, color, groupId, template, procedureVariables) {
@@ -926,19 +1039,28 @@ function createHatchMark(origin, color, groupId, template, procedureVariables) {
   )
 }
 
-function createXMark(origin, color, groupId, template, procedureVariables) {
+function createXMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const arm = 18 * scale
+  const stroke = scaledStrokeWidth(3, scale)
   return [
-    lineElement(origin.x - 18, origin.y - 18, origin.x + 18, origin.y + 18, color, groupId, template, procedureVariables, 3),
-    lineElement(origin.x + 18, origin.y - 18, origin.x - 18, origin.y + 18, color, groupId, template, procedureVariables, 3),
+    lineElement(origin.x - arm, origin.y - arm, origin.x + arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
+    lineElement(origin.x + arm, origin.y - arm, origin.x - arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
   ]
 }
 
-function createTargetMark(origin, color, groupId, template, procedureVariables) {
+function createTargetMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const ring = 18 * scale
+  const core = 7 * scale
+  const cross = 26 * scale
+  const stroke = scaledStrokeWidth(2, scale)
   return [
-    ellipseElement(origin.x - 18, origin.y - 18, 36, 36, color, groupId, template, procedureVariables),
-    ellipseElement(origin.x - 7, origin.y - 7, 14, 14, color, groupId, template, procedureVariables, { backgroundColor: color }),
-    lineElement(origin.x - 26, origin.y, origin.x + 26, origin.y, color, groupId, template, procedureVariables, 2),
-    lineElement(origin.x, origin.y - 26, origin.x, origin.y + 26, color, groupId, template, procedureVariables, 2),
+    ellipseElement(origin.x - ring, origin.y - ring, ring * 2, ring * 2, color, groupId, template, procedureVariables, { strokeWidth: stroke }),
+    ellipseElement(origin.x - core, origin.y - core, core * 2, core * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: color,
+      strokeWidth: stroke,
+    }),
+    lineElement(origin.x - cross, origin.y, origin.x + cross, origin.y, color, groupId, template, procedureVariables, stroke),
+    lineElement(origin.x, origin.y - cross, origin.x, origin.y + cross, color, groupId, template, procedureVariables, stroke),
   ]
 }
 
@@ -951,13 +1073,14 @@ function createAreaMark(origin, color, groupId, template, procedureVariables) {
   ]
 }
 
-function triangleElements(x, y, size, color, groupId, template, procedureVariables) {
+function triangleElements(x, y, size, color, groupId, template, procedureVariables, scale = 1) {
   const half = size / 2
   const height = size * 0.9
+  const stroke = scaledStrokeWidth(3, scale)
   return [
-    lineElement(x, y - height / 2, x - half, y + height / 2, color, groupId, template, procedureVariables, 3),
-    lineElement(x - half, y + height / 2, x + half, y + height / 2, color, groupId, template, procedureVariables, 3),
-    lineElement(x + half, y + height / 2, x, y - height / 2, color, groupId, template, procedureVariables, 3),
+    lineElement(x, y - height / 2, x - half, y + height / 2, color, groupId, template, procedureVariables, stroke),
+    lineElement(x - half, y + height / 2, x + half, y + height / 2, color, groupId, template, procedureVariables, stroke),
+    lineElement(x + half, y + height / 2, x, y - height / 2, color, groupId, template, procedureVariables, stroke),
   ]
 }
 

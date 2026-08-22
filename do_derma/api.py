@@ -12,6 +12,14 @@ from frappe.utils.file_manager import save_file
 
 from do_derma import assessment
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
+from do_derma.config.marker_size import (
+	MARK_SIZE_FIELD,
+	MARKER_SIZE_FIELD,
+	MARKER_SIZE_MAX,
+	MARKER_SIZE_MIN,
+	MARKER_SIZE_STEP,
+	validated_marker_size,
+)
 from do_derma.consumables import marks as consumable_marks
 from do_derma.consumables import procedures as consumable_procedures
 from do_derma.schema import COMPLETION_OVERRIDE_FIELD
@@ -104,6 +112,7 @@ DERMA_MARK_FIELDS = [
 	"y_percent",
 	"marker_behavior",
 	"marker_color",
+	MARK_SIZE_FIELD,
 	"marker_label",
 	"sequence",
 	"product_item",
@@ -140,6 +149,7 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_variables_json",
 	"custom_derma_marker_behavior",
 	"custom_derma_marker_color",
+	MARKER_SIZE_FIELD,
 	"custom_derma_marker_preset_json",
 	"custom_derma_required_fields",
 	"custom_derma_consent_required",
@@ -169,7 +179,13 @@ EDITOR_CHECK_FIELDS = {
 	"product_tracking_required": "custom_derma_product_tracking_required",
 	"device_settings_required": "custom_derma_device_settings_required",
 }
-EDITOR_ROW_FIELDS = [*EDITOR_TEXT_FIELDS.values(), *EDITOR_CHECK_FIELDS.values(), "rate", "modified"]
+EDITOR_ROW_FIELDS = [
+	*EDITOR_TEXT_FIELDS.values(),
+	*EDITOR_CHECK_FIELDS.values(),
+	MARKER_SIZE_FIELD,
+	"rate",
+	"modified",
+]
 
 # Required fields the two safety flags append to whatever a template declares. A
 # variables row cannot call one of these optional - the procedure-creation gate
@@ -972,6 +988,8 @@ def _apply_template_values(doc, payload: dict[str, Any]) -> None:
 			doc.set(fieldname, cint(payload[key]))
 	if "rate" in payload:
 		doc.rate = flt(payload["rate"])
+	if "marker_size" in payload and _has_field("Clinical Procedure Template", MARKER_SIZE_FIELD):
+		doc.set(MARKER_SIZE_FIELD, validated_marker_size(payload["marker_size"]))
 	if "allowed_body_templates" in payload and _has_field(
 		"Clinical Procedure Template", "custom_derma_allowed_body_templates"
 	):
@@ -1015,6 +1033,12 @@ def _procedure_template_payload(template_row: dict[str, Any]) -> dict[str, Any]:
 		"allowed_body_templates": _split_csv(template_row.get("custom_derma_allowed_body_templates")),
 		"effective_marker": _effective_marker(template_row),
 		"has_marker_preset": bool(str(template_row.get("custom_derma_marker_preset_json") or "").strip()),
+		"marker_size": flt(template_row.get(MARKER_SIZE_FIELD)),
+		"marker_size_range": {
+			"min": MARKER_SIZE_MIN,
+			"max": MARKER_SIZE_MAX,
+			"step": MARKER_SIZE_STEP,
+		},
 		"variables": variables,
 		"required_fields": _required_fields_with_owners(template_row, _get_template_variables(template_row)),
 		"marker_behaviors": _marker_behavior_options(),
@@ -2007,6 +2031,7 @@ def _template_defaults(template: str | None) -> dict[str, Any]:
 			"custom_derma_allowed_body_templates",
 			"custom_derma_marker_behavior",
 			"custom_derma_marker_color",
+			MARKER_SIZE_FIELD,
 			"custom_derma_note_template",
 			"custom_derma_required_fields",
 		],
@@ -3335,6 +3360,8 @@ def save_chart_mark(values: str | dict[str, Any]):
 		)
 
 	_normalize_position(payload)
+	if MARK_SIZE_FIELD in payload:
+		payload[MARK_SIZE_FIELD] = validated_marker_size(payload[MARK_SIZE_FIELD])
 	category_defaults = _category_defaults(payload.get("category"))
 	template_defaults = _template_defaults(payload.get("procedure_template"))
 	for field, value in {
@@ -3344,6 +3371,7 @@ def save_chart_mark(values: str | dict[str, Any]):
 		or category_defaults.get("marker_behavior"),
 		"marker_color": template_defaults.get("custom_derma_marker_color")
 		or category_defaults.get("marker_color"),
+		MARK_SIZE_FIELD: template_defaults.get(MARKER_SIZE_FIELD),
 		"marker_label": category_defaults.get("marker_label"),
 		"body_template": category_defaults.get("default_body_template"),
 	}.items():

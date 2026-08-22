@@ -372,6 +372,58 @@ class TestSaveChartMark(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(stored.x_percent, 33.5)
 		self.assertEqual(stored.y_percent, 67.25)
 
+	def test_snapshots_the_size_the_mark_was_stamped_at(self):
+		patient = self._make_patient()
+
+		saved = api.save_chart_mark(
+			json.dumps({"patient": patient, "x_percent": 10, "y_percent": 20, "marker_size": 1.5})
+		)
+
+		self.assertEqual(saved["marker_size"], 1.5)
+		self.assertEqual(frappe.db.get_value("Derma Chart Mark", saved["name"], "marker_size"), 1.5)
+
+	def _make_sized_template(self, size):
+		template = self._make_procedure_template_with_category("Marker Size")
+		frappe.db.set_value("Clinical Procedure Template", template, "custom_derma_marker_size", size)
+		return template
+
+	def test_takes_the_template_default_when_the_chart_sends_no_size(self):
+		patient = self._make_patient()
+		template = self._make_sized_template(1.25)
+
+		saved = self._save_mark(patient, procedure_template=template)
+
+		self.assertEqual(saved["marker_size"], 1.25)
+
+	def test_the_chart_reads_back_the_size_it_stamped(self):
+		"""The canvas redraws marks from this list, so the size has to survive the reload."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		saved = self._save_mark(patient, encounter=encounter.name, marker_size=1.75)
+
+		context = api.get_chart_context(patient=patient, encounter=encounter.name)
+
+		mark = next(row for row in context["marks"] if row["name"] == saved["name"])
+		self.assertEqual(mark["marker_size"], 1.75)
+
+	def test_a_placed_mark_keeps_its_size_when_the_template_default_changes(self):
+		"""The mark records what was charted, not what the configuration says today."""
+		patient = self._make_patient()
+		template = self._make_sized_template(1.25)
+		saved = self._save_mark(patient, procedure_template=template)
+
+		frappe.db.set_value("Clinical Procedure Template", template, "custom_derma_marker_size", 2)
+
+		self.assertEqual(frappe.db.get_value("Derma Chart Mark", saved["name"], "marker_size"), 1.25)
+
+	def test_refuses_a_size_outside_the_allowed_range(self):
+		patient = self._make_patient()
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_chart_mark(
+				json.dumps({"patient": patient, "x_percent": 10, "y_percent": 20, "marker_size": 9})
+			)
+
 
 class TestDiscardChartMarks(DermaTestHelpers, IntegrationTestCase):
 	"""Marks reach the server as they are drawn, so discarding the drawing has to undo
@@ -934,6 +986,19 @@ class TestCarryForwardMarks(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(copy.encounter, current.name)
 		self.assertEqual(copy.product_name, "Botulinum")
 		self.assertEqual(copy.status, "Monitoring")
+
+	def test_copy_keeps_the_size_the_source_was_stamped_at(self):
+		"""Carry-forward reproduces last visit's map, so a mark that changes size between
+		visits would read as a clinical change that did not happen."""
+		patient = self._make_patient()
+		previous = self._make_encounter(patient)
+		current = self._make_encounter(patient)
+		source = self._make_mark(patient, previous.name, marker_size=1.75)
+
+		result = api.carry_forward_marks([source["name"]], patient=patient, encounter=current.name)
+
+		copy = frappe.get_doc("Derma Chart Mark", result["marks"][0]["name"])
+		self.assertEqual(copy.marker_size, 1.75)
 
 	def test_copy_carries_no_link_from_the_source_visit(self):
 		patient = self._make_patient()

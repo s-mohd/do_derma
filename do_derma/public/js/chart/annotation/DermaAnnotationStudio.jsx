@@ -3,9 +3,19 @@ import { createRoot } from "react-dom/client"
 import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 import { variableFieldname } from "../../shared/variable_fieldname.js"
 import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
+import { MARKER_SIZE_DEFAULT, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
+import MarkerSizeControl from "./MarkerSizeControl.jsx"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
+
+const BADGE_DIAMETER = 22
+const BADGE_FONT_SIZE = 13
+const BADGE_MIN_DIAMETER = 18
+const BADGE_MAX_DIAMETER = 34
+const BADGE_MIN_FONT_SIZE = 11
+const BADGE_MAX_FONT_SIZE = 16
+const BADGE_GAP = 8
 
 const __ = window.__ || ((text) => text)
 
@@ -160,6 +170,7 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
       type: "Procedure",
       name: procedureLabel(procedure) || procedureTemplateName,
       color: element.customData?.marker_color || procedureColor(procedure),
+      size: element.customData?.marker_size,
       params,
       ...centroid,
     })
@@ -292,13 +303,30 @@ function isTextEntry(element) {
   return tag === "INPUT" || tag === "TEXTAREA" || element.isContentEditable
 }
 
+/**
+ * A badge grows with the mark it labels, but numbering is legibility rather than anatomy:
+ * below the floor it is unreadable on a printed chart, above the ceiling it swallows the
+ * mark beside it.
+ */
+function badgeGeometry(size) {
+  const scale = markerSizeOf(size)
+  const diameter = clampToRange(BADGE_DIAMETER * scale, BADGE_MIN_DIAMETER, BADGE_MAX_DIAMETER)
+  const fontSize = clampToRange(BADGE_FONT_SIZE * scale, BADGE_MIN_FONT_SIZE, BADGE_MAX_FONT_SIZE)
+  return { diameter, fontSize, offset: diameter + BADGE_GAP }
+}
+
+function clampToRange(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
 function badgeElements(items) {
   const now = Date.now()
   return items.flatMap((item) => {
     const label = `${item.badgeNum}`
     const color = item.color || "#0ea5e9"
-    const x = item.centroidX - 11
-    const y = item.topY - 30
+    const { diameter, fontSize, offset } = badgeGeometry(item.size)
+    const x = item.centroidX - diameter / 2
+    const y = item.topY - offset
     // Deterministic, so an unchanged badge layer produces an unchanged signature and the
     // canvas can skip the redraw instead of looping on its own onChange.
     const groupId = `derma-badge-${item.badgeNum}`
@@ -308,8 +336,8 @@ function badgeElements(items) {
         type: "ellipse",
         x,
         y,
-        width: 22,
-        height: 22,
+        width: diameter,
+        height: diameter,
         angle: 0,
         strokeColor: color,
         backgroundColor: color,
@@ -334,10 +362,10 @@ function badgeElements(items) {
       {
         id: `${groupId}-text`,
         type: "text",
-        x: x + 7,
-        y: y + 2,
-        width: 8,
-        height: 16,
+        x: x + (diameter - fontSize * 0.62) / 2,
+        y: y + (diameter - fontSize * 1.25) / 2,
+        width: fontSize * 0.62,
+        height: fontSize * 1.25,
         angle: 0,
         strokeColor: getContrastText(color),
         backgroundColor: "transparent",
@@ -358,7 +386,7 @@ function badgeElements(items) {
         link: null,
         locked: true,
         text: label,
-        fontSize: 13,
+        fontSize,
         fontFamily: 1,
         textAlign: "center",
         verticalAlign: "middle",
@@ -396,6 +424,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [sceneRevision, setSceneRevision] = useState(0)
   // Set while the variable editor is bound to an existing mark rather than to the next one.
   const [editingMark, setEditingMark] = useState(null)
+  // The multiplier the next stamp lands at, or the selected mark's own while one is edited.
+  const [markerSize, setMarkerSize] = useState(MARKER_SIZE_DEFAULT)
   // Signature of the drawing as last saved, so closing knows whether anything is at stake.
   const savedSignature = useRef(null)
   // Marks this session wrote to the server before any annotation was saved. Discarding the
@@ -464,6 +494,14 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // The editor binds to the mark being edited first, the armed procedure second.
   const editorProcedureName = editingMark?.procedure || activeProcedure
   const editorProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === editorProcedureName)
+  // Areas and freehand strokes take their size from the gesture that drew them, so there is
+  // nothing for the control to act on.
+  const sizedBehavior = editingMark
+    ? { custom_derma_marker_behavior: editingMark.behavior }
+    : activeProcedureDoc
+  const isSizeableMark = Boolean(
+    sizedBehavior && !isAreaBehavior(sizedBehavior) && !isFreehandBehavior(sizedBehavior)
+  )
 
   useEffect(() => {
     if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
@@ -496,6 +534,17 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   useEffect(() => {
     embeddedRef.current?.setDermaTool?.(activeProcedure ? "mark" : "select")
   }, [activeProcedure])
+
+  // A size chosen for filler must not carry over onto the next procedure's marks, so
+  // arming a procedure starts from that procedure's own default.
+  useEffect(() => {
+    if (!activeProcedure) return
+    setMarkerSize(markerSizeOf(activeProcedureDoc?.custom_derma_marker_size))
+  }, [activeProcedure, activeProcedureDoc])
+
+  useEffect(() => {
+    embeddedRef.current?.setMarkerSize?.(markerSize)
+  }, [markerSize])
 
   useEffect(() => {
     embeddedRef.current?.setProcedureVariables?.(procedureValues[activeProcedure] || {})
@@ -687,6 +736,36 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     })
   }
 
+  /**
+   * While a mark is selected the control belongs to that mark: the record owns its size and
+   * the canvas redraws from what the record now says.
+   */
+  function changeMarkerSize(value) {
+    const size = steppedMarkerSize(value)
+    setMarkerSize(size)
+    if (editingMark?.name) persistMarkSize(size)
+  }
+
+  function persistMarkSize(size) {
+    const target = editingMark
+    if (!target?.name) return Promise.resolve()
+    return queueMarkWrite(async () => {
+      try {
+        await window.frappe.call({
+          method: "do_derma.api.save_chart_mark",
+          args: { values: { name: target.name, patient: context.patient, marker_size: size } },
+        })
+        embeddedRef.current?.resizeMarkElements?.({ markName: target.name, size })
+      } catch (error) {
+        window.frappe?.msgprint?.({
+          title: __("Unable to resize mark"),
+          message: error.message || String(error),
+          indicator: "red",
+        })
+      }
+    })
+  }
+
   function rememberAreaMark(partName, markName) {
     if (!partName || !markName) return
     const next = new Map(areaMarks.current)
@@ -801,7 +880,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       return
     }
     const name = procedureLabel(procedure)
-    setEditingMark({ name: mark, elementId: element?.id, procedure: name })
+    setEditingMark({ name: mark, elementId: element?.id, procedure: name, behavior: custom.marker_behavior || "" })
+    setMarkerSize(markerSizeOf(custom.marker_size))
     // Editing replaces placing: a click on a mark must never leave a stamp armed.
     setActiveProcedure("")
     setProcedureValues((current) => ({ ...current, [name]: { ...(custom.procedure_variables || {}) } }))
@@ -923,6 +1003,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 ? __("Editing a saved {0} mark - changes save as you type.").replace("{0}", editingMark.procedure)
                 : taggingHint(activeProcedureDoc, activeProcedure)}
             </span>
+            {isSizeableMark ? <MarkerSizeControl size={markerSize} onChange={changeMarkerSize} /> : null}
             <button
               type="button"
               className="ghost small stop-tagging"

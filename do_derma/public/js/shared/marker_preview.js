@@ -4,6 +4,8 @@
  * `marker_preview_behaviors()` reads PREVIEW_BEHAVIORS so a behaviour added to the field
  * without a shape here fails a test instead of drawing the wrong mark. */
 
+import { markerSizeOf } from "./marker_size.js"
+
 export const PREVIEW_BEHAVIORS = [
   "numbered_dot",
   "blue_dot",
@@ -82,11 +84,16 @@ export function markerShapeFor(behavior) {
   return SHAPES.dot
 }
 
-export function markerPreviewSvg(behavior, color, size = 44) {
+/**
+ * `scale` draws the shape at the multiplier the chart would stamp it at. `frame` widens the
+ * box so the largest scale still fits: a sample that clips is worse than a small one.
+ */
+export function markerPreviewSvg(behavior, color, size = 44, scale = 1, frame = 1) {
   const shape = markerShapeFor(behavior)
   const height = Math.round((size * 68) / 92)
+  const [width, boxHeight] = [92 * frame, 68 * frame]
   const body = shape
-    ? shape(color || DEFAULT_COLOR)
+    ? `<g transform="scale(${markerSizeOf(scale)})">${shape(color || DEFAULT_COLOR)}</g>`
     : `<text x="0" y="5" text-anchor="middle" font-size="13" fill="#94a3b8">—</text>`
-  return `<svg viewBox="-46 -34 92 68" width="${size}" height="${height}" aria-hidden="true">${body}</svg>`
+  return `<svg viewBox="${-width / 2} ${-boxHeight / 2} ${width} ${boxHeight}" width="${size}" height="${height}" aria-hidden="true">${body}</svg>`
 }
