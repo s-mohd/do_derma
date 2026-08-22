@@ -1406,3 +1406,100 @@ class TestDeletePhoto(DermaPhotoHelpers, IntegrationTestCase):
 
 		with self.assertRaises(frappe.PermissionError):
 			api.delete_photo(photo)
+
+
+class TestStudioCapturedPhotos(DermaPhotoHelpers, IntegrationTestCase):
+	"""A photo shot inside the annotation studio is an ordinary photo set: the studio sends
+	its own context and the server decides the stage."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _capture(self, **payload):
+		"""What the studio posts after uploading a shot: its own context, no stage."""
+		return self._make_photo_set(
+			**{
+				"body_view": "Face Front",
+				"body_region": "Face",
+				"photos": [{"image": "/private/files/derma-capture.jpg"}],
+				**payload,
+			}
+		)
+
+	def test_a_capture_from_a_consultation_drawing_is_a_visit_photo(self):
+		photo_set = self._capture()
+
+		self.assertEqual(self._photo_types(photo_set), ["Visit"])
+		self.assertEqual(photo_set["set_type"], "Visit")
+
+	def test_a_capture_from_a_procedure_drawing_takes_the_procedure_stage(self):
+		"""The studio names no stage, so anchoring on a procedure is what makes it Before."""
+		procedure = self._make_clinical_procedure(self.patient)
+
+		photo_set = self._capture(clinical_procedure=procedure.name)
+
+		self.assertEqual(self._photo_types(photo_set), ["Before"])
+		self.assertEqual(photo_set["set_type"], "Before/After")
+
+	def test_a_capture_carries_the_body_template_on_screen(self):
+		photo_set = self._capture()
+
+		self.assertEqual(photo_set["body_view"], "Face Front")
+		self.assertEqual(photo_set["body_region"], "Face")
+
+	def test_a_body_template_the_set_has_no_view_for_is_kept_as_custom(self):
+		photo_set = self._capture(body_view="Left Ear Profile")
+
+		self.assertEqual(photo_set["body_view"], "Custom")
+
+	def test_a_capture_with_a_mark_selected_links_the_mark_to_the_set(self):
+		mark = self._save_mark(self.patient, encounter=self.encounter.name)
+
+		photo_set = self._capture(chart_mark=mark["name"])
+
+		self.assertEqual(
+			frappe.db.get_value("Derma Chart Mark", mark["name"], "photo_set"), photo_set["name"]
+		)
+
+	def test_a_burst_of_shots_lands_in_one_set(self):
+		photo_set = self._capture(
+			photos=[
+				{"image": "/private/files/derma-capture-1.jpg"},
+				{"image": "/private/files/derma-capture-2.jpg"},
+			]
+		)
+
+		self.assertEqual(self._photo_types(photo_set), ["Visit", "Visit"])
+
+	def test_deleting_the_captured_photo_takes_its_set_and_mark_link_with_it(self):
+		"""Deleting the photo element from the canvas is reconciled through delete_photo."""
+		mark = self._save_mark(self.patient, encounter=self.encounter.name)
+		photo_set = self._capture(chart_mark=mark["name"])
+
+		result = api.delete_photo(photo_set["photos"][0]["name"])
+
+		self.assertTrue(result["set_deleted"])
+		self.assertFalse(frappe.db.exists("Derma Photo Set", photo_set["name"]))
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "photo_set"))
+
+	def test_deleting_one_shot_of_a_burst_keeps_the_rest(self):
+		photo_set = self._capture(
+			photos=[
+				{"image": "/private/files/derma-capture-1.jpg"},
+				{"image": "/private/files/derma-capture-2.jpg"},
+			]
+		)
+		kept = photo_set["photos"][1]["name"]
+
+		result = api.delete_photo(photo_set["photos"][0]["name"])
+
+		self.assertFalse(result["set_deleted"])
+		self.assertTrue(frappe.db.exists("Derma Photo", kept))
+
+	def test_capture_is_gated(self):
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			self._capture()

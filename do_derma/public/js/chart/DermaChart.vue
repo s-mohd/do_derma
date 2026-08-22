@@ -1509,9 +1509,9 @@ function openAnnotationStudio(anchor = {}) {
       await refresh()
       openAnnotationReviewDialog(saved)
     },
-    // Discarding deletes the marks the studio placed, so the tabs behind it are stale.
+    // Discarding deletes the marks and photos the studio placed, so the tabs behind it are stale.
     onClose: async (result) => {
-      if (result?.marksChanged) await refresh()
+      if (result?.marksChanged || result?.photosChanged) await refresh()
     },
   })
 }

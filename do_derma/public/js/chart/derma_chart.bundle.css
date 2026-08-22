@@ -4316,10 +4316,56 @@ body.derma-annotation-open .modal-backdrop {
 }
 
 .derma-annotation-canvas {
+  /* Half the Excalidraw tool island's own width, plus a gap. */
+  --derma-tool-island-clearance: 257px;
+  position: relative;
   grid-area: main;
   min-width: 0;
   min-height: 0;
   background: var(--derma-white);
+}
+
+/* Excalidraw 0.17 offers no way to add a button to its tool island, so the capture button is
+   placed beside it by hand, right of centre. An Excalidraw upgrade that changes the island's
+   size is corrected by --derma-tool-island-clearance above and nowhere else. */
+.derma-annotation-canvas .derma-photo-capture {
+  position: absolute;
+  z-index: 6;
+  top: 20px;
+  left: 50%;
+  margin-left: var(--derma-tool-island-clearance);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--derma-border);
+  border-radius: 9px;
+  background: var(--derma-white);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  color: var(--derma-brand);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.derma-annotation-canvas .derma-photo-capture:hover:not(:disabled) {
+  background: var(--derma-success-bg);
+}
+
+.derma-annotation-canvas .derma-photo-capture:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* Below this the island is already clamped against the canvas edges, so the offset would push
+   the button off screen. */
+@media (max-width: 900px) {
+  .derma-annotation-canvas .derma-photo-capture {
+    left: auto;
+    right: 12px;
+    margin-left: 0;
+  }
 }
 
 .derma-annotation-canvas .excalidraw {

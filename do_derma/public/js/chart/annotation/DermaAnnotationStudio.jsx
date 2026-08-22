@@ -5,6 +5,7 @@ import { variableFieldname } from "../../shared/variable_fieldname.js"
 import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
 import { MARKER_SIZE_DEFAULT, MARKER_SIZE_STEP, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
 import MarkerSizeControl from "./MarkerSizeControl.jsx"
+import { usePhotoCapture } from "./use_photo_capture.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
@@ -504,6 +505,12 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const isSizeableMark = Boolean(
     sizedBehavior && !isAreaBehavior(sizedBehavior) && !isFreehandBehavior(sizedBehavior)
   )
+  const photoCapture = usePhotoCapture({
+    context,
+    bodyTemplate: selectedTemplate,
+    chartMarkName: editingMark?.name || "",
+    embeddedRef,
+  })
 
   useEffect(() => {
     if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
@@ -605,6 +612,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     // the template. Read here rather than off sceneRevision: the canvas only signals a change
     // when the *mark* layer moves, so a part-only render would never reach a memo.
     setRenderedPartCount(embeddedRef.current?.getRenderedPartCount?.() || 0)
+    photoCapture.rememberLoadedPhotos()
     if (savedSignature.current === null) savedSignature.current = userSignature()
   }
 
@@ -626,20 +634,29 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   /** The one way out. Closing is only unguarded when there is nothing to lose. */
   function requestClose() {
     const placedMarks = [...sessionMarks.current]
+    const capturedPhotos = photoCapture.sessionPhotoCount()
     const isDrawingDirty = savedSignature.current !== null && userSignature() !== savedSignature.current
-    if (!isDrawingDirty && !placedMarks.length) {
+    if (!isDrawingDirty && !placedMarks.length && !capturedPhotos) {
       onClose?.()
       return
     }
-    window.frappe.confirm(discardPrompt(placedMarks.length), () => discardDrawing(placedMarks))
+    window.frappe.confirm(discardPrompt(placedMarks.length, capturedPhotos), () =>
+      discardDrawing(placedMarks)
+    )
   }
 
-  function discardPrompt(markCount) {
-    if (!markCount) return __("Discard this drawing? Unsaved changes will be lost.")
-    return __("Discard this drawing? The {0} mark(s) placed here are removed from the chart too.").replace(
-      "{0}",
-      markCount
-    )
+  /** Discarding costs whatever this session already wrote to the chart, so it says how much. */
+  function discardPrompt(markCount, photoCount) {
+    if (markCount && photoCount) {
+      return __("Discard this drawing? The {0} mark(s) and {1} photo(s) added here are removed from the chart too.", [markCount, photoCount])
+    }
+    if (photoCount) {
+      return __("Discard this drawing? The {0} photo(s) taken here are removed from the chart too.", [photoCount])
+    }
+    if (markCount) {
+      return __("Discard this drawing? The {0} mark(s) placed here are removed from the chart too.", [markCount])
+    }
+    return __("Discard this drawing? Unsaved changes will be lost.")
   }
 
   /**
@@ -647,6 +664,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
    * any the rest of the record depends on - say so rather than closing on a half-kept promise.
    */
   async function discardDrawing(markNames) {
+    const hadPhotos = photoCapture.sessionPhotoCount() > 0
     let kept = []
     if (markNames.length) {
       try {
@@ -665,8 +683,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         return
       }
     }
+    await photoCapture.discardSessionPhotos()
     sessionMarks.current = new Set(kept)
-    onClose?.({ marksChanged: Boolean(markNames.length) })
+    onClose?.({ marksChanged: Boolean(markNames.length), photosChanged: hadPhotos })
     if (kept.length) {
       window.frappe?.msgprint?.({
         title: __("Some marks were kept"),
@@ -945,6 +964,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
           },
         },
       })
+      // A photo deleted from the canvas is deleted from the record here, and nowhere earlier:
+      // undo before saving gives both the element and the photo back, and a save that failed
+      // above leaves the photo alone.
+      await photoCapture.reconcileDeletedPhotos()
       window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
       if (response.message?.name) setAnnotationName(response.message.name)
       savedSignature.current = userSignature()
@@ -1128,6 +1151,17 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         </aside> : null}
 
         <main className="derma-annotation-canvas">
+          <button
+            type="button"
+            className="derma-photo-capture"
+            data-test="annotation-capture-photo"
+            disabled={photoCapture.isBusy}
+            title={__("Photograph the lesion into this drawing")}
+            onClick={photoCapture.capture}
+          >
+            <PhotoCaptureIcon />
+            <span>{photoCapture.isBusy ? __("Saving...") : __("Photo")}</span>
+          </button>
           <EmbeddedExcalidraw
             ref={embeddedRef}
             selectedTemplate={selectedTemplate}
@@ -1180,6 +1214,15 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         </aside> : null}
       </section>
     </div>
+  )
+}
+
+function PhotoCaptureIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
+      <circle cx="12" cy="13" r="3.4" />
+    </svg>
   )
 }
 
