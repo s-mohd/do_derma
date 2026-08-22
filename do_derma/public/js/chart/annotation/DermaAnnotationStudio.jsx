@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client"
 import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 import { variableFieldname } from "../../shared/variable_fieldname.js"
 import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
-import { MARKER_SIZE_DEFAULT, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
+import { MARKER_SIZE_DEFAULT, MARKER_SIZE_STEP, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
 import MarkerSizeControl from "./MarkerSizeControl.jsx"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
@@ -426,6 +426,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [editingMark, setEditingMark] = useState(null)
   // The multiplier the next stamp lands at, or the selected mark's own while one is edited.
   const [markerSize, setMarkerSize] = useState(MARKER_SIZE_DEFAULT)
+  // The live size, for callers that must not read a value a pending render still holds.
+  const markerSizeRef = useRef(MARKER_SIZE_DEFAULT)
   // Signature of the drawing as last saved, so closing knows whether anything is at stake.
   const savedSignature = useRef(null)
   // Marks this session wrote to the server before any annotation was saved. Discarding the
@@ -539,7 +541,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // arming a procedure starts from that procedure's own default.
   useEffect(() => {
     if (!activeProcedure) return
-    setMarkerSize(markerSizeOf(activeProcedureDoc?.custom_derma_marker_size))
+    applyMarkerSize(markerSizeOf(activeProcedureDoc?.custom_derma_marker_size))
   }, [activeProcedure, activeProcedureDoc])
 
   useEffect(() => {
@@ -740,10 +742,21 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
    * While a mark is selected the control belongs to that mark: the record owns its size and
    * the canvas redraws from what the record now says.
    */
+  function applyMarkerSize(size) {
+    markerSizeRef.current = size
+    setMarkerSize(size)
+  }
+
   function changeMarkerSize(value) {
     const size = steppedMarkerSize(value)
-    setMarkerSize(size)
+    applyMarkerSize(size)
     if (editingMark?.name) persistMarkSize(size)
+  }
+
+  /** Stepping reads the ref: two clicks inside one render both compute from the size
+   * before either of them otherwise. */
+  function stepMarkerSize(steps) {
+    changeMarkerSize(markerSizeRef.current + steps * MARKER_SIZE_STEP)
   }
 
   function persistMarkSize(size) {
@@ -835,6 +848,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             category: payload.category,
             marker_behavior: payload.marker_behavior,
             marker_color: payload.marker_color,
+            marker_size: payload.marker_size,
             body_template: payload.body_template,
             body_view: payload.body_view,
             body_region: payload.body_region,
@@ -881,7 +895,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
     const name = procedureLabel(procedure)
     setEditingMark({ name: mark, elementId: element?.id, procedure: name, behavior: custom.marker_behavior || "" })
-    setMarkerSize(markerSizeOf(custom.marker_size))
+    applyMarkerSize(markerSizeOf(custom.marker_size))
     // Editing replaces placing: a click on a mark must never leave a stamp armed.
     setActiveProcedure("")
     setProcedureValues((current) => ({ ...current, [name]: { ...(custom.procedure_variables || {}) } }))
@@ -1003,7 +1017,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 ? __("Editing a saved {0} mark - changes save as you type.").replace("{0}", editingMark.procedure)
                 : taggingHint(activeProcedureDoc, activeProcedure)}
             </span>
-            {isSizeableMark ? <MarkerSizeControl size={markerSize} onChange={changeMarkerSize} /> : null}
+            {isSizeableMark ? <MarkerSizeControl size={markerSize} onChange={changeMarkerSize} onStep={stepMarkerSize} /> : null}
             <button
               type="button"
               className="ghost small stop-tagging"

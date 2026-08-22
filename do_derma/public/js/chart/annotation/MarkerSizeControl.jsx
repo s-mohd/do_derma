@@ -4,7 +4,7 @@ import { MARKER_SIZE_MAX, MARKER_SIZE_MIN, MARKER_SIZE_STEP } from "../../shared
 const __ = window.__ || ((text) => text)
 
 /** The multiplier the next stamp lands at, or the selected mark's own while one is edited. */
-export default function MarkerSizeControl({ size, onChange }) {
+export default function MarkerSizeControl({ size, onChange, onStep }) {
   return (
     <div className="derma-marker-size" data-test="annotation-marker-size" data-size={size}>
       <span>{__("Size")}</span>
@@ -14,7 +14,7 @@ export default function MarkerSizeControl({ size, onChange }) {
         data-test="annotation-marker-size-down"
         disabled={size <= MARKER_SIZE_MIN}
         aria-label={__("Smaller mark")}
-        onClick={() => onChange(size - MARKER_SIZE_STEP)}
+        onClick={() => onStep(-1)}
       >
         −
       </button>
@@ -34,7 +34,7 @@ export default function MarkerSizeControl({ size, onChange }) {
         data-test="annotation-marker-size-up"
         disabled={size >= MARKER_SIZE_MAX}
         aria-label={__("Larger mark")}
-        onClick={() => onChange(size + MARKER_SIZE_STEP)}
+        onClick={() => onStep(1)}
       >
         +
       </button>
