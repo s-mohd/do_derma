@@ -4094,6 +4094,37 @@ body.derma-annotation-open .modal-backdrop {
   font-weight: 700;
 }
 
+.derma-annotation-tagging-banner .derma-marker-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.derma-annotation-tagging-banner .derma-marker-size input[type="range"] {
+  width: 108px;
+  accent-color: var(--derma-brand);
+}
+
+.derma-annotation-tagging-banner .derma-marker-size button {
+  min-width: 28px;
+  border: 1px solid var(--derma-brand);
+  border-radius: 8px;
+  background: var(--derma-white);
+  color: var(--derma-brand);
+  padding: 3px 8px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.derma-annotation-tagging-banner .derma-marker-size button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .derma-annotation-tagging-banner .stop-tagging {
   flex-shrink: 0;
   border: 1px solid var(--derma-brand);

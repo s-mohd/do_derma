@@ -403,6 +403,53 @@ class TestProcedureTemplateEditor(ConfigTemplateHelpers, IntegrationTestCase):
 		self.assertEqual(self._stored(template, "custom_derma_consent_required"), 1)
 		self.assertEqual(self._stored(template, "custom_derma_device_settings_required"), 1)
 
+	def test_writes_the_marker_size(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		payload = api.save_derma_procedure_template(template, {"marker_size": 1.5})
+
+		self.assertEqual(self._stored(template, "custom_derma_marker_size"), 1.5)
+		self.assertEqual(payload["marker_size"], 1.5)
+
+	def test_refuses_a_marker_size_outside_the_allowed_range(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_derma_procedure_template(template, {"marker_size": 6})
+
+		self.assertFalse(self._stored(template, "custom_derma_marker_size"))
+
+	def test_refuses_a_marker_size_that_is_not_a_number(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_derma_procedure_template(template, {"marker_size": "huge"})
+
+	def test_the_range_it_advertises_is_the_range_it_accepts(self):
+		"""The panel builds its slider from this range, so a validator that disagreed with
+		it would reject a value the slider can produce."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+		limits = api.get_derma_procedure_template(template)["marker_size_range"]
+
+		api.save_derma_procedure_template(template, {"marker_size": limits["max"]})
+		self.assertEqual(self._stored(template, "custom_derma_marker_size"), limits["max"])
+
+		api.save_derma_procedure_template(template, {"marker_size": limits["min"]})
+		self.assertEqual(self._stored(template, "custom_derma_marker_size"), limits["min"])
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_derma_procedure_template(template, {"marker_size": limits["max"] + limits["step"]})
+
+	def test_an_empty_marker_size_reads_back_as_unset(self):
+		"""The panel needs "never set" to look different from a deliberate 1.0, so the
+		reset control has something to return to."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+		api.save_derma_procedure_template(template, {"marker_size": 1.75})
+
+		payload = api.save_derma_procedure_template(template, {"marker_size": ""})
+
+		self.assertEqual(payload["marker_size"], 0)
+
 	def test_an_empty_marker_hands_the_decision_back_to_the_category(self):
 		category = self._make_category("Editor Clears", marker_behavior="hatch", marker_color="#b91c1c")
 		template = self._make_derma_template(

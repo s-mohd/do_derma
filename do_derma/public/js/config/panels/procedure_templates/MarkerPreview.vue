@@ -10,7 +10,9 @@ const props = defineProps({
   behavior: { type: String, default: "" },
   color: { type: String, default: "" },
   size: { type: Number, default: 44 },
+  scale: { type: Number, default: 1 },
+  frame: { type: Number, default: 1 },
 })
 
-const svg = computed(() => markerPreviewSvg(props.behavior, props.color || "#94a3b8", props.size))
+const svg = computed(() => markerPreviewSvg(props.behavior, props.color || "#94a3b8", props.size, props.scale, props.frame))
 </script>
