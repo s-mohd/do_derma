@@ -6,6 +6,7 @@ import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
 import { MARKER_SIZE_DEFAULT, MARKER_SIZE_STEP, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
 import MarkerSizeControl from "./MarkerSizeControl.jsx"
 import { usePhotoCapture } from "./use_photo_capture.js"
+import { describeError } from "../../shared/error_text.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
@@ -677,7 +678,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         // Closing now would lose the drawing and keep the marks - the very thing being fixed.
         window.frappe?.msgprint?.({
           title: __("Unable to discard the marks"),
-          message: `${error.message || String(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
+          message: `${describeError(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
           indicator: "red",
         })
         return
@@ -752,7 +753,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         })
         embeddedRef.current?.updateMarkVariables?.({ markName: target.name, variables: values })
       } catch (error) {
-        window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: error.message || String(error), indicator: "red" })
+        window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: describeError(error), indicator: "red" })
       }
     })
   }
@@ -791,7 +792,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       } catch (error) {
         window.frappe?.msgprint?.({
           title: __("Unable to resize mark"),
-          message: error.message || String(error),
+          message: describeError(error),
           indicator: "red",
         })
       }
@@ -826,7 +827,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         // The drawing still saves below - losing it over an area value would cost more.
         window.frappe?.msgprint?.({
           title: __("Unable to save the area values for {0}").replace("{0}", partName),
-          message: error.message || String(error),
+          message: describeError(error),
           indicator: "orange",
         })
       }
@@ -894,7 +895,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
       window.frappe.show_alert?.({ message: __("Mark saved"), indicator: "green" })
     } catch (error) {
-      window.frappe?.msgprint?.({ title: __("Unable to save mark"), message: error.message || String(error), indicator: "red" })
+      window.frappe?.msgprint?.({ title: __("Unable to save mark"), message: describeError(error), indicator: "red" })
     }
   }
 
@@ -976,7 +977,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       onSaved?.(response.message)
       onClose?.()
     } catch (error) {
-      window.frappe?.msgprint?.({ title: __("Unable to save annotation"), message: error.message || String(error), indicator: "red" })
+      window.frappe?.msgprint?.({ title: __("Unable to save annotation"), message: describeError(error), indicator: "red" })
     } finally {
       setSaving(false)
     }

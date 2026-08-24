@@ -129,6 +129,18 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"label": "Price Override Reason",
 			"insert_after": "custom_derma_no_charge",
 		},
+		{
+			# do_health declares this table on Patient Encounter only, so a procedure-anchored
+			# drawing had nowhere to file itself and save_derma_annotation threw AttributeError
+			# on the append. Same fieldname and child doctype, so one code path serves both
+			# anchors and a site that later gains do_health's own field keeps what it has.
+			"fieldname": "custom_annotations",
+			"fieldtype": "Table",
+			"label": "Annotations",
+			"options": "Health Annotation Table",
+			"insert_after": "custom_derma_price_override_reason",
+			"hidden": 1,
+		},
 	],
 	"Healthcare Practitioner": [
 		{
@@ -152,6 +164,9 @@ def ensure_derma_schema() -> dict[str, list[str]]:
 		for spec in specs:
 			fieldname = spec["fieldname"]
 			if has_field(doctype, fieldname):
+				continue
+			# A Table field whose child doctype is not installed cannot be created at all.
+			if spec["fieldtype"] == "Table" and not frappe.db.exists("DocType", spec["options"]):
 				continue
 			try:
 				_create_custom_field(doctype, spec)

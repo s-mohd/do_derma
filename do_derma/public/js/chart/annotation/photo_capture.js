@@ -1,3 +1,4 @@
+import { describeError } from "../../shared/error_text.js"
 import { convertDataUrlToBlob, loadImage } from "../../shared/image_data.js"
 
 const __ = window.__ || ((text) => text)
@@ -138,21 +139,9 @@ export async function uploadPrivateImage(dataUrl, fileName) {
 }
 
 function uploadErrorMessage(response, payload) {
-  const serverMessage = firstServerMessage(payload)
-  if (serverMessage) return serverMessage
+  if (payload) return describeError(payload)
   if (response.status === 413) return __("The photo is larger than this site accepts.")
   return `${response.status} ${response.statusText || __("Upload failed.")}`
-}
-
-/** Frappe wraps a thrown message in two layers of JSON; an unreadable one is not an excuse. */
-function firstServerMessage(payload) {
-  try {
-    const raw = JSON.parse(payload?._server_messages || "[]")[0]
-    if (!raw) return ""
-    return JSON.parse(raw).message || String(raw)
-  } catch {
-    return ""
-  }
 }
 
 /** Two shots of one burst are taken in the same millisecond, so the name carries a nonce. */

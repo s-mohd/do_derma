@@ -1,4 +1,5 @@
 import { useRef, useState } from "react"
+import { describeError } from "../../shared/error_text.js"
 import { imageUrlToRenderableData } from "../../shared/image_data.js"
 import {
   CameraUnavailableError,
@@ -241,5 +242,5 @@ function confirmLibraryFallback(reason) {
 }
 
 function reportFailure(title, error) {
-  window.frappe?.msgprint?.({ title, message: error?.message || String(error), indicator: "red" })
+  window.frappe?.msgprint?.({ title, message: describeError(error), indicator: "red" })
 }
