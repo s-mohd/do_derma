@@ -469,6 +469,9 @@ function setDermaTool(api, tool, template) {
       currentItemBackgroundColor: tool === "area" ? color : "transparent",
       currentItemOpacity: tool === "area" ? 18 : 100,
       activeTool: { type: typeMap[tool] || "selection" },
+      // Entering select mode drops whatever placement left selected, so the first click
+      // on a mark binds the editor to that mark and not to the last stamp placed.
+      ...(tool === "select" ? { selectedElementIds: {}, selectedGroupIds: {} } : {}),
     },
     commitToHistory: true,
   })
@@ -1175,6 +1178,8 @@ function sanitizeVariables(variables = {}) {
 
 function variablesFromMark(mark = {}) {
   return sanitizeVariables({
+    // Stored variable rows first, so a value that also maps to a mark field reads the field.
+    ...(mark.procedure_variables || {}),
     product_name: mark.product_name,
     dose: mark.dose,
     dose_unit: mark.dose_unit,

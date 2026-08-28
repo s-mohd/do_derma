@@ -500,6 +500,88 @@ class TestDiscardChartMarks(DermaTestHelpers, IntegrationTestCase):
 			api.discard_chart_marks([mark])
 
 
+class TestPruneChartMarks(DermaTestHelpers, IntegrationTestCase):
+	"""A mark whose element was deleted from the drawing goes with the save. The drawing
+	doing the saving is not documentation, anything else that claims the mark is."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+		self.procedure = self._make_clinical_procedure(self.patient)
+
+	def _make_mark(self, **extra):
+		return api.save_chart_mark(
+			json.dumps(
+				{
+					"patient": self.patient,
+					"encounter": self.encounter.name,
+					"clinical_procedure": self.procedure.name,
+					"x_percent": 40,
+					"y_percent": 60,
+					**extra,
+				}
+			)
+		)["name"]
+
+	def _make_annotation(self):
+		return api.save_derma_annotation(
+			{
+				"patient": self.patient,
+				"encounter": self.encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": json.dumps({"elements": [TEMPLATE_ELEMENT]}),
+			}
+		)["name"]
+
+	def test_deletes_a_mark_linked_only_to_the_saving_drawing(self):
+		mark = self._make_mark()
+		annotation = self._make_annotation()
+		frappe.db.set_value("Derma Chart Mark", mark, "annotation", annotation)
+
+		result = api.prune_chart_marks([mark], annotation=annotation)
+
+		self.assertEqual(result["deleted"], [mark])
+		self.assertFalse(frappe.db.exists("Derma Chart Mark", mark))
+
+	def test_deletes_a_mark_on_a_draft_procedure(self):
+		mark = self._make_mark()
+
+		result = api.prune_chart_marks([mark])
+
+		self.assertEqual(result["deleted"], [mark])
+
+	def test_keeps_a_mark_saved_into_a_different_drawing(self):
+		mark = self._make_mark()
+		other = self._make_annotation()
+		frappe.db.set_value("Derma Chart Mark", mark, "annotation", other)
+
+		result = api.prune_chart_marks([mark], annotation="HA-someone-else")
+
+		self.assertEqual(result["kept"], [mark])
+		self.assertTrue(frappe.db.exists("Derma Chart Mark", mark))
+
+	def test_keeps_a_mark_on_a_submitted_procedure(self):
+		mark = self._make_mark()
+		frappe.db.set_value("Clinical Procedure", self.procedure.name, "docstatus", 1)
+
+		result = api.prune_chart_marks([mark])
+
+		self.assertEqual(result["kept"], [mark])
+
+	def test_ignores_a_mark_that_is_already_gone(self):
+		result = api.prune_chart_marks(json.dumps(["DCM-does-not-exist"]))
+
+		self.assertEqual(result, {"deleted": [], "kept": []})
+
+	def test_is_gated(self):
+		mark = self._make_mark()
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			api.prune_chart_marks([mark])
+
+
 class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
 	"""A section whose query raises must degrade to its fallback and be named in
 	context_errors - by label only, never by exception text."""

@@ -1307,7 +1307,10 @@ def _apply_mark_area_variables(doc, raw: Any) -> None:
 	rows = raw if isinstance(raw, list) else _parse_json(raw, None)
 	if not isinstance(rows, list):
 		return
-	doc.set("area_variables", [])
+	doc.set(
+		"area_variables",
+		[row for row in doc.get("area_variables") or [] if row.get("source") == "Procedure"],
+	)
 	for row in rows:
 		if not isinstance(row, dict):
 			continue
@@ -1323,6 +1326,49 @@ def _apply_mark_area_variables(doc, raw: Any) -> None:
 				"source": "Area",
 			},
 		)
+
+
+def _apply_mark_procedure_variables(doc, payload: dict[str, Any]) -> None:
+	"""Store procedure variables that map to no mark field as their own rows.
+
+	The studio sends the armed procedure's values twice: splatted, for the fields the
+	mark owns, and whole under `procedure_variables`. A value that maps to no field
+	would otherwise vanish while the badge legend keeps printing it."""
+	if not (_has_doctype("Derma Mark Variable") and _has_field("Derma Chart Mark", "area_variables")):
+		return
+	declared = payload.get("procedure_variables")
+	if isinstance(declared, str):
+		declared = _parse_json(declared, None)
+	values = declared if isinstance(declared, dict) else _unmapped_variable_values(payload)
+	if values is None:
+		return
+	doc.set(
+		"area_variables",
+		[row for row in doc.get("area_variables") or [] if row.get("source") != "Procedure"],
+	)
+	for key, value in values.items():
+		fieldname = _variable_fieldname(key)
+		if not fieldname or fieldname in DERMA_MARK_FIELDS:
+			continue
+		doc.append(
+			"area_variables",
+			{
+				"fieldname": fieldname,
+				"label": frappe.unscrub(fieldname),
+				"value": _stringify_variable_value(value),
+				"source": "Procedure",
+			},
+		)
+
+
+def _unmapped_variable_values(payload: dict[str, Any]) -> dict[str, Any] | None:
+	"""None when the save carries no variable keys - absent means leave the rows alone."""
+	unmapped = {
+		key: value
+		for key, value in payload.items()
+		if key not in DERMA_MARK_FIELDS and key not in ("area_variables", "procedure_variables")
+	}
+	return unmapped or None
 
 
 def _resolve_mark_template_part(payload: dict[str, Any]) -> None:
@@ -1367,7 +1413,11 @@ def _hydrate_mark_area_variables(mark_rows: list[dict[str, Any]]) -> None:
 			}
 		)
 	for mark in mark_rows:
-		mark["area_variables"] = by_parent.get(mark.get("name"), [])
+		rows = by_parent.get(mark.get("name"), [])
+		mark["area_variables"] = [row for row in rows if row.get("source") != "Procedure"]
+		mark["procedure_variables"] = {
+			row["fieldname"]: row["value"] for row in rows if row.get("source") == "Procedure"
+		}
 
 
 def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
@@ -2673,8 +2723,9 @@ def _sync_chart_marks_for_annotation(
 		mark_values["x_percent"] = item["x_percent"]
 		mark_values["y_percent"] = item["y_percent"]
 		mark_values["annotation_json"] = json.dumps({"element_id": element_id})
+		# Unmapped variables pass through too - save_chart_mark stores them as rows now.
 		for field, value in (item.get("variables") or {}).items():
-			if field in DERMA_MARK_FIELDS and value not in (None, ""):
+			if field not in mark_values and value not in (None, ""):
 				mark_values[field] = value
 		try:
 			save_chart_mark(mark_values)
@@ -3395,6 +3446,7 @@ def save_chart_mark(values: str | dict[str, Any]):
 		if field in payload:
 			doc.set(field, payload[field])
 	_apply_mark_area_variables(doc, payload.get("area_variables"))
+	_apply_mark_procedure_variables(doc, payload)
 	_set_patient_name(doc)
 	if not doc.sequence:
 		doc.sequence = _next_mark_sequence(doc.patient, doc.encounter, doc.category)
@@ -3569,9 +3621,35 @@ def discard_chart_marks(names: str | list[str]):
 	return {"deleted": deleted, "kept": kept}
 
 
-def _is_mark_documented(mark_doc) -> bool:
+@frappe.whitelist()
+def prune_chart_marks(names: str | list[str], annotation: str | None = None):
+	"""Delete marks whose elements were removed from a drawing before it saved.
+
+	The saving drawing is the caller, so being linked to it is not documentation -
+	without this the deleted mark haunts the chart and resurfaces on the next open.
+	Anything else that claims the mark keeps it, and the caller is told."""
+	_ensure_clinical_access()
+	requested = json.loads(names) if isinstance(names, str) else list(names or [])
+	deleted: list[str] = []
+	kept: list[str] = []
+	for name in requested:
+		if not name or not frappe.db.exists("Derma Chart Mark", name):
+			continue
+		mark_doc = frappe.get_doc("Derma Chart Mark", name)
+		if _is_mark_documented(mark_doc, ignore_annotation=annotation):
+			kept.append(name)
+			continue
+		mark_doc.delete(ignore_permissions=True)
+		deleted.append(name)
+	return {"deleted": deleted, "kept": kept}
+
+
+def _is_mark_documented(mark_doc, ignore_annotation: str | None = None) -> bool:
 	"""True once something other than the drawing that placed it depends on the mark."""
-	if any(mark_doc.get(field) for field in ("annotation", "finding", "treatment_entry", "photo_set")):
+	if any(mark_doc.get(field) for field in ("finding", "treatment_entry", "photo_set")):
+		return True
+	annotation = mark_doc.get("annotation")
+	if annotation and annotation != ignore_annotation:
 		return True
 	procedure = mark_doc.get("clinical_procedure")
 	if not procedure or not frappe.db.exists("Clinical Procedure", procedure):

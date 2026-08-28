@@ -154,6 +154,99 @@ class TestMarkAreaVariables(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(self._rows(mark["name"]), [])
 
 
+class TestMarkProcedureVariables(DermaTestHelpers, IntegrationTestCase):
+	"""A procedure variable that maps to no mark field is clinical data too: it must be
+	stored on the mark, not silently dropped while the legend still prints it."""
+
+	def _rows(self, mark):
+		return frappe.get_all(
+			"Derma Mark Variable",
+			filters={"parent": mark, "parenttype": "Derma Chart Mark", "source": "Procedure"},
+			fields=["fieldname", "label", "value", "source"],
+			order_by="idx asc",
+		)
+
+	def test_unmapped_payload_keys_are_stored_as_procedure_rows(self):
+		patient = self._make_patient()
+		mark = self._save_mark(patient, units=20, product="Juvederm")
+
+		rows = self._rows(mark["name"])
+		self.assertEqual({row.fieldname: row.value for row in rows}, {"units": "20", "product": "Juvederm"})
+		self.assertEqual({row.source for row in rows}, {"Procedure"})
+
+	def test_an_explicit_dict_replaces_the_rows_including_blanks(self):
+		patient = self._make_patient()
+		mark = self._save_mark(patient, units=20)
+
+		api.save_chart_mark(
+			json.dumps(
+				{
+					"name": mark["name"],
+					"patient": patient,
+					"procedure_variables": {"units": "", "product": "Restylane"},
+				}
+			)
+		)
+
+		rows = self._rows(mark["name"])
+		self.assertEqual({row.fieldname: row.value for row in rows}, {"units": "", "product": "Restylane"})
+
+	def test_a_save_without_variable_keys_leaves_the_rows_alone(self):
+		patient = self._make_patient()
+		mark = self._save_mark(patient, units=15)
+
+		api.save_chart_mark(json.dumps({"name": mark["name"], "patient": patient, "marker_size": 1.5}))
+
+		self.assertEqual([row.value for row in self._rows(mark["name"])], ["15"])
+
+	def test_mapped_fields_stay_on_the_mark_and_out_of_the_rows(self):
+		patient = self._make_patient()
+		mark = self._save_mark(patient, dose=2.5, units=20)
+
+		self.assertEqual([row.fieldname for row in self._rows(mark["name"])], ["units"])
+		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "dose"), 2.5)
+
+	def test_replacing_area_rows_keeps_the_procedure_rows(self):
+		patient = self._make_patient()
+		mark = self._save_mark(patient, units=20)
+
+		api.save_chart_mark(
+			json.dumps(
+				{
+					"name": mark["name"],
+					"patient": patient,
+					"area_variables": [{"label": "Plane", "value": "Subdermal"}],
+				}
+			)
+		)
+
+		self.assertEqual([row.value for row in self._rows(mark["name"])], ["20"])
+
+	def test_replacing_procedure_rows_keeps_the_area_rows(self):
+		patient = self._make_patient()
+		mark = self._save_mark(patient, area_variables=[{"label": "Plane", "value": "Subdermal"}])
+
+		api.save_chart_mark(
+			json.dumps({"name": mark["name"], "patient": patient, "procedure_variables": {"units": 20}})
+		)
+
+		area_rows = frappe.get_all(
+			"Derma Mark Variable",
+			filters={"parent": mark["name"], "parenttype": "Derma Chart Mark", "source": "Area"},
+			fields=["value"],
+		)
+		self.assertEqual([row.value for row in area_rows], ["Subdermal"])
+
+	def test_marks_read_back_with_their_procedure_variables(self):
+		patient = self._make_patient()
+		self._save_mark(patient, units=20, area_variables=[{"label": "Plane", "value": "Deep"}])
+
+		mark = api._get_marks(patient)[0]
+
+		self.assertEqual(mark["procedure_variables"], {"units": "20"})
+		self.assertEqual([row["source"] for row in mark["area_variables"]], ["Area"])
+
+
 class TestBodyTemplatePartSave(DermaTestHelpers, IntegrationTestCase):
 	"""Saving a body map never destroys an area a mark may be standing on."""
 

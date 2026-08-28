@@ -435,6 +435,12 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // Marks this session wrote to the server before any annotation was saved. Discarding the
   // drawing has to take them with it, or the chart keeps a record nobody meant to make.
   const sessionMarks = useRef(new Set())
+  // Every mark name that has been on the canvas this session. One missing at save time was
+  // deleted by the practitioner, and its record has to go with it or it haunts the chart.
+  const seenMarks = useRef(new Set())
+  // The mark the last stamp created while its procedure is still armed. Values typed after
+  // the click belong to that mark, not only to the next one.
+  const lastPlacedMark = useRef(null)
   // Which marks sit on which area, so values typed after a mark was placed still reach it,
   // and which areas were edited this session - the untouched ones are already stored.
   const areaMarks = useRef(seedAreaMarks(marks))
@@ -570,6 +576,27 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   useEffect(() => {
     embeddedRef.current?.setBadgeElements?.(badgeElements(badgeItems))
   }, [badgeItems])
+
+  /** The real record names currently drawn, history overlays excluded. */
+  function canvasMarkNames() {
+    const names = new Set()
+    for (const element of embeddedRef.current?.getElements?.() || []) {
+      if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
+      const name = element.customData?.derma_chart_mark || element.customData?.mark_name
+      if (name && !String(name).startsWith("history:")) names.add(name)
+    }
+    return names
+  }
+
+  // A mark element deleted from the canvas takes its bindings with it: the variable editor
+  // must not keep writing to a record whose drawing is gone.
+  useEffect(() => {
+    const live = canvasMarkNames()
+    seenMarks.current = new Set([...seenMarks.current, ...live])
+    if (editingMark?.name && !live.has(editingMark.name)) setEditingMark(null)
+    if (lastPlacedMark.current?.name && !live.has(lastPlacedMark.current.name)) lastPlacedMark.current = null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneRevision, editingMark])
 
   // Counts what is actually on the canvas, not what this session placed.
   const markCount = useMemo(() => {
@@ -719,6 +746,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     const name = procedureLabel(procedure)
     // Arming a procedure means "the next mark", so it ends any edit of an existing one.
     setEditingMark(null)
+    lastPlacedMark.current = null
     setSelectedProcedures((current) => current.includes(name) ? current.filter((row) => row !== name) : [...current, name])
     setActiveProcedure((current) => (current === name ? "" : name))
   }
@@ -729,7 +757,13 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     // - once eagerly, once while rendering - and each run would be its own save.
     const next = { ...(procedureValues[procedureName] || {}), [key]: value }
     setProcedureValues((current) => ({ ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }))
-    if (editingMark?.procedure === procedureName) persistMarkVariables(next)
+    if (editingMark?.procedure === procedureName) {
+      persistMarkVariables(editingMark.name, next)
+    } else if (lastPlacedMark.current?.procedure === procedureName) {
+      // Typing right after a stamp lands means "that mark": write behind so the value
+      // reaches the record instead of only the next placement.
+      persistMarkVariables(lastPlacedMark.current.name, next)
+    }
   }
 
   /** Marks are saved one at a time, in the order the clinician typed them. */
@@ -742,16 +776,24 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
    * The Derma Chart Mark owns a mark's variables; the canvas element caches them so badges and
    * the legend can read them without a round trip. Written in that order, never one alone.
    */
-  function persistMarkVariables(values) {
-    const target = editingMark
-    if (!target?.name) return Promise.resolve()
+  function persistMarkVariables(markName, values) {
+    if (!markName) return Promise.resolve()
     return queueMarkWrite(async () => {
       try {
         await window.frappe.call({
           method: "do_derma.api.save_chart_mark",
-          args: { values: { name: target.name, patient: context.patient, ...sanitizeMarkVariables(values) } },
+          args: {
+            values: {
+              name: markName,
+              patient: context.patient,
+              ...sanitizeMarkVariables(values),
+              // The whole dict, blanks included - the splat above feeds the mark's own
+              // fields, this one owns the stored variable rows.
+              procedure_variables: values,
+            },
+          },
         })
-        embeddedRef.current?.updateMarkVariables?.({ markName: target.name, variables: values })
+        embeddedRef.current?.updateMarkVariables?.({ markName, variables: values })
       } catch (error) {
         window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: describeError(error), indicator: "red" })
       }
@@ -881,6 +923,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             // fan-out matches elements to marks by.
             annotation_json: payload.annotation_json || null,
             ...(payload.procedure_variables || {}),
+            // The splat above feeds the mark's own fields; this key owns the variable rows.
+            procedure_variables: payload.procedure_variables || {},
             // Omitted, not emptied, when the area declares nothing - an absent key leaves
             // whatever rows the mark already carries alone.
             ...(areaRows ? { area_variables: areaRows } : {}),
@@ -890,6 +934,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       const mark = response.message
       if (mark?.name) {
         sessionMarks.current = new Set(sessionMarks.current).add(mark.name)
+        lastPlacedMark.current = { name: mark.name, procedure: activeProcedure }
         rememberAreaMark(payload.region_label, mark.name)
       }
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
@@ -925,11 +970,86 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     setSelectedPart(region || null)
   }
 
+  /** Marks whose procedure declares required variables the canvas cache leaves blank. */
+  function requiredVariableGaps() {
+    const gaps = []
+    const counted = new Set()
+    for (const element of embeddedRef.current?.getElements?.() || []) {
+      if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
+      const markKey = markIdentity(element)
+      if (counted.has(markKey) || String(markKey).startsWith("history:")) continue
+      counted.add(markKey)
+      const procedure = procedures.find((row) => row.name === element.customData?.procedure_template)
+      if (!procedure) continue
+      const missing = missingRequiredVariables(
+        procedureVariables(procedure),
+        element.customData?.procedure_variables || {}
+      )
+      if (missing.length) {
+        gaps.push({ procedure: procedureLabel(procedure), missing: missing.map(variableLabel) })
+      }
+    }
+    return gaps
+  }
+
+  /** Saving with blanks stays allowed - mid-procedure is no time for a locked form - but not unannounced. */
+  function confirmRequiredGaps(gaps) {
+    const summary = gaps
+      .map((gap) => `${escapeHtml(gap.procedure)}: ${escapeHtml(gap.missing.join(", "))}`)
+      .join("<br>")
+    return new Promise((resolve) => {
+      window.frappe.confirm(
+        `${__("{0} mark(s) are missing required values:", [gaps.length])}<br>${summary}<br>${__("Save anyway?")}`,
+        () => resolve(true),
+        () => resolve(false)
+      )
+    })
+  }
+
+  /**
+   * A mark element deleted from the drawing means the record goes too - the same contract
+   * photos honour. The server still refuses marks an active procedure depends on.
+   */
+  async function reconcileDeletedMarks(savedAnnotationName) {
+    const live = canvasMarkNames()
+    const removed = [...seenMarks.current].filter((name) => !live.has(name))
+    if (!removed.length) return false
+    let kept = []
+    try {
+      const response = await queueMarkWrite(() =>
+        window.frappe.call({
+          method: "do_derma.api.prune_chart_marks",
+          args: { names: removed, annotation: savedAnnotationName || null },
+        })
+      )
+      kept = response?.message?.kept || []
+    } catch (error) {
+      window.frappe?.msgprint?.({
+        title: __("Unable to remove the deleted marks"),
+        message: describeError(error),
+        indicator: "orange",
+      })
+      return false
+    }
+    seenMarks.current = live
+    sessionMarks.current = new Set([...sessionMarks.current].filter((name) => live.has(name)))
+    if (kept.length) {
+      window.frappe?.msgprint?.({
+        title: __("Some deleted marks were kept"),
+        message: __("{0} mark(s) are part of the record already and stay on the chart.").replace("{0}", kept.length),
+        indicator: "orange",
+      })
+    }
+    return true
+  }
+
   async function save() {
     if (!anchorName) {
       window.frappe?.msgprint?.(__("A Patient Encounter is required before saving annotation."))
       return
     }
+    const gaps = requiredVariableGaps()
+    if (gaps.length && !(await confirmRequiredGaps(gaps))) return
     setSaving(true)
     try {
       // The badges on screen are already in the scene, so they are the badges that export and
@@ -969,13 +1089,14 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       // undo before saving gives both the element and the photo back, and a save that failed
       // above leaves the photo alone.
       await photoCapture.reconcileDeletedPhotos()
+      const marksPruned = await reconcileDeletedMarks(response.message?.name || annotationName)
       window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
       if (response.message?.name) setAnnotationName(response.message.name)
       savedSignature.current = userSignature()
       // Saved marks belong to the annotation now; a later discard must not reach for them.
       sessionMarks.current = new Set()
       onSaved?.(response.message)
-      onClose?.()
+      onClose?.({ marksChanged: marksPruned })
     } catch (error) {
       window.frappe?.msgprint?.({ title: __("Unable to save annotation"), message: describeError(error), indicator: "red" })
     } finally {
@@ -1048,6 +1169,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
               onClick={() => {
                 setEditingMark(null)
                 setActiveProcedure("")
+                lastPlacedMark.current = null
               }}
             >
               {editingMark ? __("Done") : __("Stop Tagging")}
