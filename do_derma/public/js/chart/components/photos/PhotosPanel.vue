@@ -52,7 +52,14 @@
             :data-test="`photo-thumb-${photo.name}`"
             @click="openPhoto(photo)"
           >
-            <img :src="photo.image" :alt="photo.stage" loading="lazy" />
+            <img
+              v-if="!isBroken(photo.image)"
+              :src="photo.image"
+              :alt="photo.stage"
+              loading="lazy"
+              @error="markBroken(photo.image)"
+            />
+            <span v-else class="photo-thumb-missing">{{ __("Image unavailable") }}</span>
             <span class="photo-stage-badge">{{ photo.stage }}</span>
           </button>
         </div>
@@ -93,8 +100,11 @@
 import { computed, ref, watch } from "vue"
 
 import PhotoViewer from "./PhotoViewer.vue"
+import { useBrokenImages } from "../../../shared/broken_images.js"
 
 const __ = window.__ || ((txt) => txt)
+
+const { isBroken, markBroken } = useBrokenImages()
 
 const RETAG_STAGES = ["Before", "After", "Visit"]
 const OPPOSITE_STAGE = { Before: "After", After: "Before" }

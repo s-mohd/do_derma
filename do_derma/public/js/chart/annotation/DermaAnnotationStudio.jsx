@@ -61,6 +61,14 @@ function variableLabel(field = {}) {
   return field.variable_name || field.label || variableKey(field)
 }
 
+/** One line of what a mark records, for a list that has no room for a form. */
+function variableSummary(values = {}) {
+  return Object.entries(values)
+    .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" · ")
+}
+
 /**
  * Empty is what the creation gate calls empty: unset or blank. The count speaks for the values
  * typed here, so a variable named outside the mark's own fieldnames (`product` for `product_name`)
@@ -141,13 +149,17 @@ function anchorDescription(context = {}) {
   return [patientName, anchor].filter(Boolean).join(" — ")
 }
 
-function resumedTemplateName(annotation) {
-  if (!annotation?.json) return ""
+function parseAnnotationScene(annotation) {
+  if (!annotation?.json) return null
   try {
-    return JSON.parse(annotation.json)?.derma_template?.name || ""
+    return JSON.parse(annotation.json)
   } catch {
-    return ""
+    return null
   }
+}
+
+function resumedTemplateName(annotation) {
+  return parseAnnotationScene(annotation)?.derma_template?.name || ""
 }
 
 function collectBadgeItems(elements, partValues, parts, procedures) {
@@ -173,6 +185,8 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
       name: procedureLabel(procedure) || procedureTemplateName,
       color: element.customData?.marker_color || procedureColor(procedure),
       size: element.customData?.marker_size,
+      markName: markNameOf(element),
+      elementId: element.id,
       params,
       ...centroid,
     })
@@ -213,9 +227,16 @@ function buildAreaVariableRows(part, values = {}) {
   }))
 }
 
-/** What the marks on this drawing already carry, so reopening shows what was typed. */
-function seedPartValues(marks) {
+/**
+ * What the drawing already carries, so reopening shows what was typed. The saved scene owns
+ * the areas nobody placed a mark on; the marks own the rest and win where both speak.
+ */
+function seedPartValues(marks, annotation) {
+  const stored = parseAnnotationScene(annotation)?.derma_area_values
   const seeded = {}
+  for (const [partName, values] of Object.entries(stored && typeof stored === "object" ? stored : {})) {
+    if (values && typeof values === "object") seeded[partName] = { ...values }
+  }
   for (const mark of marks || []) {
     if (!mark?.region_label || !mark.area_variables?.length) continue
     const values = { ...(seeded[mark.region_label] || {}) }
@@ -238,9 +259,19 @@ function sanitizeMarkVariables(values = {}) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== ""))
 }
 
-function markIdentity(element = {}) {
+/** The Derma Chart Mark an element belongs to, empty for an element that stands for no record. */
+function markNameOf(element = {}) {
   const custom = element.customData || {}
-  return custom.derma_chart_mark || custom.mark_name || element.groupIds?.[0] || element.id
+  return custom.derma_chart_mark || custom.mark_name || ""
+}
+
+function markIdentity(element = {}) {
+  return markNameOf(element) || element.groupIds?.[0] || element.id
+}
+
+/** Marks carried over from an earlier visit, drawn as an overlay. They are nobody's to edit. */
+function isHistoryMark(name) {
+  return String(name || "").startsWith("history:")
 }
 
 function elementCentroid(element = {}) {
@@ -414,7 +445,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [selectedProcedures, setSelectedProcedures] = useState([])
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
-  const [partValues, setPartValues] = useState(() => seedPartValues(marks))
+  const [partValues, setPartValues] = useState(() => seedPartValues(marks, annotation))
   const [selectedPart, setSelectedPart] = useState(null)
   const [saving, setSaving] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
@@ -566,12 +597,13 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     embeddedRef.current?.setProcedureVariables?.(procedureValues[activeProcedure] || {})
   }, [activeProcedure, procedureValues])
 
-  const badgeItems = useMemo(() => {
-    if (!includeBadges) return []
+  // Numbered whether or not the badges are drawn: the marks panel lists them either way.
+  const legendItems = useMemo(() => {
     const elements = (embeddedRef.current?.getElements?.() || []).filter((element) => !element.isDeleted)
     return collectBadgeItems(elements, partValues, selectedParts, procedures)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRevision, includeBadges, partValues, selectedParts, procedures])
+  }, [sceneRevision, partValues, selectedParts, procedures])
+  const badgeItems = includeBadges ? legendItems : []
 
   useEffect(() => {
     embeddedRef.current?.setBadgeElements?.(badgeElements(badgeItems))
@@ -582,8 +614,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     const names = new Set()
     for (const element of embeddedRef.current?.getElements?.() || []) {
       if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
-      const name = element.customData?.derma_chart_mark || element.customData?.mark_name
-      if (name && !String(name).startsWith("history:")) names.add(name)
+      const name = markNameOf(element)
+      if (name && !isHistoryMark(name)) names.add(name)
     }
     return names
   }
@@ -970,6 +1002,25 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     setSelectedPart(region || null)
   }
 
+  /**
+   * The marks the badge layer numbers, in badge order. A mark under an area outline is hard
+   * to click - the part wins the hit-test - so the list is also the way to reach one.
+   */
+  const placedMarkItems = useMemo(
+    () =>
+      legendItems.filter(
+        (item) => item.type === "Procedure" && item.markName && !isHistoryMark(item.markName)
+      ),
+    [legendItems],
+  )
+
+  /** Picking a mark from the list is the same act as clicking it on the canvas. */
+  function focusMark(item) {
+    embeddedRef.current?.selectMark?.(item.markName)
+    const element = (embeddedRef.current?.getElements?.() || []).find((row) => row.id === item.elementId)
+    if (element) handleMarkSelected({ mark: item.markName, element })
+  }
+
   /** Marks whose procedure declares required variables the canvas cache leaves blank. */
   function requiredVariableGaps() {
     const gaps = []
@@ -977,7 +1028,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     for (const element of embeddedRef.current?.getElements?.() || []) {
       if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
       const markKey = markIdentity(element)
-      if (counted.has(markKey) || String(markKey).startsWith("history:")) continue
+      if (counted.has(markKey) || isHistoryMark(markKey)) continue
       counted.add(markKey)
       const procedure = procedures.find((row) => row.name === element.customData?.procedure_template)
       if (!procedure) continue
@@ -1080,6 +1131,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             // procedure-anchored rows are typed "Treatment".
             encounter_type: context.clinicalProcedure ? "" : "Derma Annotation",
             annotation_data: generateAnnotationDataHTML(badgeItems),
+            // The durable owner of area values: a mark carries them only where one was placed.
+            area_values: partValues,
             json_text: exported.json_text,
             file_data: exported.file_data,
           },
@@ -1333,6 +1386,26 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             <p className="derma-annotation-empty" data-test="annotation-mark-count" data-mark-count={markCount}>
               {markCount ? __("{0} tagged mark(s) on this drawing.").replace("{0}", markCount) : __("No marks placed yet.")}
             </p>
+            {placedMarkItems.length ? (
+              <ul className="derma-mark-list" data-test="annotation-mark-list">
+                {placedMarkItems.map((item) => (
+                  <li key={item.markName || item.elementId}>
+                    <button
+                      type="button"
+                      className={editingMark?.name === item.markName ? "active" : ""}
+                      title={__("Show this mark on the drawing")}
+                      onClick={() => focusMark(item)}
+                    >
+                      <span className="derma-mark-badge" style={{ background: item.color, color: getContrastText(item.color) }}>
+                        {item.badgeNum}
+                      </span>
+                      <b>{item.name}</b>
+                      <small>{variableSummary(item.params) || __("No values recorded")}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </aside> : null}
       </section>

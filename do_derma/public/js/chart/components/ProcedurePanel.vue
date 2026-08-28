@@ -477,6 +477,8 @@
 <script setup>
 import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
 import ConsumablesEditor from "./consumables/ConsumablesEditor.vue"
+import { procedureDisplayName } from "../../shared/procedure_label.js"
+import { nameDialogControls } from "../../shared/dialog_a11y.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -997,7 +999,7 @@ function consumableOwners(row) {
     {
       doctype: "Clinical Procedure",
       name: row.name,
-      label: row.title || row.procedure_template || "",
+      label: procedureDisplayName(row),
       source: row,
       editable: isEditable(row),
     },
@@ -1022,8 +1024,13 @@ function toggleConsumables(row) {
   }
 }
 
+/** Names the mark the way the rest of the chart does - "#3 Botox - Forehead", never its autoname. */
 function markConsumablesLabel(mark) {
-  return mark.region_label || mark.body_region || mark.category || mark.name
+  const detail = [mark.procedure_template || mark.category, mark.region_label || mark.body_region]
+    .filter(Boolean)
+    .join(" — ")
+  const number = mark.sequence ? `#${mark.sequence}` : ""
+  return [number, detail].filter(Boolean).join(" ") || __("Mark")
 }
 
 async function saveConsumables(owner, rows) {
@@ -1361,6 +1368,7 @@ async function openProcedureNoteDialog(row) {
     })
   }
   dialog.show()
+  nameDialogControls(dialog)
   void renderRelatedHistory()
   if (editable && noteSentence) void updateTemplatePreview()
 }

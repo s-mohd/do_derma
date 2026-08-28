@@ -1548,6 +1548,10 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 				[
 					"name",
 					"clinical_procedure",
+					# What the chart heads a mark's materials with - the autoname names nothing
+					# a practitioner can find on the drawing.
+					"sequence",
+					"procedure_template",
 					"category",
 					"body_view",
 					"body_region",
@@ -2804,13 +2808,19 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		frappe.throw(_("Drawing image data is required."))
 	json_text = values.get("json_text") or ""
 	scene = _parse_json(json_text, {})
-	if values.get("body_template") or values.get("body_template_title") or values.get("body_template_image"):
-		if isinstance(scene, dict):
+	if isinstance(scene, dict):
+		if values.get("body_template") or values.get("body_template_title") or values.get("body_template_image"):
 			scene["derma_template"] = {
 				"name": values.get("body_template"),
 				"title": values.get("body_template_title"),
 				"image": values.get("body_template_image"),
 			}
+		area_values = _resolve_area_values(values.get("area_values"), values.get("annotation_name"))
+		if area_values is not None:
+			scene["derma_area_values"] = area_values
+		# Re-serialised only when this function actually changed the scene: an unreadable
+		# json_text must reach storage as the client sent it, not as "{}".
+		if scene:
 			json_text = json.dumps(scene)
 
 	annotation_type = values.get("annotation_type") or "Free Drawing"
@@ -2864,6 +2874,31 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	if saved_row and doctype == "Clinical Procedure":
 		_link_procedure_annotation(clinical_procedure or docname, saved_row.get("name"))
 	return saved_row
+
+
+def _resolve_area_values(raw: Any, annotation_name: str | None) -> dict[str, dict[str, str]] | None:
+	"""The area values to store on the scene, or None to leave the saved ones alone.
+
+	Nothing to say - an absent key, or the empty map a studio that seeded nothing sends -
+	keeps what is stored. A cleared area still names itself with a blank value, so clearing
+	is never silent.
+	"""
+	values = _parse_json(raw, None) if isinstance(raw, str) else raw
+	if not isinstance(values, dict) or not values:
+		return _get_stored_area_values(annotation_name)
+	return {
+		str(part): {str(key): _stringify_variable_value(value) for key, value in fields.items()}
+		for part, fields in values.items()
+		if isinstance(fields, dict)
+	}
+
+
+def _get_stored_area_values(annotation_name: str | None) -> dict[str, dict[str, str]] | None:
+	if not annotation_name or not frappe.db.exists("Health Annotation", annotation_name):
+		return None
+	stored = _parse_json(frappe.db.get_value("Health Annotation", annotation_name, "json"), {})
+	saved = stored.get("derma_area_values") if isinstance(stored, dict) else None
+	return saved if isinstance(saved, dict) else None
 
 
 def _link_procedure_annotation(clinical_procedure: str | None, annotation: str | None) -> None:

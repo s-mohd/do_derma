@@ -2,7 +2,8 @@
   <div class="dental-chart-page derma-chart-page" data-test="derma-chart-root">
     <div v-if="!contextReady" class="chart-empty-state" data-test="chart-empty-state">
       <h3>{{ __("Select a patient") }}</h3>
-      <p>{{ __("Use the health sidebar to select a patient, then open Derma Chart.") }}</p>
+      <p>{{ __("Search for a patient here, or pick one in the health sidebar.") }}</p>
+      <div ref="patientPickerHost" class="chart-empty-picker" data-test="chart-empty-patient-picker"></div>
     </div>
 
     <div v-else-if="loading && !patient.name" class="chart-loading-skeleton" role="status" data-test="chart-loading" :aria-label="__('Loading derma chart')">
@@ -35,6 +36,7 @@
         :insurance-label="insuranceStatusLabel"
         :has-session-context="hasSessionContext"
         :completing="completingSession"
+        :pending="completionPending"
         :alerts="encounterAlertItems"
         @complete="completeSession"
         @alert-action="handleEncounterAlert"
@@ -127,7 +129,13 @@
                     <div v-for="annotation in annotations.slice(0, 8)" :key="annotation.name" class="chart-annotation-card">
                       <button type="button" @click="openAnnotationHistory(annotation)">
                         <span class="chart-annotation-preview">
-                          <img v-if="annotationPreview(annotation)" :src="annotationPreview(annotation)" :alt="annotationTemplateLabel(annotation)" loading="lazy" />
+                          <img
+                            v-if="annotationPreview(annotation) && !isBroken(annotationPreview(annotation))"
+                            :src="annotationPreview(annotation)"
+                            :alt="annotationTemplateLabel(annotation)"
+                            loading="lazy"
+                            @error="markBroken(annotationPreview(annotation))"
+                          />
                           <span v-else>{{ __("No preview") }}</span>
                         </span>
                         <b>{{ annotationTemplateLabel(annotation) }}</b>
@@ -276,8 +284,13 @@
                     :class="{ active: selectedTimelineVisitKey === visit.key }"
                     @click="selectTimelineVisit(visit)"
                   >
-                    <span v-if="visit.preview_image" class="timeline-preview">
-                      <img :src="visit.preview_image" :alt="visit.date || visit.key" loading="lazy" />
+                    <span v-if="visit.preview_image && !isBroken(visit.preview_image)" class="timeline-preview">
+                      <img
+                        :src="visit.preview_image"
+                        :alt="visit.date || visit.key"
+                        loading="lazy"
+                        @error="markBroken(visit.preview_image)"
+                      />
                     </span>
                     <span v-else class="timeline-preview empty">{{ __("No photo") }}</span>
                     <span class="timeline-copy">
@@ -318,7 +331,13 @@
 
                   <div v-if="selectedTimelineVisit.photo_sets?.length" class="timeline-photo-grid">
                     <figure v-for="set in selectedTimelineVisit.photo_sets.slice(0, 4)" :key="set.name">
-                      <img v-if="set.preview_image" :src="set.preview_image" :alt="set.set_type || set.name" loading="lazy" />
+                      <img
+                        v-if="set.preview_image && !isBroken(set.preview_image)"
+                        :src="set.preview_image"
+                        :alt="set.set_type || set.name"
+                        loading="lazy"
+                        @error="markBroken(set.preview_image)"
+                      />
                       <span v-else>{{ __("No preview") }}</span>
                       <figcaption>{{ set.set_type || set.body_view || set.name }}</figcaption>
                     </figure>
@@ -409,21 +428,9 @@
                     <span>{{ item.status }}</span>
                   </header>
                   <div class="inventory-metrics">
-                    <span>
-                      <b>{{ formatNumber(item.dose) }}</b>
-                      <small>{{ item.dose_unit || __("qty") }}</small>
-                    </span>
-                    <span>
-                      <b>{{ item.available_qty === null || item.available_qty === undefined ? __("n/a") : formatNumber(item.available_qty) }}</b>
-                      <small>{{ __("available") }}</small>
-                    </span>
-                    <span>
-                      <b>{{ item.marks?.length || 0 }}</b>
-                      <small>{{ __("marks") }}</small>
-                    </span>
-                    <span v-if="item.contributors?.length">
-                      <b>{{ readinessContributorLabel(item) }}</b>
-                      <small>{{ __("recorded in") }}</small>
+                    <span v-for="metric in inventoryMetrics(item)" :key="metric.label">
+                      <b>{{ metric.value }}</b>
+                      <small>{{ metric.label }}</small>
                     </span>
                   </div>
                   <p>{{ item.message }}</p>
@@ -518,7 +525,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
+import { computed, nextTick, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
@@ -529,6 +536,9 @@ import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import MarkResponseChips from "./components/MarkResponseChips.vue"
 import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
+import { procedureDisplayName } from "../shared/procedure_label.js"
+import { useBrokenImages } from "../shared/broken_images.js"
+import { nameDialogControls } from "../shared/dialog_a11y.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -603,6 +613,11 @@ const loading = ref(false)
 const loadError = ref("")
 const syncingBillables = ref(false)
 const completingSession = ref(false)
+const patientPickerHost = ref(null)
+const { isBroken, markBroken } = useBrokenImages()
+// A completion the clinician has started but not yet confirmed. Guards re-entry without
+// claiming the button's busy label.
+const completionPending = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
 const selectedBodyTemplate = ref(null)
@@ -735,6 +750,30 @@ const CONTRIBUTOR_LABELS = { dose: __("dose"), consumable: __("materials") }
 function readinessContributorLabel(item) {
   return (item.contributors || []).map((source) => CONTRIBUTOR_LABELS[source] || source).join(" + ")
 }
+
+/**
+ * The tiles an inventory card can show, each one a label with a value behind it. A metric
+ * nobody recorded is left out: a tile showing only its unit ("Nos", "available") reads as
+ * debris on a card whose whole job is to say what is missing.
+ */
+function inventoryMetrics(item) {
+  const metrics = []
+  // formatNumber(null) reads as "0", which is a dose nobody recorded shown as one they did.
+  if (item.dose !== null && item.dose !== undefined && item.dose !== "") {
+    metrics.push({
+      label: __("dose"),
+      value: [formatNumber(item.dose), item.dose_unit].filter(Boolean).join(" "),
+    })
+  }
+  if (item.available_qty !== null && item.available_qty !== undefined) {
+    metrics.push({ label: __("available"), value: formatNumber(item.available_qty) })
+  }
+  if (item.marks?.length) metrics.push({ label: __("marks"), value: String(item.marks.length) })
+  if (item.contributors?.length) {
+    metrics.push({ label: __("recorded in"), value: readinessContributorLabel(item) })
+  }
+  return metrics
+}
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
 const patientAllergyText = computed(() => {
   return patient.value.custom_allergies || patient.value.allergies || patient.value.allergy || ""
@@ -808,7 +847,7 @@ const groupedProcedures = computed(() => {
 const consentProcedureOptions = computed(() =>
   procedures.value.map((row) => {
     const value = row.name
-    const label = row.title || row.template_label || row.procedure_template || row.name
+    const label = procedureDisplayName(row)
     const description = [row.status, row.derma_category || row.category, row.body_region || row.region_label]
       .filter(Boolean)
       .join(" · ")
@@ -872,6 +911,39 @@ watch(
   () => activeWorkspaceTab.value,
   (tab) => ensureWorkspaceTab(tab)
 )
+
+// The empty state is where the eye lands, so the search lives there rather than only in
+// the sidebar it used to point at.
+watch(
+  () => contextReady.value,
+  (ready) => {
+    if (ready) return
+    nextTick(mountPatientPicker)
+  },
+  { immediate: true }
+)
+
+function mountPatientPicker() {
+  const host = patientPickerHost.value
+  if (!host || !window.frappe?.ui?.form?.make_control) return
+  host.innerHTML = ""
+  const control = frappe.ui.form.make_control({
+    parent: host,
+    df: {
+      fieldtype: "Link",
+      fieldname: "patient",
+      options: "Patient",
+      label: __("Patient"),
+      placeholder: __("Search patients"),
+      only_select: 1,
+      change: () => {
+        const chosen = control.get_value()
+        if (chosen) load({ patient: chosen })
+      },
+    },
+    render_input: true,
+  })
+}
 
 watch(
   () => visibleMarks.value.map((mark) => mark.name).join(","),
@@ -1287,6 +1359,7 @@ async function createProcedure() {
     },
   })
   dialog.show()
+  nameDialogControls(dialog)
 }
 
 async function copyMarksFromLastVisit() {
@@ -1335,6 +1408,7 @@ async function copyMarksFromLastVisit() {
     },
   })
   dialog.show()
+  nameDialogControls(dialog)
 }
 
 function upsertMark(mark) {
@@ -1418,6 +1492,7 @@ function openAnnotationReviewDialog(annotation) {
     </div>
   `)
   dialog.show()
+  nameDialogControls(dialog)
   dialog.$wrapper.find(".modal-dialog").css("max-width", "92vw")
 }
 
@@ -1639,6 +1714,7 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
     })
   })
   dialog.show()
+  nameDialogControls(dialog)
 }
 
 async function loadAssessment(force = false) {
@@ -1885,6 +1961,7 @@ async function openSignedConsent(row) {
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
   })
   dialog.show()
+  nameDialogControls(dialog)
   dialog.fields_dict.body.$wrapper.html(`<p>${__("Loading...")}</p>`)
   try {
     const response = await frappe.call({
@@ -1951,6 +2028,7 @@ function askForOverrideReason(blockers) {
     dialog.$wrapper.attr("data-test", "readiness-override-dialog")
     dialog.onhide = () => resolve(null)
     dialog.show()
+    nameDialogControls(dialog)
   })
 }
 
@@ -1988,16 +2066,20 @@ async function syncBillablesForSession() {
 }
 
 async function completeSession() {
-  if (!encounter.value.name || completingSession.value) return
+  if (!encounter.value.name || completionPending.value) return
   // Claimed before the dialog, not after it: a second click while the clinician is
-  // typing a reason would otherwise open a second dialog and complete twice.
-  completingSession.value = true
+  // typing a reason would otherwise open a second dialog and complete twice. The button
+  // only says "Completing..." once the confirm is answered - while the dialog is open
+  // nothing is running yet.
+  completionPending.value = true
   try {
     const overrideReason = await overrideReasonForCompletion()
     if (overrideReason === null) return
+    completingSession.value = true
     await submitSessionCompletion(overrideReason)
   } finally {
     completingSession.value = false
+    completionPending.value = false
   }
 }
 
@@ -2113,8 +2195,8 @@ function normalizeProcedureRow(row) {
   return {
     ...row,
     clinical_procedure: row.name,
-    display_name: row.title || row.template_label || row.procedure_template || row.name,
-    procedure: row.title || row.procedure_template,
+    display_name: procedureDisplayName(row),
+    procedure: procedureDisplayName(row),
     procedure_date: date,
     date,
     tooth: row.derma_category || row.custom_derma_category || row.procedure_template || "Derma",

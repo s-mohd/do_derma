@@ -852,6 +852,182 @@ class TestAnnotationStorage(DermaTestHelpers, IntegrationTestCase):
 		self.assertTrue(scene.get("derma_template") is not None or kinds.count("derma_template"))
 
 
+class TestAnnotationAreaValues(DermaTestHelpers, IntegrationTestCase):
+	"""An area value typed without a mark on that area has no mark row to live on. The saved
+	scene owns it, or the next save of the drawing regenerates the legend without it."""
+
+	def _scene(self):
+		return json.dumps({"elements": [TEMPLATE_ELEMENT], "files": {}})
+
+	def _saved_area_values(self, annotation_name):
+		scene = json.loads(frappe.db.get_value("Health Annotation", annotation_name, "json"))
+		return scene.get("derma_area_values")
+
+	def test_stores_area_values_that_no_mark_carries(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(saved["name"]), {"Forehead": {"Severity": "Moderate"}})
+
+	def test_a_resave_that_says_nothing_about_areas_keeps_them(self):
+		"""The reported data loss: an edit that only added a mark wiped the stored area value."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(first["name"]), {"Forehead": {"Severity": "Moderate"}})
+
+	def test_an_edited_area_replaces_only_its_own_value(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}, "Chin": {"Severity": "Mild"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Severe"}, "Chin": {"Severity": "Mild"}},
+			}
+		)
+
+		self.assertEqual(
+			self._saved_area_values(first["name"]),
+			{"Forehead": {"Severity": "Severe"}, "Chin": {"Severity": "Mild"}},
+		)
+
+	def test_the_studio_reads_the_values_back_from_the_saved_drawing(self):
+		"""The reopen seam: the studio seeds its panel from the annotation row it is handed."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		saved = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		context = api.get_derma_annotations(encounter=encounter.name, patient=patient)
+		rows = context.get("encounter_annotations") or context.get("annotations") or []
+		row = next(row for row in rows if row["name"] == saved["name"])
+
+		self.assertEqual(
+			json.loads(row["json"])["derma_area_values"], {"Forehead": {"Severity": "Moderate"}}
+		)
+
+	def test_a_studio_that_seeded_nothing_cannot_erase_the_saved_values(self):
+		"""An empty map is what a failed seed sends, not what clearing an area sends - a
+		cleared area still names itself with a blank value. Treating it as "delete all"
+		would rebuild the very data loss this endpoint exists to stop."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {},
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(first["name"]), {"Forehead": {"Severity": "Moderate"}})
+
+	def test_clearing_an_area_stores_the_blank(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": ""}},
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(first["name"]), {"Forehead": {"Severity": ""}})
+
+	def test_ignores_area_values_that_are_not_a_mapping(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": ["Forehead"],
+			}
+		)
+
+		self.assertIsNone(self._saved_area_values(saved["name"]))
+
+
 class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
 	def test_submits_draft_encounter_with_no_appointment(self):
 		patient = self._make_patient()

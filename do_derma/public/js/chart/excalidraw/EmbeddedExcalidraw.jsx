@@ -729,6 +729,10 @@ function selectMarkElement(api, markName) {
     },
     commitToHistory: false,
   })
+  // Selecting a mark the practitioner picked from a list is worth nothing if it sits
+  // outside the viewport.
+  const selected = api.getSceneElements().filter((element) => ids.includes(element.id))
+  api.scrollToContent?.(selected, { fitToContent: false, animate: true })
 }
 
 function renderChartMarks(api, marks = []) {
