@@ -339,7 +339,12 @@ function parseAnnotation(annotation) {
 	          const origin = pointerDownState?.origin || pointerDownState?.lastCoords
 	          const hitRegion = origin ? findTemplatePartAtPoint(api, origin.x, origin.y) : null
 	          // Reported on a miss too: bare canvas is how the practitioner closes the area editor.
-	          onRegionSelected?.(hitRegion)
+	          // Only a deliberate click reports it, though - a pen stroke or an eraser drag that
+	          // happens to start inside an outline must not change what the saved image shows.
+	          const isPlacingMark = requestedToolRef.current === "mark"
+	          if (isPlacingMark || api.getAppState?.()?.activeTool?.type === "selection") {
+	            onRegionSelected?.(hitRegion, { isPlacingMark })
+	          }
 	          if (dermaToolRef.current !== "mark" || !isStampBehavior(template)) return
 	          if (pointerDownState?.scrollbars?.isOverEither) return
 	          if (!getTemplateElement(api)) {

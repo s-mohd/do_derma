@@ -1591,14 +1591,19 @@ function isRowSaving(row) {
   return Boolean(savingRows.value[row?.name])
 }
 
-/** Counted, because a reprice wraps this around the save that wraps it again. */
+/**
+ * Counted, because a reprice wraps this around the save that wraps it again. Both ends read
+ * the live count: two saves of one row can overlap - a price edit still in flight when Reset
+ * is clicked - and writing back a depth captured on the way in left the count above zero for
+ * good, so the row span forever and refused every later reprice.
+ */
 async function withRowSaving(name, action) {
-  const depth = (savingRows.value[name] || 0) + 1
-  savingRows.value = { ...savingRows.value, [name]: depth }
+  savingRows.value = { ...savingRows.value, [name]: (savingRows.value[name] || 0) + 1 }
   try {
     return await action()
   } finally {
-    savingRows.value = { ...savingRows.value, [name]: depth - 1 }
+    const remaining = Math.max((savingRows.value[name] || 1) - 1, 0)
+    savingRows.value = { ...savingRows.value, [name]: remaining }
   }
 }
 
