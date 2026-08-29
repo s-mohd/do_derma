@@ -204,6 +204,15 @@ class TestSessionReadiness(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(item["title"], "Botox 100")
 		self.assertTrue(item["detail"])
 
+	def test_an_inventory_row_with_no_product_name_still_names_its_item(self):
+		"""A banner reading only "Readiness" leaves the clinician hunting for the item."""
+		item_code = frappe.db.get_value("Item", {"disabled": 0}, "name")
+		self._save_mark(self.patient, product_item=item_code, dose=1)
+
+		item = next(row for row in self._readiness()["items"] if row["source"] == inventory.SOURCE)
+
+		self.assertIn(item_code, item["title"])
+
 	def test_blockers_are_the_blocking_items(self):
 		self._save_mark(self.patient, status="Worse")
 

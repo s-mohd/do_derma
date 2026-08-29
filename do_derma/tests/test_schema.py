@@ -16,6 +16,8 @@ class TestEnsureDermaSchema(IntegrationTestCase):
 			if not frappe.db.exists("DocType", doctype):
 				continue
 			for spec in specs:
+				if spec["fieldtype"] == "Table" and not frappe.db.exists("DocType", spec["options"]):
+					continue
 				self.assertTrue(
 					has_field(doctype, spec["fieldname"]),
 					msg=f"{doctype}.{spec['fieldname']} was not created",

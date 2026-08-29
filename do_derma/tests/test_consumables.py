@@ -727,6 +727,18 @@ class TestProcedureOwnedConsumables(
 		self.assertNotIn("consumables", row)
 		self.assertEqual([entry["name"] for entry in row["derma_marks"]], [mark.name])
 
+	def test_a_mark_carries_what_a_materials_heading_needs(self):
+		"""The materials group used to be headed by the mark's autoname (DCM-2545362), which
+		names nothing a practitioner can find on the drawing."""
+		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)
+		procedure = self._make_procedure(mark=mark.name)
+
+		row = self._payload_procedure(procedure.name)
+
+		entry = row["derma_marks"][0]
+		self.assertEqual(entry["sequence"], mark.sequence)
+		self.assertEqual(entry["procedure_template"], self.template)
+
 	def test_a_completed_procedure_refuses_further_edits(self):
 		frappe.db.set_value("Clinical Procedure", self.procedure.name, "docstatus", 1)
 

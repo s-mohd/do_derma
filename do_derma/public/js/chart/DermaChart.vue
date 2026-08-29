@@ -35,6 +35,7 @@
         :insurance-label="insuranceStatusLabel"
         :has-session-context="hasSessionContext"
         :completing="completingSession"
+        :pending="completionPending"
         :alerts="encounterAlertItems"
         @complete="completeSession"
         @alert-action="handleEncounterAlert"
@@ -127,7 +128,13 @@
                     <div v-for="annotation in annotations.slice(0, 8)" :key="annotation.name" class="chart-annotation-card">
                       <button type="button" @click="openAnnotationHistory(annotation)">
                         <span class="chart-annotation-preview">
-                          <img v-if="annotationPreview(annotation)" :src="annotationPreview(annotation)" :alt="annotationTemplateLabel(annotation)" loading="lazy" />
+                          <img
+                            v-if="annotationPreview(annotation) && !isBroken(annotationPreview(annotation))"
+                            :src="annotationPreview(annotation)"
+                            :alt="annotationTemplateLabel(annotation)"
+                            loading="lazy"
+                            @error="markBroken(annotationPreview(annotation))"
+                          />
                           <span v-else>{{ __("No preview") }}</span>
                         </span>
                         <b>{{ annotationTemplateLabel(annotation) }}</b>
@@ -276,8 +283,13 @@
                     :class="{ active: selectedTimelineVisitKey === visit.key }"
                     @click="selectTimelineVisit(visit)"
                   >
-                    <span v-if="visit.preview_image" class="timeline-preview">
-                      <img :src="visit.preview_image" :alt="visit.date || visit.key" loading="lazy" />
+                    <span v-if="visit.preview_image && !isBroken(visit.preview_image)" class="timeline-preview">
+                      <img
+                        :src="visit.preview_image"
+                        :alt="visit.date || visit.key"
+                        loading="lazy"
+                        @error="markBroken(visit.preview_image)"
+                      />
                     </span>
                     <span v-else class="timeline-preview empty">{{ __("No photo") }}</span>
                     <span class="timeline-copy">
@@ -318,7 +330,13 @@
 
                   <div v-if="selectedTimelineVisit.photo_sets?.length" class="timeline-photo-grid">
                     <figure v-for="set in selectedTimelineVisit.photo_sets.slice(0, 4)" :key="set.name">
-                      <img v-if="set.preview_image" :src="set.preview_image" :alt="set.set_type || set.name" loading="lazy" />
+                      <img
+                        v-if="set.preview_image && !isBroken(set.preview_image)"
+                        :src="set.preview_image"
+                        :alt="set.set_type || set.name"
+                        loading="lazy"
+                        @error="markBroken(set.preview_image)"
+                      />
                       <span v-else>{{ __("No preview") }}</span>
                       <figcaption>{{ set.set_type || set.body_view || set.name }}</figcaption>
                     </figure>
@@ -409,21 +427,9 @@
                     <span>{{ item.status }}</span>
                   </header>
                   <div class="inventory-metrics">
-                    <span>
-                      <b>{{ formatNumber(item.dose) }}</b>
-                      <small>{{ item.dose_unit || __("qty") }}</small>
-                    </span>
-                    <span>
-                      <b>{{ item.available_qty === null || item.available_qty === undefined ? __("n/a") : formatNumber(item.available_qty) }}</b>
-                      <small>{{ __("available") }}</small>
-                    </span>
-                    <span>
-                      <b>{{ item.marks?.length || 0 }}</b>
-                      <small>{{ __("marks") }}</small>
-                    </span>
-                    <span v-if="item.contributors?.length">
-                      <b>{{ readinessContributorLabel(item) }}</b>
-                      <small>{{ __("recorded in") }}</small>
+                    <span v-for="metric in inventoryMetrics(item)" :key="metric.label">
+                      <b>{{ metric.value }}</b>
+                      <small>{{ metric.label }}</small>
                     </span>
                   </div>
                   <p>{{ item.message }}</p>
@@ -529,6 +535,10 @@ import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import MarkResponseChips from "./components/MarkResponseChips.vue"
 import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
+import { procedureDisplayName } from "../shared/procedure_label.js"
+import { useBrokenImages } from "../shared/broken_images.js"
+import { nameDialogControls } from "../shared/dialog_a11y.js"
+import { serverErrorText } from "../shared/error_text.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -603,11 +613,17 @@ const loading = ref(false)
 const loadError = ref("")
 const syncingBillables = ref(false)
 const completingSession = ref(false)
+const { isBroken, markBroken } = useBrokenImages()
+// A completion the clinician has started but not yet confirmed. Guards re-entry without
+// claiming the button's busy label.
+const completionPending = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
 const selectedBodyTemplate = ref(null)
 const activeWorkspaceTab = ref("procedure_history")
-const activeSection = ref(loadStoredDermaSection())
+// A newly opened visit starts where the visit starts; a tab picked on this visit is
+// restored by hydrateDermaSectionPreference once the encounter is known.
+const activeSection = ref(DEFAULT_SECTION)
 const selectedMarkName = ref("")
 const selectedTimelineVisitKey = ref("")
 const chartOverlayMode = ref("today")
@@ -735,6 +751,30 @@ const CONTRIBUTOR_LABELS = { dose: __("dose"), consumable: __("materials") }
 function readinessContributorLabel(item) {
   return (item.contributors || []).map((source) => CONTRIBUTOR_LABELS[source] || source).join(" + ")
 }
+
+/**
+ * The tiles an inventory card can show, each one a label with a value behind it. A metric
+ * nobody recorded is left out: a tile showing only its unit ("Nos", "available") reads as
+ * debris on a card whose whole job is to say what is missing.
+ */
+function inventoryMetrics(item) {
+  const metrics = []
+  // formatNumber(null) reads as "0", which is a dose nobody recorded shown as one they did.
+  if (item.dose !== null && item.dose !== undefined && item.dose !== "") {
+    metrics.push({
+      label: __("dose"),
+      value: [formatNumber(item.dose), item.dose_unit].filter(Boolean).join(" "),
+    })
+  }
+  if (item.available_qty !== null && item.available_qty !== undefined) {
+    metrics.push({ label: __("available"), value: formatNumber(item.available_qty) })
+  }
+  if (item.marks?.length) metrics.push({ label: __("marks"), value: String(item.marks.length) })
+  if (item.contributors?.length) {
+    metrics.push({ label: __("recorded in"), value: readinessContributorLabel(item) })
+  }
+  return metrics
+}
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
 const patientAllergyText = computed(() => {
   return patient.value.custom_allergies || patient.value.allergies || patient.value.allergy || ""
@@ -771,8 +811,10 @@ const encounterAlertItems = computed(() => {
   for (const item of inventoryBlockers.value.slice(0, 2)) {
     alerts.push({
       key: `inventory-${item.key || item.product_item || item.product_name}`,
-      label: __("Inventory Blocker"),
-      detail: item.message || item.product_name || item.product_item,
+      // The item comes first: "Insufficient available stock" alone sends the clinician
+      // into the completion dialog just to learn which product it means.
+      label: `${__("Inventory Blocker")}: ${item.product_name || item.product_item || __("Product")}`,
+      detail: item.message || "",
       tone: "warning",
       tab: "inventory",
     })
@@ -808,7 +850,7 @@ const groupedProcedures = computed(() => {
 const consentProcedureOptions = computed(() =>
   procedures.value.map((row) => {
     const value = row.name
-    const label = row.title || row.template_label || row.procedure_template || row.name
+    const label = procedureDisplayName(row)
     const description = [row.status, row.derma_category || row.category, row.body_region || row.region_label]
       .filter(Boolean)
       .join(" · ")
@@ -888,14 +930,14 @@ function normalizeDermaSection(section) {
   return SECTION_ALIASES[section] || DEFAULT_SECTION
 }
 
-function storedUserSettingsSection() {
-  try {
-    const settings = window.frappe?.get_user_settings?.(DERMA_USER_SETTINGS_DOCTYPE) || {}
-    return settings.last_section || settings.last_mode || ""
-  } catch (error) {
-    // User settings may not be bootstrapped yet; localStorage still answers.
-    return ""
-  }
+/**
+ * The stored tab belongs to the visit it was chosen on: "{encounter}:{section}".
+ * A different visit starts where documentation starts, on Assessment.
+ */
+function storedSectionForEncounter(stored, encounterName) {
+  const [storedEncounter, storedSection] = String(stored || "").split(":")
+  if (!storedSection || !encounterName || storedEncounter !== encounterName) return ""
+  return storedSection
 }
 
 function storedLocalSection() {
@@ -906,19 +948,15 @@ function storedLocalSection() {
   }
 }
 
-function loadStoredDermaSection() {
-  return normalizeDermaSection(storedUserSettingsSection() || storedLocalSection())
-}
-
 function persistDermaSection(section) {
-  const nextSection = normalizeDermaSection(section)
+  const stamped = `${encounter.value.name || ""}:${normalizeDermaSection(section)}`
   try {
-    window.localStorage?.setItem(DERMA_SECTION_STORAGE_KEY, nextSection)
+    window.localStorage?.setItem(DERMA_SECTION_STORAGE_KEY, stamped)
   } catch (error) {
     // Non-critical preference persistence.
   }
   try {
-    window.frappe?.model?.user_settings?.save?.(DERMA_USER_SETTINGS_DOCTYPE, "last_section", nextSection)
+    window.frappe?.model?.user_settings?.save?.(DERMA_USER_SETTINGS_DOCTYPE, "last_section", stamped)
   } catch (error) {
     // User settings may be unavailable in tests or early boot.
   }
@@ -932,9 +970,15 @@ async function hydrateDermaSectionPreference() {
   if (sectionPreferenceHydrated.value) return
   sectionPreferenceHydrated.value = true
   if (sectionChosenByUser.value) return
+  const encounterName = encounter.value.name || ""
+  const local = storedSectionForEncounter(storedLocalSection(), encounterName)
+  if (local) activeSection.value = normalizeDermaSection(local)
   try {
     const response = await window.frappe?.model?.user_settings?.get?.(DERMA_USER_SETTINGS_DOCTYPE)
-    const savedSection = response?.last_section || response?.last_mode
+    const savedSection = storedSectionForEncounter(
+      response?.last_section || response?.last_mode,
+      encounterName
+    )
     if (savedSection) activeSection.value = normalizeDermaSection(savedSection)
   } catch (error) {
     // The local fallback selected during setup remains valid.
@@ -1006,7 +1050,7 @@ async function load(context = props.context) {
     if (contextReady.value) loadAssessment()
     if (encounter.value.name) await loadConsentPanel(true)
   } catch (error) {
-    loadError.value = error?.message || __("Unable to load derma chart.")
+    loadError.value = serverErrorText(error, __("Unable to load derma chart."))
   } finally {
     loading.value = false
   }
@@ -1128,7 +1172,10 @@ function overlayTimelineVisit(visit = selectedTimelineVisit.value) {
     const template = bodyTemplates.value.find((row) => row.name === firstTemplate)
     if (template) loadBodyTemplate(template)
   }
-  frappe.show_alert({ message: __("Previous visit marks overlaid"), indicator: "blue" })
+  frappe.show_alert({
+    message: __("Previous visit marks are now drawn on the body map above. Use Clear Overlay to remove them."),
+    indicator: "blue",
+  })
 }
 
 function clearTimelineOverlay() {
@@ -1287,6 +1334,7 @@ async function createProcedure() {
     },
   })
   dialog.show()
+  nameDialogControls(dialog)
 }
 
 async function copyMarksFromLastVisit() {
@@ -1335,6 +1383,7 @@ async function copyMarksFromLastVisit() {
     },
   })
   dialog.show()
+  nameDialogControls(dialog)
 }
 
 function upsertMark(mark) {
@@ -1418,6 +1467,7 @@ function openAnnotationReviewDialog(annotation) {
     </div>
   `)
   dialog.show()
+  nameDialogControls(dialog)
   dialog.$wrapper.find(".modal-dialog").css("max-width", "92vw")
 }
 
@@ -1509,9 +1559,9 @@ function openAnnotationStudio(anchor = {}) {
       await refresh()
       openAnnotationReviewDialog(saved)
     },
-    // Discarding deletes the marks the studio placed, so the tabs behind it are stale.
+    // Discarding deletes the marks and photos the studio placed, so the tabs behind it are stale.
     onClose: async (result) => {
-      if (result?.marksChanged) await refresh()
+      if (result?.marksChanged || result?.photosChanged) await refresh()
     },
   })
 }
@@ -1571,7 +1621,7 @@ async function deleteAnnotation(annotation, doctype, docname) {
       })
       await refresh()
     } catch (error) {
-      frappe.show_alert({ message: error.message || __("Unable to delete annotation"), indicator: "red" })
+      frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
     }
   })
 }
@@ -1634,11 +1684,12 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
         dialog.hide()
         await refresh()
       } catch (error) {
-        frappe.show_alert({ message: error.message || __("Unable to delete annotation"), indicator: "red" })
+        frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
       }
     })
   })
   dialog.show()
+  nameDialogControls(dialog)
 }
 
 async function loadAssessment(force = false) {
@@ -1650,7 +1701,7 @@ async function loadAssessment(force = false) {
     applyAssessmentResponse(response.message || {})
     loadedTabs.assessment = true
   } catch (error) {
-    assessmentPanel.error = error?.message || __("Unable to load assessment.")
+    assessmentPanel.error = serverErrorText(error, __("Unable to load assessment."))
   } finally {
     assessmentPanel.loading = false
   }
@@ -1672,6 +1723,7 @@ function applyAssessmentResponse(message) {
 
 async function saveAssessment({ payload, mode }) {
   assessmentPanel.saving = true
+  assessmentPanel.error = ""
   try {
     const response = await frappe.call({
       method: "do_derma.api.set_derma_assessment",
@@ -1679,6 +1731,9 @@ async function saveAssessment({ payload, mode }) {
     })
     applyAssessmentResponse(response.message || {})
     frappe.show_alert({ message: __("Assessment saved"), indicator: "green" })
+  } catch (error) {
+    assessmentPanel.error = serverErrorText(error, __("The assessment could not be saved."))
+    frappe.show_alert({ message: assessmentPanel.error, indicator: "red" })
   } finally {
     assessmentPanel.saving = false
   }
@@ -1739,7 +1794,7 @@ async function setAssessmentMode(mode) {
     applyAssessmentResponse(response.message || {})
     assessmentPanel.editing = true
   } catch (error) {
-    assessmentPanel.error = error?.message || __("Unable to change the documentation format.")
+    assessmentPanel.error = serverErrorText(error, __("Unable to change the documentation format."))
   } finally {
     assessmentPanel.saving = false
   }
@@ -1755,7 +1810,7 @@ async function loadPrescriptionPanel(force = false) {
     prescriptionPanel.rows = response.message?.drug_prescription || []
     loadedTabs.prescriptions = true
   } catch (error) {
-    prescriptionPanel.error = error?.message || __("Unable to load prescriptions.")
+    prescriptionPanel.error = serverErrorText(error, __("Unable to load prescriptions."))
   } finally {
     prescriptionPanel.loading = false
   }
@@ -1763,11 +1818,16 @@ async function loadPrescriptionPanel(force = false) {
 
 async function savePrescriptionPanel(rows) {
   prescriptionPanel.saving = true
+  prescriptionPanel.error = ""
   try {
     const response = await frappe.call({ method: "do_derma.api.set_derma_prescriptions", args: { ...contextArgs(), payload: rows } })
     prescriptionPanel.encounter = response.message?.encounter || prescriptionPanel.encounter
     prescriptionPanel.rows = response.message?.drug_prescription || []
     frappe.show_alert({ message: __("Prescriptions saved"), indicator: "green" })
+  } catch (error) {
+    // A refused save must never look like a saved one: the row is not in the record.
+    prescriptionPanel.error = serverErrorText(error, __("Prescriptions could not be saved."))
+    frappe.show_alert({ message: prescriptionPanel.error, indicator: "red" })
   } finally {
     prescriptionPanel.saving = false
   }
@@ -1783,7 +1843,7 @@ async function loadAnesthesiaPanel(force = false) {
     anesthesiaPanel.rows = response.message?.anesthesia || []
     loadedTabs.anesthesia = true
   } catch (error) {
-    anesthesiaPanel.error = error?.message || __("Unable to load anesthesia.")
+    anesthesiaPanel.error = serverErrorText(error, __("Unable to load anesthesia."))
   } finally {
     anesthesiaPanel.loading = false
   }
@@ -1799,7 +1859,7 @@ async function loadConsentPanel(force = false) {
     consentPanel.consents = response.message || []
     loadedTabs.consents = true
   } catch (error) {
-    consentPanel.error = error?.message || __("Unable to load consents.")
+    consentPanel.error = serverErrorText(error, __("Unable to load consents."))
   } finally {
     consentPanel.loading = false
   }
@@ -1816,8 +1876,9 @@ async function requestConsentPreview(payload) {
     })
     const raw = response.message?.rendered_html || ""
     consentPanel.previewHtml = frappe?.utils?.unescape_html ? frappe.utils.unescape_html(raw) : raw
+    consentPanel.error = response.message?.error || ""
   } catch (error) {
-    consentPanel.error = error?.message || __("Unable to render consent preview.")
+    consentPanel.error = serverErrorText(error, __("Unable to render consent preview."))
   } finally {
     consentPanel.previewLoading = false
   }
@@ -1839,7 +1900,7 @@ async function createConsentFromPanel(payload) {
     consentPanel.resetKey += 1
     frappe.show_alert({ message: __("Consent created."), indicator: "green" })
   } catch (error) {
-    consentPanel.error = error?.message || __("Unable to create consent.")
+    consentPanel.error = serverErrorText(error, __("Unable to create consent."))
   } finally {
     consentPanel.saving = false
   }
@@ -1885,6 +1946,7 @@ async function openSignedConsent(row) {
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
   })
   dialog.show()
+  nameDialogControls(dialog)
   dialog.fields_dict.body.$wrapper.html(`<p>${__("Loading...")}</p>`)
   try {
     const response = await frappe.call({
@@ -1898,7 +1960,7 @@ async function openSignedConsent(row) {
     )
   } catch (err) {
     dialog.fields_dict.body.$wrapper.html(
-      `<p class="text-danger">${escapeHtml(err?.message || __("Unable to load this consent."))}</p>`
+      `<p class="text-danger">${escapeHtml(serverErrorText(err, __("Unable to load this consent.")))}</p>`
     )
   }
 }
@@ -1951,6 +2013,7 @@ function askForOverrideReason(blockers) {
     dialog.$wrapper.attr("data-test", "readiness-override-dialog")
     dialog.onhide = () => resolve(null)
     dialog.show()
+    nameDialogControls(dialog)
   })
 }
 
@@ -1979,7 +2042,7 @@ async function syncBillablesForSession() {
   } catch (err) {
     frappe.msgprint({
       title: __("Sync Failed"),
-      message: err?.message || __("Unable to sync billables for this session."),
+      message: serverErrorText(err, __("Unable to sync billables for this session.")),
       indicator: "red",
     })
   } finally {
@@ -1988,16 +2051,20 @@ async function syncBillablesForSession() {
 }
 
 async function completeSession() {
-  if (!encounter.value.name || completingSession.value) return
+  if (!encounter.value.name || completionPending.value) return
   // Claimed before the dialog, not after it: a second click while the clinician is
-  // typing a reason would otherwise open a second dialog and complete twice.
-  completingSession.value = true
+  // typing a reason would otherwise open a second dialog and complete twice. The button
+  // only says "Completing..." once the confirm is answered - while the dialog is open
+  // nothing is running yet.
+  completionPending.value = true
   try {
     const overrideReason = await overrideReasonForCompletion()
     if (overrideReason === null) return
+    completingSession.value = true
     await submitSessionCompletion(overrideReason)
   } finally {
     completingSession.value = false
+    completionPending.value = false
   }
 }
 
@@ -2008,22 +2075,42 @@ async function submitSessionCompletion(overrideReason) {
       args: { ...contextArgs(), override_reason: overrideReason },
     })
     const result = response.message || {}
-    frappe.show_alert({
-      message: result.encounter_submitted
-        ? __("Encounter completed and submitted.")
-        : __("Session billing synced."),
-      indicator: "green",
-    })
+    frappe.show_alert({ message: completionSummary(result), indicator: "green" })
+    if (result.invoice_error) {
+      frappe.msgprint({
+        title: __("Invoice Not Raised"),
+        message: result.invoice_error,
+        indicator: "orange",
+      })
+    }
   } catch (err) {
     frappe.msgprint({
       title: __("Unable to Complete Session"),
-      message: err?.message || __("Something went wrong while completing this session."),
+      message: serverErrorText(err, __("Something went wrong while completing this session.")),
       indicator: "red",
     })
   }
   // Either way the server has the last word on readiness, so re-read it: a refusal
   // means this chart's copy was stale, and the next attempt must prompt on the new one.
   await refresh()
+}
+
+/** What reception needs to hear: what was submitted, what completed, what was billed. */
+function completionSummary(result) {
+  const parts = [
+    result.encounter_submitted ? __("Encounter submitted.") : __("Encounter already submitted."),
+  ]
+  const completed = (result.procedures_completed || []).length
+  if (completed) {
+    parts.push(__("{0} procedure(s) completed.").replace("{0}", completed))
+  }
+  const invoiceName = result.invoice?.name || result.invoice?.invoice || ""
+  if (invoiceName) {
+    parts.push(__("Invoice {0} raised.").replace("{0}", invoiceName))
+  } else if (!result.invoice_error) {
+    parts.push(__("No invoice was needed."))
+  }
+  return parts.join(" ")
 }
 
 function contextArgs() {
@@ -2113,15 +2200,14 @@ function normalizeProcedureRow(row) {
   return {
     ...row,
     clinical_procedure: row.name,
-    display_name: row.title || row.template_label || row.procedure_template || row.name,
-    procedure: row.title || row.procedure_template,
+    display_name: procedureDisplayName(row),
+    procedure: procedureDisplayName(row),
     procedure_date: date,
     date,
     tooth: row.derma_category || row.custom_derma_category || row.procedure_template || "Derma",
     // derma_detail_text is a computed summary, never a note: pre-filling it here
-    // once let Save Note write that summary into the procedure note. The derma
-    // note (editable) outranks the core notes field (set_only_once, legacy).
-    notes: row.custom_derma_notes || row.notes || "",
+    // once let Save Note write that summary into the procedure note.
+    notes: row.notes || "",
     note_sentence_template:
       procedureTemplates.value.find((template) => template.name === row.procedure_template)
         ?.custom_derma_note_template || "",

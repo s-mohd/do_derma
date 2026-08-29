@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from typing import Any
 
 import frappe
@@ -29,6 +30,9 @@ from do_derma.settings import (
 	get_feature_toggles,
 	get_readiness_settings,
 )
+
+MAX_PRESCRIPTION_REPEATS = 12
+UNINSTALLED_APP_MESSAGE = re.compile(r"App ([a-z0-9_]+) is not installed", re.IGNORECASE)
 
 DERMA_FINDING_FIELDS = [
 	"name",
@@ -1307,7 +1311,10 @@ def _apply_mark_area_variables(doc, raw: Any) -> None:
 	rows = raw if isinstance(raw, list) else _parse_json(raw, None)
 	if not isinstance(rows, list):
 		return
-	doc.set("area_variables", [])
+	doc.set(
+		"area_variables",
+		[row for row in doc.get("area_variables") or [] if row.get("source") == "Procedure"],
+	)
 	for row in rows:
 		if not isinstance(row, dict):
 			continue
@@ -1323,6 +1330,49 @@ def _apply_mark_area_variables(doc, raw: Any) -> None:
 				"source": "Area",
 			},
 		)
+
+
+def _apply_mark_procedure_variables(doc, payload: dict[str, Any]) -> None:
+	"""Store procedure variables that map to no mark field as their own rows.
+
+	The studio sends the armed procedure's values twice: splatted, for the fields the
+	mark owns, and whole under `procedure_variables`. A value that maps to no field
+	would otherwise vanish while the badge legend keeps printing it."""
+	if not (_has_doctype("Derma Mark Variable") and _has_field("Derma Chart Mark", "area_variables")):
+		return
+	declared = payload.get("procedure_variables")
+	if isinstance(declared, str):
+		declared = _parse_json(declared, None)
+	values = declared if isinstance(declared, dict) else _unmapped_variable_values(payload)
+	if values is None:
+		return
+	doc.set(
+		"area_variables",
+		[row for row in doc.get("area_variables") or [] if row.get("source") != "Procedure"],
+	)
+	for key, value in values.items():
+		fieldname = _variable_fieldname(key)
+		if not fieldname or fieldname in DERMA_MARK_FIELDS:
+			continue
+		doc.append(
+			"area_variables",
+			{
+				"fieldname": fieldname,
+				"label": frappe.unscrub(fieldname),
+				"value": _stringify_variable_value(value),
+				"source": "Procedure",
+			},
+		)
+
+
+def _unmapped_variable_values(payload: dict[str, Any]) -> dict[str, Any] | None:
+	"""None when the save carries no variable keys - absent means leave the rows alone."""
+	unmapped = {
+		key: value
+		for key, value in payload.items()
+		if key not in DERMA_MARK_FIELDS and key not in ("area_variables", "procedure_variables")
+	}
+	return unmapped or None
 
 
 def _resolve_mark_template_part(payload: dict[str, Any]) -> None:
@@ -1367,7 +1417,11 @@ def _hydrate_mark_area_variables(mark_rows: list[dict[str, Any]]) -> None:
 			}
 		)
 	for mark in mark_rows:
-		mark["area_variables"] = by_parent.get(mark.get("name"), [])
+		rows = by_parent.get(mark.get("name"), [])
+		mark["area_variables"] = [row for row in rows if row.get("source") != "Procedure"]
+		mark["procedure_variables"] = {
+			row["fieldname"]: row["value"] for row in rows if row.get("source") == "Procedure"
+		}
 
 
 def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
@@ -1441,7 +1495,6 @@ def _get_derma_procedures(
 			"patient_encounter",
 			"custom_patient_encounter",
 			"encounter",
-			"custom_derma_notes",
 			"custom_derma_price_list",
 			"custom_derma_price_override",
 			"custom_derma_no_charge",
@@ -1498,6 +1551,10 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 				[
 					"name",
 					"clinical_procedure",
+					# What the chart heads a mark's materials with - the autoname names nothing
+					# a practitioner can find on the drawing.
+					"sequence",
+					"procedure_template",
 					"category",
 					"body_view",
 					"body_region",
@@ -1599,7 +1656,7 @@ def _procedure_history_detail(
 ) -> str:
 	source = marks or treatments
 	if not source:
-		return row.get("custom_derma_notes") or row.get("notes") or ""
+		return row.get("notes") or ""
 	category = row.get("derma_category") or next(
 		(
 			item.get("category") or item.get("procedure_type")
@@ -1915,22 +1972,38 @@ def _parse_payload(value: Any) -> Any:
 	return value
 
 
+def _drug_prescription_fields() -> set[str]:
+	if not _has_doctype("Drug Prescription"):
+		return set()
+	return {
+		df.fieldname
+		for df in frappe.get_meta("Drug Prescription").fields
+		if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
+	}
+
+
+def _drug_prescription_row(source: Any, allowed: set[str]) -> dict[str, Any]:
+	"""One row, whether it arrives as a saved child document or a payload dict."""
+	values = source if isinstance(source, dict) else source.as_dict()
+	return {key: values.get(key) for key in allowed if key in values}
+
+
+def _validate_prescription_rows(rows: list[dict[str, Any]]) -> None:
+	"""Refuse a repeat count no clinician means, which a typo in the wrong column produces."""
+	for index, row in enumerate(rows, start=1):
+		repeats = flt(row.get("number_of_repeats_allowed") or 0)
+		if repeats < 0 or repeats > MAX_PRESCRIPTION_REPEATS:
+			frappe.throw(
+				_("Row {0}: repeats must be between 0 and {1}.").format(index, MAX_PRESCRIPTION_REPEATS),
+				frappe.ValidationError,
+			)
+
+
 def _drug_prescription_rows(encounter_doc) -> list[dict[str, Any]]:
 	if not _has_field("Patient Encounter", "drug_prescription"):
 		return []
-	allowed = (
-		{
-			df.fieldname
-			for df in frappe.get_meta("Drug Prescription").fields
-			if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
-		}
-		if _has_doctype("Drug Prescription")
-		else set()
-	)
-	return [
-		{key: row.get(key) for key in allowed if key in row}
-		for row in encounter_doc.get("drug_prescription") or []
-	]
+	allowed = _drug_prescription_fields()
+	return [_drug_prescription_row(row, allowed) for row in encounter_doc.get("drug_prescription") or []]
 
 
 def _clinical_procedure_context_filters(
@@ -2284,8 +2357,6 @@ def create_derma_chart_procedure(payload: str | dict[str, Any]):
 	procedure_notes = _append_body_template_note(_append_variable_note(values.get("notes"), values), values)
 	if _has_field("Clinical Procedure", "notes") and procedure_notes:
 		procedure.notes = procedure_notes
-	if _has_field("Clinical Procedure", "custom_derma_notes") and procedure_notes:
-		procedure.custom_derma_notes = procedure_notes
 	source_mark = values.get("mark")
 	mark_doc = (
 		frappe.get_doc("Derma Chart Mark", source_mark)
@@ -2673,8 +2744,9 @@ def _sync_chart_marks_for_annotation(
 		mark_values["x_percent"] = item["x_percent"]
 		mark_values["y_percent"] = item["y_percent"]
 		mark_values["annotation_json"] = json.dumps({"element_id": element_id})
+		# Unmapped variables pass through too - save_chart_mark stores them as rows now.
 		for field, value in (item.get("variables") or {}).items():
-			if field in DERMA_MARK_FIELDS and value not in (None, ""):
+			if field not in mark_values and value not in (None, ""):
 				mark_values[field] = value
 		try:
 			save_chart_mark(mark_values)
@@ -2752,15 +2824,26 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	if not values.get("file_data"):
 		frappe.throw(_("Drawing image data is required."))
 	json_text = values.get("json_text") or ""
-	scene = _parse_json(json_text, {})
-	if values.get("body_template") or values.get("body_template_title") or values.get("body_template_image"):
-		if isinstance(scene, dict):
+	scene = _parse_json(json_text, None)
+	if json_text and not isinstance(scene, dict):
+		# The column refuses invalid JSON anyway, and the old fallback quietly replaced the
+		# drawing with the two keys added below. Refuse it where the bug is instead.
+		frappe.throw(_("The drawing could not be read and was not saved."), frappe.ValidationError)
+	if isinstance(scene, dict):
+		if (
+			values.get("body_template")
+			or values.get("body_template_title")
+			or values.get("body_template_image")
+		):
 			scene["derma_template"] = {
 				"name": values.get("body_template"),
 				"title": values.get("body_template_title"),
 				"image": values.get("body_template_image"),
 			}
-			json_text = json.dumps(scene)
+		area_values = _resolve_area_values(values.get("area_values"), values.get("annotation_name"))
+		if area_values is not None:
+			scene["derma_area_values"] = area_values
+		json_text = json.dumps(scene)
 
 	annotation_type = values.get("annotation_type") or "Free Drawing"
 	if annotation_type not in {"Predefined Areas", "Predefined Annotations", "Free Drawing"}:
@@ -2813,6 +2896,31 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	if saved_row and doctype == "Clinical Procedure":
 		_link_procedure_annotation(clinical_procedure or docname, saved_row.get("name"))
 	return saved_row
+
+
+def _resolve_area_values(raw: Any, annotation_name: str | None) -> dict[str, dict[str, str]] | None:
+	"""The area values to store on the scene, or None to leave the saved ones alone.
+
+	Nothing to say - an absent key, or the empty map a studio that seeded nothing sends -
+	keeps what is stored. A cleared area still names itself with a blank value, so clearing
+	is never silent.
+	"""
+	values = _parse_json(raw, None) if isinstance(raw, str) else raw
+	if not isinstance(values, dict) or not values:
+		return _get_stored_area_values(annotation_name)
+	return {
+		str(part): {str(key): _stringify_variable_value(value) for key, value in fields.items()}
+		for part, fields in values.items()
+		if isinstance(fields, dict)
+	}
+
+
+def _get_stored_area_values(annotation_name: str | None) -> dict[str, dict[str, str]] | None:
+	if not annotation_name or not frappe.db.exists("Health Annotation", annotation_name):
+		return None
+	stored = _parse_json(frappe.db.get_value("Health Annotation", annotation_name, "json"), {})
+	saved = stored.get("derma_area_values") if isinstance(stored, dict) else None
+	return saved if isinstance(saved, dict) else None
 
 
 def _link_procedure_annotation(clinical_procedure: str | None, annotation: str | None) -> None:
@@ -2902,19 +3010,10 @@ def set_derma_prescriptions(payload=None, encounter=None, appointment=None, pati
 		return {"encounter": "", "drug_prescription": []}
 	if cint(encounter_doc.docstatus) == 2:
 		frappe.throw(_("Cancelled encounters cannot be edited."))
-	allowed = (
-		{
-			df.fieldname
-			for df in frappe.get_meta("Drug Prescription").fields
-			if df.fieldname and df.fieldname not in CHILD_INTERNAL_FIELDS
-		}
-		if _has_doctype("Drug Prescription")
-		else set()
-	)
-	encounter_doc.set(
-		"drug_prescription",
-		[{key: row.get(key) for key in allowed if key in row} for row in rows if isinstance(row, dict)],
-	)
+	allowed = _drug_prescription_fields()
+	prescriptions = [_drug_prescription_row(row, allowed) for row in rows if isinstance(row, dict)]
+	_validate_prescription_rows(prescriptions)
+	encounter_doc.set("drug_prescription", prescriptions)
 	encounter_doc.flags.ignore_validate_update_after_submit = True
 	encounter_doc.save(ignore_permissions=True)
 	return {"encounter": encounter_doc.name, "drug_prescription": _drug_prescription_rows(encounter_doc)}
@@ -3069,7 +3168,18 @@ def render_derma_consent_preview(payload=None):
 		if value and _has_field(doctype, fieldname):
 			doc.set(fieldname, value)
 	if hasattr(doc, "render_template"):
-		doc.render_template()
+		try:
+			doc.render_template()
+		except Exception as exc:
+			# The renderer lives in the health app and trips over templates it cannot read.
+			# Name the template so an administrator can fix it instead of the clinician retrying.
+			frappe.log_error(frappe.get_traceback(), "Derma consent preview render failed")
+			return {
+				"rendered_html": "",
+				"error": _("Consent template {0} could not be rendered: {1}").format(
+					consent_template, str(exc) or exc.__class__.__name__
+				),
+			}
 	return {"rendered_html": doc.get("rendered_html") or ""}
 
 
@@ -3137,8 +3247,10 @@ def update_clinical_procedure_fields(procedure_name: str, updates=None):
 	for fieldname, value in values.items():
 		if fieldname in {"name", "doctype", "docstatus"}:
 			continue
-		if doc.meta.has_field(fieldname):
-			doc.set(fieldname, value)
+		if not doc.meta.has_field(fieldname):
+			# Skipping would hand the chart a success it did not earn and lose the edit.
+			frappe.throw(_("Clinical Procedure has no field {0}.").format(fieldname), frappe.ValidationError)
+		doc.set(fieldname, value)
 	doc.flags.ignore_validate_update_after_submit = True
 	doc.save(ignore_permissions=True)
 	return doc.as_dict()
@@ -3242,20 +3354,12 @@ def complete_derma_session(
 
 	billing_sync = None
 	invoice = None
+	invoice_error = None
 	if appointment_id:
 		billing_sync = sync_derma_billables(
 			encounter=encounter_id, appointment=appointment_id, patient=patient_id
 		)
-		try:
-			from do_health.api.methods import create_invoice_for_visit
-
-			invoice = create_invoice_for_visit(
-				appointment=appointment_id,
-				encounter=encounter_id,
-				submit_invoice=cint(submit_invoice),
-			)
-		except Exception:
-			frappe.log_error(frappe.get_traceback(), "Derma session invoice creation failed")
+		invoice, invoice_error = _create_visit_invoice(appointment_id, encounter_id, submit_invoice)
 
 	encounter_doc = frappe.get_doc("Patient Encounter", encounter_id)
 	submitted = False
@@ -3263,6 +3367,7 @@ def complete_derma_session(
 		encounter_doc.submit()
 		submitted = True
 
+	_drop_uninstalled_app_messages()
 	return {
 		"encounter": encounter_id,
 		"encounter_submitted": submitted,
@@ -3270,8 +3375,52 @@ def complete_derma_session(
 		"procedures_failed": procedure_completion["failed"],
 		"billing_sync": billing_sync,
 		"invoice": invoice,
+		"invoice_error": invoice_error,
 		"readiness": readiness,
 	}
+
+
+def _drop_uninstalled_app_messages() -> None:
+	"""Completion reports on the visit, not on apps this clinic never installed.
+
+	do_health's billing path msgprints about sibling specialty apps, which makes a
+	completed session look failed to the practitioner.
+	"""
+	log = frappe.local.message_log or []
+	if not log:
+		return
+	installed = set(frappe.get_installed_apps())
+	kept = []
+	for message in log:
+		text = str(message.get("message") if isinstance(message, dict) else message)
+		match = UNINSTALLED_APP_MESSAGE.search(text)
+		if match and match.group(1) not in installed:
+			continue
+		kept.append(message)
+	frappe.local.message_log = kept
+
+
+def _create_visit_invoice(appointment: str, encounter: str, submit_invoice: int) -> tuple[Any, str | None]:
+	"""Raise the visit invoice through do_health, keeping that app's chatter out of our response.
+
+	create_invoice_for_visit msgprints about apps this clinic does not run, and those
+	messages otherwise make a completed session look failed.
+	"""
+	messages_before = list(frappe.local.message_log or [])
+	try:
+		from do_health.api.methods import create_invoice_for_visit
+
+		invoice = create_invoice_for_visit(
+			appointment=appointment,
+			encounter=encounter,
+			submit_invoice=cint(submit_invoice),
+		)
+		return invoice, None
+	except Exception as exc:
+		frappe.log_error(frappe.get_traceback(), "Derma session invoice creation failed")
+		# The message log now holds the failure's own chatter; the caller gets the reason instead.
+		frappe.local.message_log = messages_before
+		return None, str(exc) or exc.__class__.__name__
 
 
 def _gate_session_completion(readiness: dict[str, Any], encounter: str, override_reason: str | None) -> None:
@@ -3395,6 +3544,7 @@ def save_chart_mark(values: str | dict[str, Any]):
 		if field in payload:
 			doc.set(field, payload[field])
 	_apply_mark_area_variables(doc, payload.get("area_variables"))
+	_apply_mark_procedure_variables(doc, payload)
 	_set_patient_name(doc)
 	if not doc.sequence:
 		doc.sequence = _next_mark_sequence(doc.patient, doc.encounter, doc.category)
@@ -3501,8 +3651,6 @@ def create_procedure_from_mark(
 	procedure.start_date = nowdate()
 	if mark_doc.note and _has_field("Clinical Procedure", "notes"):
 		procedure.notes = mark_doc.note
-	if mark_doc.note and _has_field("Clinical Procedure", "custom_derma_notes"):
-		procedure.custom_derma_notes = mark_doc.note
 	for encounter_field in ["patient_encounter", "custom_patient_encounter"]:
 		if _has_field("Clinical Procedure", encounter_field):
 			procedure.set(encounter_field, mark_doc.encounter)
@@ -3569,9 +3717,35 @@ def discard_chart_marks(names: str | list[str]):
 	return {"deleted": deleted, "kept": kept}
 
 
-def _is_mark_documented(mark_doc) -> bool:
+@frappe.whitelist()
+def prune_chart_marks(names: str | list[str], annotation: str | None = None):
+	"""Delete marks whose elements were removed from a drawing before it saved.
+
+	The saving drawing is the caller, so being linked to it is not documentation -
+	without this the deleted mark haunts the chart and resurfaces on the next open.
+	Anything else that claims the mark keeps it, and the caller is told."""
+	_ensure_clinical_access()
+	requested = json.loads(names) if isinstance(names, str) else list(names or [])
+	deleted: list[str] = []
+	kept: list[str] = []
+	for name in requested:
+		if not name or not frappe.db.exists("Derma Chart Mark", name):
+			continue
+		mark_doc = frappe.get_doc("Derma Chart Mark", name)
+		if _is_mark_documented(mark_doc, ignore_annotation=annotation):
+			kept.append(name)
+			continue
+		mark_doc.delete(ignore_permissions=True)
+		deleted.append(name)
+	return {"deleted": deleted, "kept": kept}
+
+
+def _is_mark_documented(mark_doc, ignore_annotation: str | None = None) -> bool:
 	"""True once something other than the drawing that placed it depends on the mark."""
-	if any(mark_doc.get(field) for field in ("annotation", "finding", "treatment_entry", "photo_set")):
+	if any(mark_doc.get(field) for field in ("finding", "treatment_entry", "photo_set")):
+		return True
+	annotation = mark_doc.get("annotation")
+	if annotation and annotation != ignore_annotation:
 		return True
 	procedure = mark_doc.get("clinical_procedure")
 	if not procedure or not frappe.db.exists("Clinical Procedure", procedure):

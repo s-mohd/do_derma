@@ -500,6 +500,88 @@ class TestDiscardChartMarks(DermaTestHelpers, IntegrationTestCase):
 			api.discard_chart_marks([mark])
 
 
+class TestPruneChartMarks(DermaTestHelpers, IntegrationTestCase):
+	"""A mark whose element was deleted from the drawing goes with the save. The drawing
+	doing the saving is not documentation, anything else that claims the mark is."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+		self.procedure = self._make_clinical_procedure(self.patient)
+
+	def _make_mark(self, **extra):
+		return api.save_chart_mark(
+			json.dumps(
+				{
+					"patient": self.patient,
+					"encounter": self.encounter.name,
+					"clinical_procedure": self.procedure.name,
+					"x_percent": 40,
+					"y_percent": 60,
+					**extra,
+				}
+			)
+		)["name"]
+
+	def _make_annotation(self):
+		return api.save_derma_annotation(
+			{
+				"patient": self.patient,
+				"encounter": self.encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": json.dumps({"elements": [TEMPLATE_ELEMENT]}),
+			}
+		)["name"]
+
+	def test_deletes_a_mark_linked_only_to_the_saving_drawing(self):
+		mark = self._make_mark()
+		annotation = self._make_annotation()
+		frappe.db.set_value("Derma Chart Mark", mark, "annotation", annotation)
+
+		result = api.prune_chart_marks([mark], annotation=annotation)
+
+		self.assertEqual(result["deleted"], [mark])
+		self.assertFalse(frappe.db.exists("Derma Chart Mark", mark))
+
+	def test_deletes_a_mark_on_a_draft_procedure(self):
+		mark = self._make_mark()
+
+		result = api.prune_chart_marks([mark])
+
+		self.assertEqual(result["deleted"], [mark])
+
+	def test_keeps_a_mark_saved_into_a_different_drawing(self):
+		mark = self._make_mark()
+		other = self._make_annotation()
+		frappe.db.set_value("Derma Chart Mark", mark, "annotation", other)
+
+		result = api.prune_chart_marks([mark], annotation="HA-someone-else")
+
+		self.assertEqual(result["kept"], [mark])
+		self.assertTrue(frappe.db.exists("Derma Chart Mark", mark))
+
+	def test_keeps_a_mark_on_a_submitted_procedure(self):
+		mark = self._make_mark()
+		frappe.db.set_value("Clinical Procedure", self.procedure.name, "docstatus", 1)
+
+		result = api.prune_chart_marks([mark])
+
+		self.assertEqual(result["kept"], [mark])
+
+	def test_ignores_a_mark_that_is_already_gone(self):
+		result = api.prune_chart_marks(json.dumps(["DCM-does-not-exist"]))
+
+		self.assertEqual(result, {"deleted": [], "kept": []})
+
+	def test_is_gated(self):
+		mark = self._make_mark()
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			api.prune_chart_marks([mark])
+
+
 class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
 	"""A section whose query raises must degrade to its fallback and be named in
 	context_errors - by label only, never by exception text."""
@@ -748,6 +830,22 @@ class TestAnnotationStorage(DermaTestHelpers, IntegrationTestCase):
 
 		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "annotation"), saved["name"])
 
+	def test_a_scene_the_server_cannot_parse_is_refused(self):
+		"""Saving it anyway replaced the drawing with the two keys this endpoint adds."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_derma_annotation(
+				{
+					"patient": patient,
+					"encounter": encounter.name,
+					"file_data": PIXEL_PNG,
+					"json_text": "{not json at all",
+					"body_template_title": "Face Map",
+				}
+			)
+
 	def test_stored_scene_keeps_the_template_element(self):
 		patient = self._make_patient()
 		encounter = self._make_encounter(patient)
@@ -768,6 +866,180 @@ class TestAnnotationStorage(DermaTestHelpers, IntegrationTestCase):
 		self.assertNotIn("dataURL", json.dumps(scene["elements"]))
 		# The reload path needs a URL to rebuild the background from.
 		self.assertTrue(scene.get("derma_template") is not None or kinds.count("derma_template"))
+
+
+class TestAnnotationAreaValues(DermaTestHelpers, IntegrationTestCase):
+	"""An area value typed without a mark on that area has no mark row to live on. The saved
+	scene owns it, or the next save of the drawing regenerates the legend without it."""
+
+	def _scene(self):
+		return json.dumps({"elements": [TEMPLATE_ELEMENT], "files": {}})
+
+	def _saved_area_values(self, annotation_name):
+		scene = json.loads(frappe.db.get_value("Health Annotation", annotation_name, "json"))
+		return scene.get("derma_area_values")
+
+	def test_stores_area_values_that_no_mark_carries(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(saved["name"]), {"Forehead": {"Severity": "Moderate"}})
+
+	def test_a_resave_that_says_nothing_about_areas_keeps_them(self):
+		"""The reported data loss: an edit that only added a mark wiped the stored area value."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(first["name"]), {"Forehead": {"Severity": "Moderate"}})
+
+	def test_an_edited_area_replaces_only_its_own_value(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}, "Chin": {"Severity": "Mild"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Severe"}, "Chin": {"Severity": "Mild"}},
+			}
+		)
+
+		self.assertEqual(
+			self._saved_area_values(first["name"]),
+			{"Forehead": {"Severity": "Severe"}, "Chin": {"Severity": "Mild"}},
+		)
+
+	def test_the_studio_reads_the_values_back_from_the_saved_drawing(self):
+		"""The reopen seam: the studio seeds its panel from the annotation row it is handed."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		saved = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		context = api.get_derma_annotations(encounter=encounter.name, patient=patient)
+		rows = context.get("encounter_annotations") or context.get("annotations") or []
+		row = next(row for row in rows if row["name"] == saved["name"])
+
+		self.assertEqual(json.loads(row["json"])["derma_area_values"], {"Forehead": {"Severity": "Moderate"}})
+
+	def test_a_studio_that_seeded_nothing_cannot_erase_the_saved_values(self):
+		"""An empty map is what a failed seed sends, not what clearing an area sends - a
+		cleared area still names itself with a blank value. Treating it as "delete all"
+		would rebuild the very data loss this endpoint exists to stop."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {},
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(first["name"]), {"Forehead": {"Severity": "Moderate"}})
+
+	def test_clearing_an_area_stores_the_blank(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": "Moderate"}},
+			}
+		)
+
+		api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"annotation_name": first["name"],
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": {"Forehead": {"Severity": ""}},
+			}
+		)
+
+		self.assertEqual(self._saved_area_values(first["name"]), {"Forehead": {"Severity": ""}})
+
+	def test_ignores_area_values_that_are_not_a_mapping(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				"area_values": ["Forehead"],
+			}
+		)
+
+		self.assertIsNone(self._saved_area_values(saved["name"]))
 
 
 class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
@@ -1061,14 +1333,12 @@ class TestProcedureFieldUpdates(DermaTestHelpers, IntegrationTestCase):
 		frappe.set_user("Administrator")
 
 	def test_notes_and_price_override_round_trip(self):
-		# The core `notes` field is set_only_once (healthcare), so the note
-		# dialog writes custom_derma_notes instead.
 		procedure = self._make_clinical_procedure(self._make_patient())
 		api.update_clinical_procedure_fields(
 			procedure.name,
 			updates=json.dumps(
 				{
-					"custom_derma_notes": "Post-care advice given.",
+					"notes": "Post-care advice given.",
 					"custom_derma_price_override": 120.5,
 					"custom_derma_no_charge": 1,
 					"custom_derma_price_list": None,
@@ -1077,24 +1347,33 @@ class TestProcedureFieldUpdates(DermaTestHelpers, IntegrationTestCase):
 			),
 		)
 		doc = frappe.get_doc("Clinical Procedure", procedure.name)
-		self.assertEqual(doc.custom_derma_notes, "Post-care advice given.")
+		self.assertEqual(doc.notes, "Post-care advice given.")
 		self.assertEqual(doc.custom_derma_price_override, 120.5)
 		self.assertEqual(doc.custom_derma_no_charge, 1)
 		self.assertEqual(doc.custom_derma_price_override_reason, "Loyalty discount")
 
 	def test_note_edit_survives_a_second_save(self):
-		"""set_only_once on the core notes field is exactly what broke Save Note."""
+		"""healthcare marks notes set_only_once; do_derma lifts that so an edit lands."""
 		procedure = self._make_clinical_procedure(self._make_patient())
-		api.update_clinical_procedure_fields(
-			procedure.name, updates=json.dumps({"custom_derma_notes": "First note"})
-		)
-		api.update_clinical_procedure_fields(
-			procedure.name, updates=json.dumps({"custom_derma_notes": "Amended note"})
-		)
+		api.update_clinical_procedure_fields(procedure.name, updates=json.dumps({"notes": "First note"}))
+		api.update_clinical_procedure_fields(procedure.name, updates=json.dumps({"notes": "Amended note"}))
 		self.assertEqual(
-			frappe.db.get_value("Clinical Procedure", procedure.name, "custom_derma_notes"),
+			frappe.db.get_value("Clinical Procedure", procedure.name, "notes"),
 			"Amended note",
 		)
+
+	def test_the_note_has_exactly_one_owner_field(self):
+		"""Nothing outside the chart reads a shadow copy, so no shadow copy is written."""
+		procedure = self._make_clinical_procedure(self._make_patient())
+		api.update_clinical_procedure_fields(procedure.name, updates=json.dumps({"notes": "Single owner"}))
+		self.assertFalse(api._has_field("Clinical Procedure", "custom_derma_notes"))
+
+	def test_a_field_the_procedure_does_not_have_is_refused(self):
+		procedure = self._make_clinical_procedure(self._make_patient())
+		with self.assertRaises(frappe.ValidationError):
+			api.update_clinical_procedure_fields(
+				procedure.name, updates=json.dumps({"not_a_field": "anything"})
+			)
 
 	def test_is_gated(self):
 		frappe.set_user(self._make_limited_user())
@@ -1406,3 +1685,100 @@ class TestDeletePhoto(DermaPhotoHelpers, IntegrationTestCase):
 
 		with self.assertRaises(frappe.PermissionError):
 			api.delete_photo(photo)
+
+
+class TestStudioCapturedPhotos(DermaPhotoHelpers, IntegrationTestCase):
+	"""A photo shot inside the annotation studio is an ordinary photo set: the studio sends
+	its own context and the server decides the stage."""
+
+	def setUp(self):
+		self.addCleanup(frappe.set_user, "Administrator")
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _capture(self, **payload):
+		"""What the studio posts after uploading a shot: its own context, no stage."""
+		return self._make_photo_set(
+			**{
+				"body_view": "Face Front",
+				"body_region": "Face",
+				"photos": [{"image": "/private/files/derma-capture.jpg"}],
+				**payload,
+			}
+		)
+
+	def test_a_capture_from_a_consultation_drawing_is_a_visit_photo(self):
+		photo_set = self._capture()
+
+		self.assertEqual(self._photo_types(photo_set), ["Visit"])
+		self.assertEqual(photo_set["set_type"], "Visit")
+
+	def test_a_capture_from_a_procedure_drawing_takes_the_procedure_stage(self):
+		"""The studio names no stage, so anchoring on a procedure is what makes it Before."""
+		procedure = self._make_clinical_procedure(self.patient)
+
+		photo_set = self._capture(clinical_procedure=procedure.name)
+
+		self.assertEqual(self._photo_types(photo_set), ["Before"])
+		self.assertEqual(photo_set["set_type"], "Before/After")
+
+	def test_a_capture_carries_the_body_template_on_screen(self):
+		photo_set = self._capture()
+
+		self.assertEqual(photo_set["body_view"], "Face Front")
+		self.assertEqual(photo_set["body_region"], "Face")
+
+	def test_a_body_template_the_set_has_no_view_for_is_kept_as_custom(self):
+		photo_set = self._capture(body_view="Left Ear Profile")
+
+		self.assertEqual(photo_set["body_view"], "Custom")
+
+	def test_a_capture_with_a_mark_selected_links_the_mark_to_the_set(self):
+		mark = self._save_mark(self.patient, encounter=self.encounter.name)
+
+		photo_set = self._capture(chart_mark=mark["name"])
+
+		self.assertEqual(
+			frappe.db.get_value("Derma Chart Mark", mark["name"], "photo_set"), photo_set["name"]
+		)
+
+	def test_a_burst_of_shots_lands_in_one_set(self):
+		photo_set = self._capture(
+			photos=[
+				{"image": "/private/files/derma-capture-1.jpg"},
+				{"image": "/private/files/derma-capture-2.jpg"},
+			]
+		)
+
+		self.assertEqual(self._photo_types(photo_set), ["Visit", "Visit"])
+
+	def test_deleting_the_captured_photo_takes_its_set_and_mark_link_with_it(self):
+		"""Deleting the photo element from the canvas is reconciled through delete_photo."""
+		mark = self._save_mark(self.patient, encounter=self.encounter.name)
+		photo_set = self._capture(chart_mark=mark["name"])
+
+		result = api.delete_photo(photo_set["photos"][0]["name"])
+
+		self.assertTrue(result["set_deleted"])
+		self.assertFalse(frappe.db.exists("Derma Photo Set", photo_set["name"]))
+		self.assertIsNone(frappe.db.get_value("Derma Chart Mark", mark["name"], "photo_set"))
+
+	def test_deleting_one_shot_of_a_burst_keeps_the_rest(self):
+		photo_set = self._capture(
+			photos=[
+				{"image": "/private/files/derma-capture-1.jpg"},
+				{"image": "/private/files/derma-capture-2.jpg"},
+			]
+		)
+		kept = photo_set["photos"][1]["name"]
+
+		result = api.delete_photo(photo_set["photos"][0]["name"])
+
+		self.assertFalse(result["set_deleted"])
+		self.assertTrue(frappe.db.exists("Derma Photo", kept))
+
+	def test_capture_is_gated(self):
+		frappe.set_user(self._make_limited_user())
+
+		with self.assertRaises(frappe.PermissionError):
+			self._capture()

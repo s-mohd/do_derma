@@ -1,11 +1,19 @@
 import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react"
 import { createRoot } from "react-dom/client"
 import { markerSizeOf, scaledStrokeWidth } from "../../shared/marker_size"
+import { convertBlobToDataUrl, imageUrlToRenderableData } from "../../shared/image_data.js"
 
 const GENERATED_BY_MARKS = "render_chart_marks"
 const MIN_DRAWN_MARK_SIZE = 6
 export const BADGE_KIND = "derma_badge"
 export const TEMPLATE_PART_KIND = "derma_template_part"
+export const PHOTO_KIND = "derma_photo"
+/** Images the scene stores as a URL and repaints on load, rather than carrying their bytes. */
+const REBUILDABLE_IMAGE_KINDS = new Set(["derma_template", PHOTO_KIND])
+/** A captured photo lands big enough to work on: this share of the visible canvas. */
+const PHOTO_VIEWPORT_RATIO = 0.4
+/** Each shot of a burst steps off the last, so none of them hides another. */
+const PHOTO_CASCADE_OFFSET = 32
 const FIT_RETRY_LIMIT = 3
 const TEMPLATE_MEASURE_RETRY_LIMIT = 30
 
@@ -26,14 +34,6 @@ const CLINICAL_UI_OPTIONS = {
     toggleTheme: false,
   },
 }
-
-const convertBlobToDataUrl = (blob) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
 
 function parseAnnotation(annotation) {
   if (!annotation?.json) return null
@@ -116,7 +116,7 @@ function parseAnnotation(annotation) {
       })
 			return {
         json_text: JSON.stringify({
-          ...stripTemplateImagePayload(elements, files),
+          ...stripStoredImagePayload(elements, files),
           derma_template: serializeTemplate(chartTemplate),
         }),
         file_data: await convertBlobToDataUrl(blob),
@@ -176,6 +176,8 @@ function parseAnnotation(annotation) {
       styleTemplateParts(api, partStateRef.current)
     },
     setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
+    insertPhotos: (photos) => insertPhotoElements(api, photos),
+    getPhotoNames: () => photoElementNames(api),
     updateMarkVariables: (payload) => updateMarkVariables(api, payload),
     resetView: () => fitToTemplate(api),
     // Counts outlines the practitioner can see. An area with degenerate bounds is not drawn,
@@ -229,7 +231,7 @@ function parseAnnotation(annotation) {
 	}
 
 		async function loadSceneIntoApi(api, scene, commitToHistory) {
-		  const hydrated = await hydrateTemplateImageFiles(scene)
+		  const hydrated = await hydrateSceneImageFiles(scene)
       for (const file of Object.values(hydrated.files || {})) {
         api.addFiles([file])
       }
@@ -467,6 +469,9 @@ function setDermaTool(api, tool, template) {
       currentItemBackgroundColor: tool === "area" ? color : "transparent",
       currentItemOpacity: tool === "area" ? 18 : 100,
       activeTool: { type: typeMap[tool] || "selection" },
+      // Entering select mode drops whatever placement left selected, so the first click
+      // on a mark binds the editor to that mark and not to the last stamp placed.
+      ...(tool === "select" ? { selectedElementIds: {}, selectedGroupIds: {} } : {}),
     },
     commitToHistory: true,
   })
@@ -724,6 +729,10 @@ function selectMarkElement(api, markName) {
     },
     commitToHistory: false,
   })
+  // Selecting a mark the practitioner picked from a list is worth nothing if it sits
+  // outside the viewport.
+  const selected = api.getSceneElements().filter((element) => ids.includes(element.id))
+  api.scrollToContent?.(selected, { fitToContent: false, animate: true })
 }
 
 function renderChartMarks(api, marks = []) {
@@ -1173,6 +1182,8 @@ function sanitizeVariables(variables = {}) {
 
 function variablesFromMark(mark = {}) {
   return sanitizeVariables({
+    // Stored variable rows first, so a value that also maps to a mark field reads the field.
+    ...(mark.procedure_variables || {}),
     product_name: mark.product_name,
     dose: mark.dose,
     dose_unit: mark.dose_unit,
@@ -1258,6 +1269,107 @@ function makeId(prefix) {
 
 function templateImageSignature(template) {
   return [template?.name, template?.image, template?.view_key].filter(Boolean).join("|")
+}
+
+/**
+ * Drop captured photos onto the canvas at the centre of what the practitioner is looking at,
+ * cascaded so a burst reads as several photos. They are ordinary, unlocked elements: movable,
+ * resizable, and drawable over.
+ */
+function insertPhotoElements(api, photos = []) {
+  if (!api || !photos.length) return []
+  const viewport = viewportBounds(api.getAppState())
+  const elements = photos.map((photo, index) => photoElement(photo, viewport, index))
+  api.addFiles(
+    elements.map((element) => ({
+      id: element.fileId,
+      mimeType: "image/jpeg",
+      dataURL: element.dataURL,
+      created: Date.now(),
+      lastRetrieved: Date.now(),
+    }))
+  )
+  api.updateScene({ elements: [...api.getSceneElements(), ...elements], commitToHistory: true })
+  return elements.map((element) => element.id)
+}
+
+function viewportBounds(appState = {}) {
+  const zoom = appState.zoom?.value || 1
+  const width = (appState.width || 900) / zoom
+  const height = (appState.height || 620) / zoom
+  return {
+    width,
+    height,
+    centreX: width / 2 - (appState.scrollX || 0),
+    centreY: height / 2 - (appState.scrollY || 0),
+  }
+}
+
+function photoElement(photo, viewport, index) {
+  const fileId = `derma-photo-${String(photo.photo).replace(/[^a-zA-Z0-9_-]+/g, "-")}`
+  const { width, height } = photoGeometry(photo, viewport)
+  const offset = index * PHOTO_CASCADE_OFFSET
+  return {
+    ...photoElementDefaults(),
+    id: `${fileId}-element`,
+    x: viewport.centreX - width / 2 + offset,
+    y: viewport.centreY - height / 2 + offset,
+    width,
+    height,
+    dataURL: photo.dataUrl,
+    fileId,
+    customData: {
+      kind: PHOTO_KIND,
+      photo: photo.photo,
+      photo_set: photo.photoSet,
+      image: photo.fileUrl,
+    },
+  }
+}
+
+function photoGeometry(photo, viewport) {
+  const naturalWidth = Number(photo.width) || 1600
+  const naturalHeight = Number(photo.height) || 1200
+  const scale = Math.min(
+    (viewport.width * PHOTO_VIEWPORT_RATIO) / naturalWidth,
+    (viewport.height * PHOTO_VIEWPORT_RATIO) / naturalHeight
+  )
+  return { width: naturalWidth * scale, height: naturalHeight * scale }
+}
+
+function photoElementDefaults() {
+  return {
+    type: "image",
+    angle: 0,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    seed: Math.floor(Math.random() * 1000000000),
+    version: 1,
+    versionNonce: Math.floor(Math.random() * 1000000000),
+    isDeleted: false,
+    boundElements: null,
+    updated: Date.now(),
+    link: null,
+    locked: false,
+    status: "saved",
+    scale: [1, 1],
+  }
+}
+
+/** The photos the drawing currently carries. What is missing from it has been deleted. */
+function photoElementNames(api) {
+  return (api?.getSceneElements?.() || [])
+    .filter((element) => !element.isDeleted && element.customData?.kind === PHOTO_KIND)
+    .map((element) => element.customData.photo)
+    .filter(Boolean)
 }
 
 async function loadTemplateIntoCanvas(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef) {
@@ -1394,11 +1506,24 @@ function ensureTemplateImage(api, template, latestTemplateImageRef, loadingTempl
   loadTemplateIntoCanvas(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef)
 }
 
-async function hydrateTemplateImageFiles(scene) {
+/**
+ * The URL a stored image element is repainted from. Only the body template may fall back to the
+ * scene-level template: a captured photo that lost its own URL must render as Excalidraw's
+ * placeholder, never as another image.
+ */
+function elementImageSource(element, scene) {
+  const custom = element.customData || {}
+  if (custom.kind === PHOTO_KIND) return custom.image || ""
+  const template = custom.template || (custom.kind === "derma_template" ? scene.derma_template : null)
+  return template?.image || ""
+}
+
+async function hydrateSceneImageFiles(scene) {
   const elements = scene.elements || []
   const files = normalizeBinaryFiles(scene.files)
   const hydratedFiles = { ...files }
   const elementDataUrls = {}
+  let unreadablePhotoCount = 0
 
   for (const element of elements) {
     if (element.type !== "image" || !element.fileId) continue
@@ -1406,14 +1531,10 @@ async function hydrateTemplateImageFiles(scene) {
       elementDataUrls[element.fileId] = hydratedFiles[element.fileId].dataURL
       continue
     }
-    // Only the body template may fall back to the scene-level template. A user-inserted photo
-    // that lost its file entry must render as Excalidraw's placeholder, not as the silhouette -
-    // a visibly missing image is safer than a confidently wrong one.
-    const isTemplateImage = element.customData?.kind === "derma_template"
-    const template = element.customData?.template || (isTemplateImage ? scene.derma_template : null)
-    if (!template?.image) continue
+    const source = elementImageSource(element, scene)
+    if (!source) continue
     try {
-      const { dataURL, mimeType } = await imageUrlToRenderableData(template.image)
+      const { dataURL, mimeType } = await imageUrlToRenderableData(source)
       elementDataUrls[element.fileId] = dataURL
       hydratedFiles[element.fileId] = {
         id: element.fileId,
@@ -1424,7 +1545,14 @@ async function hydrateTemplateImageFiles(scene) {
       }
     } catch {
       // Keep the element in place; Excalidraw will show its placeholder if the image URL is unavailable.
+      if (element.customData?.kind === PHOTO_KIND) unreadablePhotoCount += 1
     }
+  }
+  if (unreadablePhotoCount) {
+    globalThis.frappe?.show_alert?.({
+      message: `${unreadablePhotoCount} photo(s) on this drawing could not be loaded. Their frames are left in place.`,
+      indicator: "red",
+    })
   }
 
   return {
@@ -1481,21 +1609,6 @@ function normalizeBinaryFile(file) {
   }
 }
 
-/**
- * Drop the body template's base64 payload from what gets persisted. hydrateTemplateImageFiles()
- * rebuilds it on load from the template's own URL, so the ~35 KB average it costs per annotation
- * buys nothing.
- *
- * Keyed strictly on the template element, never on "is an image": a photo the practitioner
- * inserted has no URL to rebuild from, so stripping it would destroy it. And the template
- * *element* must survive - _sync_chart_marks_for_annotation returns early without it, which
- * would silently stop every mark in the session being linked back to the annotation.
- */
-/**
- * Swap the badge layer for a freshly numbered one. Badges are ordinary scene elements so they
- * export with the drawing and are visible while working, but they are derived state: never
- * committed to undo history, and stripped from what gets persisted.
- */
 /** The single selected element, when it is a mark the practitioner drew or stamped. */
 function selectedMarkElement(elements = [], appState = {}) {
   const selectedIds = Object.entries(appState.selectedElementIds || {})
@@ -1518,6 +1631,11 @@ function markLayerSignature(elements = []) {
     .join("|")
 }
 
+/**
+ * Swap the badge layer for a freshly numbered one. Badges are ordinary scene elements so they
+ * export with the drawing and are visible while working, but they are derived state: never
+ * committed to undo history, and stripped from what gets persisted.
+ */
 function syncBadgeLayer(api, badges = [], signatureRef) {
   if (!api) return
   const signature = badges.map((badge) => `${badge.id}:${Math.round(badge.x)}:${Math.round(badge.y)}:${badge.text || ""}`).join("|")
@@ -1527,10 +1645,20 @@ function syncBadgeLayer(api, badges = [], signatureRef) {
   api.updateScene({ elements: [...existing, ...badges], commitToHistory: false })
 }
 
-function stripTemplateImagePayload(elements, files) {
-  const templateFileIds = new Set(
+/**
+ * Drop the base64 payload of every image the scene can repaint from a URL - the body template
+ * and the captured photos. hydrateSceneImageFiles() rebuilds them on load, so the megabytes they
+ * would otherwise cost per annotation buy nothing.
+ *
+ * Keyed strictly on those two kinds, never on "is an image": an image the practitioner inserted
+ * with Excalidraw's own tool has no URL to rebuild from, so stripping it would destroy it. And
+ * the template *element* must survive - _sync_chart_marks_for_annotation returns early without
+ * it, which would silently stop every mark in the session being linked back to the annotation.
+ */
+function stripStoredImagePayload(elements, files) {
+  const rebuildableFileIds = new Set(
     elements
-      .filter((element) => element.customData?.kind === "derma_template" && element.fileId)
+      .filter((element) => REBUILDABLE_IMAGE_KINDS.has(element.customData?.kind) && element.fileId)
       .map((element) => element.fileId)
   )
   return {
@@ -1540,8 +1668,8 @@ function stripTemplateImagePayload(elements, files) {
       // them would freeze a drawing against the geometry it was made with, so a later template
       // edit would leave old and new outlines mixed on the next resave.
       .filter((element) => element.customData?.kind !== TEMPLATE_PART_KIND)
-      .map((element) => (templateFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element)),
-    files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !templateFileIds.has(fileId))),
+      .map((element) => (rebuildableFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element)),
+    files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !rebuildableFileIds.has(fileId))),
   }
 }
 
@@ -1565,49 +1693,6 @@ function fitToTemplate(api, attempt = 0) {
     : api.getSceneElements().filter((element) => !element.isDeleted)
   if (!visibleElements.length) return
   api.scrollToContent(visibleElements, { fitToViewport: true, viewportZoomFactor: 0.72 })
-}
-
-async function imageUrlToRenderableData(url) {
-  if (String(url || "").startsWith("data:")) {
-    const image = await loadImage(url)
-    const mimeType = mimeTypeFromDataUrl(url)
-    return {
-      dataURL: url,
-      width: image.naturalWidth || image.width || 900,
-      height: image.naturalHeight || image.height || 620,
-      mimeType: mimeType === "image/jpeg" || mimeType === "image/png" ? mimeType : "image/png",
-    }
-  }
-  const response = await fetch(url)
-  const blob = await response.blob()
-  const sourceURL = await convertBlobToDataUrl(blob)
-  const image = await loadImage(sourceURL)
-  const canvas = document.createElement("canvas")
-  canvas.width = image.naturalWidth || image.width
-  canvas.height = image.naturalHeight || image.height
-  const context = canvas.getContext("2d")
-  context.drawImage(image, 0, 0)
-  const mimeType = blob.type && blob.type !== "image/svg+xml" ? blob.type : "image/jpeg"
-  return {
-    dataURL: canvas.toDataURL(mimeType === "image/png" ? "image/png" : "image/jpeg", 0.92),
-    width: canvas.width,
-    height: canvas.height,
-    mimeType: mimeType === "image/png" ? "image/png" : "image/jpeg",
-  }
-}
-
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = reject
-    image.src = src
-  })
-}
-
-function mimeTypeFromDataUrl(dataURL) {
-  const match = String(dataURL || "").match(/^data:([^;]+);/)
-  return match?.[1] || "image/png"
 }
 
 function serializeTemplate(template) {

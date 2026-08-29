@@ -208,6 +208,7 @@ async function renderTable() {
           options: "Medication",
           label: __("Medication"),
           in_list_view: 1,
+          reqd: 1,
           columns: 4,
           onchange: onMedicationChange,
         },
@@ -239,8 +240,11 @@ async function renderTable() {
           fieldname: "period",
           fieldtype: "Link",
           options: "Prescription Duration",
-          label: __("Period"),
+          // Healthcare labels this field Duration; a validation message naming
+          // "Duration" must point at a column the practitioner can see.
+          label: __("Duration"),
           in_list_view: 1,
+          reqd: 1,
           columns: 1,
         },
         {
