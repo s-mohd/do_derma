@@ -14,6 +14,9 @@ def execute():
 	ensure_derma_schema()
 	if not frappe.db.exists("DocType", "Clinical Procedure"):
 		return
+	# Runs before the guard: a site that dropped the field on an earlier run of this
+	# patch still has the dangling anchor to repair.
+	_reanchor_dependent_fields()
 	if not frappe.get_meta("Clinical Procedure").has_field("custom_derma_notes"):
 		return
 	_copy_drifted_notes_back()
@@ -24,6 +27,16 @@ def execute():
 		# delete_doc, not db.delete: the controller drops the column with the field.
 		frappe.delete_doc("Custom Field", field, ignore_permissions=True)
 	frappe.clear_cache(doctype="Clinical Procedure")
+
+
+def _reanchor_dependent_fields():
+	"""A field anchored on the retired one would drift to the end of the form."""
+	for name in frappe.get_all(
+		"Custom Field",
+		filters={"dt": "Clinical Procedure", "insert_after": "custom_derma_notes"},
+		pluck="name",
+	):
+		frappe.db.set_value("Custom Field", name, "insert_after", "notes")
 
 
 def _copy_drifted_notes_back():

@@ -1,27 +1,32 @@
+const __ = window.__ || ((txt) => txt)
+
 /**
- * What to show a practitioner when a call fails. frappe.call rejects with the response body
- * rather than an Error, so `error.message` is often an object and renders as "[object Object]".
+ * What to show a practitioner when a call fails. frappe.call rejects with the jqXHR, so the
+ * reason lives in `responseJSON`, not on the error itself, and `error.message` is often an
+ * object that renders as "[object Object]".
  */
+export function serverErrorText(error, fallback = "") {
+  const readable = htmlToPlainText(readErrorText(error))
+  return readable || fallback || __("Something went wrong.")
+}
+
+/** The same message, for callers with no fallback of their own to offer. */
 export function describeError(error) {
-  const readable = readErrorText(error)
-  if (readable) return readable
-  try {
-    return JSON.stringify(error)
-  } catch {
-    return String(error)
-  }
+  return serverErrorText(error)
 }
 
 function readErrorText(error) {
   if (!error) return ""
   if (typeof error === "string") return error
-  const serverMessage = firstServerMessage(error._server_messages)
+  const serverMessage =
+    firstServerMessage(error.responseJSON?._server_messages) ||
+    firstServerMessage(error._server_messages)
   if (serverMessage) return serverMessage
   if (typeof error.message === "string" && error.message) return error.message
   if (error.message && typeof error.message === "object") return readErrorText(error.message)
   if (typeof error.exception === "string" && error.exception) return error.exception
   if (typeof error.exc_type === "string" && error.exc_type) return error.exc_type
-  return ""
+  return readErrorText(error.responseJSON)
 }
 
 /** Frappe wraps a thrown message in two layers of JSON. */
@@ -34,4 +39,20 @@ function firstServerMessage(serverMessages) {
   } catch {
     return ""
   }
+}
+
+export function htmlToPlainText(value) {
+  const raw = String(value || "")
+  if (!raw) return ""
+  if (!/[<>]/.test(raw)) return raw
+  const html = raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+  const el = document.createElement("div")
+  el.innerHTML = html
+  return (el.textContent || el.innerText || "")
+    .replace(/ /g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
 }

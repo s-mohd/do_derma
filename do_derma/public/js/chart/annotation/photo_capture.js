@@ -24,7 +24,12 @@ export class CameraUnavailableError extends Error {
  */
 function isWebCaptureMode() {
   const frappe = window.frappe
-  if (frappe?.boot?.sysdefaults?.force_web_capture_mode_for_uploads) return true
+  // The sysdefault arrives as a string, so "0" is truthy until cint reads it - the same
+  // call Capture makes. Without it an iPad takes the web path and preflights a camera
+  // the mobile dialog never opens.
+  const forced = frappe?.boot?.sysdefaults?.force_web_capture_mode_for_uploads
+  const asNumber = window.cint ? window.cint(forced) : parseInt(forced, 10)
+  if (asNumber) return true
   return !frappe?.is_mobile?.()
 }
 

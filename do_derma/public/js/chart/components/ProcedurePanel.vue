@@ -479,7 +479,7 @@ import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
 import ConsumablesEditor from "./consumables/ConsumablesEditor.vue"
 import { procedureDisplayName } from "../../shared/procedure_label.js"
 import { nameDialogControls } from "../../shared/dialog_a11y.js"
-import { htmlToPlainText, serverErrorText } from "../server_error.js"
+import { htmlToPlainText, serverErrorText } from "../../shared/error_text.js"
 
 const __ = window.__ || ((txt) => txt)
 

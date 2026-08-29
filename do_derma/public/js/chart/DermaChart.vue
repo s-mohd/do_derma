@@ -538,7 +538,7 @@ import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
-import { serverErrorText } from "./server_error.js"
+import { serverErrorText } from "../shared/error_text.js"
 
 const __ = window.__ || ((txt) => txt)
 

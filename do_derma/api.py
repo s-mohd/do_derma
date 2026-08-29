@@ -2824,7 +2824,11 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 	if not values.get("file_data"):
 		frappe.throw(_("Drawing image data is required."))
 	json_text = values.get("json_text") or ""
-	scene = _parse_json(json_text, {})
+	scene = _parse_json(json_text, None)
+	if json_text and not isinstance(scene, dict):
+		# The column refuses invalid JSON anyway, and the old fallback quietly replaced the
+		# drawing with the two keys added below. Refuse it where the bug is instead.
+		frappe.throw(_("The drawing could not be read and was not saved."), frappe.ValidationError)
 	if isinstance(scene, dict):
 		if (
 			values.get("body_template")
@@ -2839,10 +2843,7 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		area_values = _resolve_area_values(values.get("area_values"), values.get("annotation_name"))
 		if area_values is not None:
 			scene["derma_area_values"] = area_values
-		# Re-serialised only when this function actually changed the scene: an unreadable
-		# json_text must reach storage as the client sent it, not as "{}".
-		if scene:
-			json_text = json.dumps(scene)
+		json_text = json.dumps(scene)
 
 	annotation_type = values.get("annotation_type") or "Free Drawing"
 	if annotation_type not in {"Predefined Areas", "Predefined Annotations", "Free Drawing"}:
@@ -3648,8 +3649,6 @@ def create_procedure_from_mark(
 	procedure.title = template_doc.template
 	procedure.status = "Draft"
 	procedure.start_date = nowdate()
-	if mark_doc.note and _has_field("Clinical Procedure", "notes"):
-		procedure.notes = mark_doc.note
 	if mark_doc.note and _has_field("Clinical Procedure", "notes"):
 		procedure.notes = mark_doc.note
 	for encounter_field in ["patient_encounter", "custom_patient_encounter"]:

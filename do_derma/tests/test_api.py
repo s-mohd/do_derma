@@ -830,6 +830,22 @@ class TestAnnotationStorage(DermaTestHelpers, IntegrationTestCase):
 
 		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "annotation"), saved["name"])
 
+	def test_a_scene_the_server_cannot_parse_is_refused(self):
+		"""Saving it anyway replaced the drawing with the two keys this endpoint adds."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_derma_annotation(
+				{
+					"patient": patient,
+					"encounter": encounter.name,
+					"file_data": PIXEL_PNG,
+					"json_text": "{not json at all",
+					"body_template_title": "Face Map",
+				}
+			)
+
 	def test_stored_scene_keeps_the_template_element(self):
 		patient = self._make_patient()
 		encounter = self._make_encounter(patient)

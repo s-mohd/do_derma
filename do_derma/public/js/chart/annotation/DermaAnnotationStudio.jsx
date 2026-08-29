@@ -163,7 +163,8 @@ function resumedTemplateName(annotation) {
 }
 
 function collectBadgeItems(elements, partValues, parts, procedures) {
-  const items = []
+  const markItems = []
+  const areaItems = []
   const seenMarks = new Set()
   for (const element of elements || []) {
     if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
@@ -180,7 +181,7 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
     seenMarks.add(markKey)
     const centroid = elementCentroid(element)
     const procedure = procedures.find((row) => row.name === procedureTemplateName)
-    items.push({
+    markItems.push({
       type: "Procedure",
       name: procedureLabel(procedure) || procedureTemplateName,
       color: element.customData?.marker_color || procedureColor(procedure),
@@ -196,7 +197,7 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
     if (!hasValues) continue
     const part = parts.find((row) => row.part_name === partName)
     const partElement = elements.find((element) => element.customData?.kind === "derma_template_part" && element.customData?.partName === partName && !element.isDeleted)
-    items.push({
+    areaItems.push({
       type: "Area",
       name: partName,
       color: part?.color || "#38bdf8",
@@ -204,10 +205,13 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
       ...elementCentroid(partElement),
     })
   }
-  // Numbered in the order they were made, not top-to-bottom on the body: sorting by
-  // position renumbered marks the practitioner had already read off the legend every
-  // time a new mark or area landed above them.
-  return items.map((item, index) => ({ ...item, badgeNum: index + 1 }))
+  // Numbered in the order the marks were made - Derma Chart Mark names are a zero-padded
+  // sequence, so sorting on them is creation order and survives both a canvas rebuild and
+  // any z-order change. Sorting by position instead renumbered marks the practitioner had
+  // already read off the legend every time a new mark or area landed above them. A mark
+  // whose save is still in flight has no name yet and sits last, ahead of the areas.
+  markItems.sort((a, b) => String(a.markName || "~").localeCompare(String(b.markName || "~")))
+  return [...markItems, ...areaItems].map((item, index) => ({ ...item, badgeNum: index + 1 }))
 }
 
 function findTemplatePart(parts, partName) {
@@ -686,6 +690,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     // when the *mark* layer moves, so a part-only render would never reach a memo.
     setRenderedPartCount(embeddedRef.current?.getRenderedPartCount?.() || 0)
     photoCapture.rememberLoadedPhotos()
+    // The mark layer is rebuilt for the template now on screen, and it only renders marks
+    // belonging to it. Anything remembered from the previous template is absent by design,
+    // not deleted by the practitioner, and pruning would destroy those records on save.
+    seenMarks.current = canvasMarkNames()
     if (savedSignature.current === null) savedSignature.current = userSignature()
   }
 
@@ -1155,16 +1163,19 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
           },
         },
       })
-      // A photo deleted from the canvas is deleted from the record here, and nowhere earlier:
-      // undo before saving gives both the element and the photo back, and a save that failed
-      // above leaves the photo alone.
-      await photoCapture.reconcileDeletedPhotos()
-      const marksPruned = await reconcileDeletedMarks(response.message?.name || annotationName)
-      window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
+      // Claimed before the reconciliations below: they can throw, and a retry that still
+      // thought the drawing was unsaved would file a second annotation for it.
+      const savedName = response.message?.name || annotationName
       if (response.message?.name) setAnnotationName(response.message.name)
       savedSignature.current = userSignature()
       // Saved marks belong to the annotation now; a later discard must not reach for them.
       sessionMarks.current = new Set()
+      // A photo deleted from the canvas is deleted from the record here, and nowhere earlier:
+      // undo before saving gives both the element and the photo back, and a save that failed
+      // above leaves the photo alone.
+      await photoCapture.reconcileDeletedPhotos()
+      const marksPruned = await reconcileDeletedMarks(savedName)
+      window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
       onSaved?.(response.message)
       onClose?.({ marksChanged: marksPruned })
     } catch (error) {
