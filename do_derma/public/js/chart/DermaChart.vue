@@ -21,6 +21,11 @@
     </div>
 
     <template v-else>
+      <div v-if="loading" class="chart-refresh-banner" role="status" data-test="chart-refreshing">
+        <span class="chart-spinner" aria-hidden="true"></span>
+        <span>{{ __("Refreshing this visit...") }}</span>
+      </div>
+
       <div v-if="loadError" class="chart-error-banner" role="alert" data-test="chart-error-banner">
         <span>{{ loadError }}</span>
         <button type="button" class="ghost small" @click="refresh">{{ __("Retry") }}</button>
@@ -156,9 +161,11 @@
                         class="chart-annotation-delete"
                         data-test="annotation-delete"
                         :title="__('Delete')"
+                        :disabled="Boolean(annotationDeleteBusy)"
                         @click="deleteAnnotation(annotation, 'Patient Encounter', encounter.name)"
                       >
-                        <span aria-hidden="true">✕</span>
+                        <span v-if="annotationDeleteBusy === annotation.name" class="chart-spinner" aria-hidden="true"></span>
+                        <span v-else aria-hidden="true">✕</span>
                       </button>
                     </div>
                   </div>
@@ -213,6 +220,7 @@
                 :active-procedure-treatments="activeProcedureTreatments"
                 :requires-before-after="requiresBeforeAfterPhotos"
                 :read-only="isEncounterLocked"
+                :busy="photoBusy"
                 @upload="uploadPhotos"
                 @retag="retagPhoto"
                 @delete="deletePhoto"
@@ -437,6 +445,7 @@
                     <MarkResponseChips
                       :statuses="MARK_RESPONSE_STATUSES"
                       :mark="markForItem(item)"
+                      :busy="markStatusBusy === markForItem(item)?.name"
                       @set="(status) => setItemResponse(item, status)"
                     />
                     <button type="button" class="ghost small" :disabled="!item.product_item" @click="openItem(item.product_item)">
@@ -495,13 +504,21 @@
                     <MarkResponseChips
                       :statuses="MARK_RESPONSE_STATUSES"
                       :mark="markForItem(item)"
+                      :busy="markStatusBusy === markForItem(item)?.name"
                       @set="(status) => setItemResponse(item, status)"
                     />
                     <button type="button" class="ghost small" v-if="item.clinical_procedure" @click="openClinicalProcedure({ name: item.clinical_procedure })">
                       {{ __("Open Procedure") }}
                     </button>
-                    <button type="button" class="primary small" :disabled="Boolean(item.todo)" @click="createFollowupTask(item)">
-                      {{ item.todo ? __("Task Created") : __("Create Task") }}
+                    <button
+                      type="button"
+                      class="primary small"
+                      data-test="followup-create-task"
+                      :disabled="Boolean(item.todo) || Boolean(followupBusy)"
+                      @click="createFollowupTask(item)"
+                    >
+                      <span v-if="followupBusy === item.key" class="chart-spinner" aria-hidden="true"></span>
+                      {{ followupBusy === item.key ? __("Creating...") : item.todo ? __("Task Created") : __("Create Task") }}
                     </button>
                     <button type="button" class="ghost small" v-if="item.todo" @click="openTodo(item.todo)">
                       {{ __("Open Task") }}
@@ -538,6 +555,7 @@ import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
+import { runDialogAction } from "../shared/dialog_progress.js"
 import { serverErrorText } from "../shared/error_text.js"
 
 const __ = window.__ || ((txt) => txt)
@@ -635,6 +653,13 @@ const sessionCategory = ref("")
 const pastAppointment = ref("")
 const sectionPreferenceHydrated = ref(false)
 const sectionChosenByUser = ref(false)
+
+// One flag per write that has no panel of its own: the control that fired it says it is busy,
+// and the same flag stops it being fired twice.
+const photoBusy = ref("")
+const markStatusBusy = ref("")
+const followupBusy = ref("")
+const annotationDeleteBusy = ref("")
 
 const assessmentPanel = reactive({
   loading: false,
@@ -1096,55 +1121,67 @@ function uploadPhotos() {
 }
 
 async function createPhotoSetFromImages(images) {
-  const response = await frappe.call({
-    method: "do_derma.api.create_photo_set",
-    args: {
-      values: {
-        patient: patient.value.name,
-	        appointment: appointment.value.name,
-	        encounter: encounter.value.name,
-	        clinical_procedure: activeProcedure.value?.name || "",
-	        chart_mark: selectedMark.value?.name,
-	        body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-	        body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
-	        treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
-	        notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
-	        photos: images.map((image) => ({
-	          image,
-	          view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-	          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
-	          treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
-	        })),
+  photoBusy.value = "upload"
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.create_photo_set",
+      args: {
+        values: {
+          patient: patient.value.name,
+          appointment: appointment.value.name,
+          encounter: encounter.value.name,
+          clinical_procedure: activeProcedure.value?.name || "",
+          chart_mark: selectedMark.value?.name,
+          body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
+          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+          treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
+          notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
+          photos: images.map((image) => ({
+            image,
+            view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
+            body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+            treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
+          })),
+        },
       },
-    },
-  })
-  if (response.message?.name) {
-    data.value = {
-      ...data.value,
-      photo_sets: [response.message, ...photoSets.value.filter((set) => set.name !== response.message.name)],
-      marks: selectedMark.value?.name
-        ? marks.value.map((mark) => (mark.name === selectedMark.value.name ? { ...mark, photo_set: response.message.name } : mark))
-        : marks.value,
+    })
+    if (response.message?.name) {
+      data.value = {
+        ...data.value,
+        photo_sets: [response.message, ...photoSets.value.filter((set) => set.name !== response.message.name)],
+        marks: selectedMark.value?.name
+          ? marks.value.map((mark) => (mark.name === selectedMark.value.name ? { ...mark, photo_set: response.message.name } : mark))
+          : marks.value,
+      }
+      frappe.show_alert({ message: __("Photos linked to chart"), indicator: "green" })
+      await refresh()
     }
-	    frappe.show_alert({ message: __("Photos linked to chart"), indicator: "green" })
-	    await refresh()
-	  }
-	}
+  } finally {
+    photoBusy.value = ""
+  }
+}
 
 async function retagPhoto({ photo, stage }) {
-  if (!photo || !stage) return
-  const response = await frappe.call({
-    method: "do_derma.api.update_photo_stage",
-    args: { photo, stage },
-  })
-  if (response.message?.name) {
-    frappe.show_alert({ message: __("Photo stage updated"), indicator: "green" })
-    await refresh()
+  if (!photo || !stage || photoBusy.value) return
+  photoBusy.value = "retag"
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.update_photo_stage",
+      args: { photo, stage },
+    })
+    if (response.message?.name) {
+      frappe.show_alert({ message: __("Photo stage updated"), indicator: "green" })
+      await refresh()
+    }
+  } finally {
+    photoBusy.value = ""
   }
 }
 
 async function deletePhoto({ photo }) {
-  if (!photo) return
+  if (!photo || photoBusy.value) return
+  // Claimed before the confirm, so a second click cannot stack a second dialog.
+  photoBusy.value = "delete"
   const confirmed = await new Promise((resolve) => {
     frappe.confirm(
       __("Delete this photo? This cannot be undone."),
@@ -1152,10 +1189,17 @@ async function deletePhoto({ photo }) {
       () => resolve(false)
     )
   })
-  if (!confirmed) return
-  await frappe.call({ method: "do_derma.api.delete_photo", args: { photo } })
-  frappe.show_alert({ message: __("Photo deleted"), indicator: "green" })
-  await refresh()
+  if (!confirmed) {
+    photoBusy.value = ""
+    return
+  }
+  try {
+    await frappe.call({ method: "do_derma.api.delete_photo", args: { photo } })
+    frappe.show_alert({ message: __("Photo deleted"), indicator: "green" })
+    await refresh()
+  } finally {
+    photoBusy.value = ""
+  }
 }
 
 function selectTimelineVisit(visit) {
@@ -1234,23 +1278,28 @@ async function setItemResponse(item, status) {
 }
 
 async function createFollowupTask(item) {
-  if (!item?.mark) return
-  const response = await frappe.call({
-    method: "do_derma.api.create_followup_todo",
-    args: {
-      payload: {
-        mark: item.mark,
-        title: item.title,
-        description: `${item.title}\n${item.detail || ""}`.trim(),
-        due_date: item.due_date,
-        severity: item.severity,
+  if (!item?.mark || followupBusy.value) return
+  followupBusy.value = item.key
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.create_followup_todo",
+      args: {
+        payload: {
+          mark: item.mark,
+          title: item.title,
+          description: `${item.title}\n${item.detail || ""}`.trim(),
+          due_date: item.due_date,
+          severity: item.severity,
+        },
       },
-    },
-  })
-  if (response.message?.name) {
-    frappe.show_alert({ message: __("Follow-up task created"), indicator: "green" })
-    // Whether the new task downgrades the blocker is the server's call, so re-read it.
-    await refresh()
+    })
+    if (response.message?.name) {
+      frappe.show_alert({ message: __("Follow-up task created"), indicator: "green" })
+      // Whether the new task downgrades the blocker is the server's call, so re-read it.
+      await refresh()
+    }
+  } finally {
+    followupBusy.value = ""
   }
 }
 
@@ -1309,29 +1358,29 @@ async function createProcedure() {
       { fieldname: "notes", fieldtype: "Small Text", label: __("Notes") },
     ],
     primary_action_label: __("Create"),
-    primary_action: async (values) => {
-      dialog.hide()
-      const template = procedureTemplates.value.find((row) => row.name === values.procedure_template)
-      const response = await frappe.call({
-        method: "do_derma.api.create_derma_chart_procedure",
-        args: {
-          payload: {
-            patient: patient.value.name,
-            appointment: appointment.value.name,
-            encounter: encounter.value.name,
-            procedure_template: values.procedure_template,
-            category: template?.custom_derma_category,
-            notes: values.notes,
+    primary_action: (values) =>
+      runDialogAction(dialog, __("Creating the procedure..."), async () => {
+        const template = procedureTemplates.value.find((row) => row.name === values.procedure_template)
+        const response = await frappe.call({
+          method: "do_derma.api.create_derma_chart_procedure",
+          args: {
+            payload: {
+              patient: patient.value.name,
+              appointment: appointment.value.name,
+              encounter: encounter.value.name,
+              procedure_template: values.procedure_template,
+              category: template?.custom_derma_category,
+              notes: values.notes,
+            },
           },
-        },
-      })
-      const created = response.message?.clinical_procedure?.name
-      if (created) {
-        activeProcedureName.value = created
-        frappe.show_alert({ message: __("Clinical Procedure created"), indicator: "green" })
-      }
-      await refresh()
-    },
+        })
+        const created = response.message?.clinical_procedure?.name
+        if (created) {
+          activeProcedureName.value = created
+          frappe.show_alert({ message: __("Clinical Procedure created"), indicator: "green" })
+        }
+        await refresh()
+      }),
   })
   dialog.show()
   nameDialogControls(dialog)
@@ -1359,27 +1408,28 @@ async function copyMarksFromLastVisit() {
       },
     ],
     primary_action_label: __("Copy"),
-    primary_action: async ({ marks: selected }) => {
+    primary_action: ({ marks: selected }) => {
       if (!selected?.length) {
         frappe.msgprint(__("Select at least one mark to copy."))
         return
       }
-      dialog.hide()
-      const response = await frappe.call({
-        method: "do_derma.api.carry_forward_marks",
-        args: {
-          marks: selected,
-          patient: patient.value.name,
-          encounter: encounter.value.name,
-          appointment: appointment.value.name,
-        },
+      return runDialogAction(dialog, __("Copying the marks..."), async () => {
+        const response = await frappe.call({
+          method: "do_derma.api.carry_forward_marks",
+          args: {
+            marks: selected,
+            patient: patient.value.name,
+            encounter: encounter.value.name,
+            appointment: appointment.value.name,
+          },
+        })
+        const copied = response.message?.marks?.length || 0
+        frappe.show_alert({
+          message: __("{0} mark(s) copied to this visit").replace("{0}", copied),
+          indicator: copied ? "green" : "orange",
+        })
+        await refresh()
       })
-      const copied = response.message?.marks?.length || 0
-      frappe.show_alert({
-        message: __("{0} mark(s) copied to this visit").replace("{0}", copied),
-        indicator: copied ? "green" : "orange",
-      })
-      await refresh()
     },
   })
   dialog.show()
@@ -1406,23 +1456,28 @@ function selectTemplateForMark(mark) {
 }
 
 async function updateSelectedMarkStatus(status) {
-  if (!selectedMark.value) return
-  const response = await frappe.call({
-    method: "do_derma.api.save_chart_mark",
-    args: {
-      values: {
-        name: selectedMark.value.name,
-        patient: patient.value.name,
-        appointment: appointment.value.name || selectedMark.value.appointment,
-        encounter: encounter.value.name || selectedMark.value.encounter,
-        status,
+  if (!selectedMark.value || markStatusBusy.value) return
+  markStatusBusy.value = selectedMark.value.name
+  try {
+    const response = await frappe.call({
+      method: "do_derma.api.save_chart_mark",
+      args: {
+        values: {
+          name: selectedMark.value.name,
+          patient: patient.value.name,
+          appointment: appointment.value.name || selectedMark.value.appointment,
+          encounter: encounter.value.name || selectedMark.value.encounter,
+          status,
+        },
       },
-    },
-  })
-  if (response.message?.name) {
-    upsertMark(response.message)
-    await refreshVisitSummary()
-    frappe.show_alert({ message: __("Mark status updated"), indicator: "green" })
+    })
+    if (response.message?.name) {
+      upsertMark(response.message)
+      await refreshVisitSummary()
+      frappe.show_alert({ message: __("Mark status updated"), indicator: "green" })
+    }
+  } finally {
+    markStatusBusy.value = ""
   }
 }
 
@@ -1612,18 +1667,33 @@ function annotateProcedure(row) {
   openProcedureAnnotationPicker({ ...anchor, annotations: existing })
 }
 
-async function deleteAnnotation(annotation, doctype, docname) {
-  frappe.confirm(__("Delete this drawing permanently?"), async () => {
-    try {
-      await frappe.call({
-        method: "do_derma.api.delete_derma_annotation",
-        args: { annotation_name: annotation.name, doctype, docname },
-      })
-      await refresh()
-    } catch (error) {
-      frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
-    }
-  })
+function deleteAnnotation(annotation, doctype, docname) {
+  if (annotationDeleteBusy.value) return
+  // Claimed before the confirm, so a second click cannot stack a second dialog.
+  annotationDeleteBusy.value = annotation.name
+  frappe.confirm(
+    __("Delete this drawing permanently?"),
+    () => removeAnnotation(annotation, doctype, docname),
+    () => (annotationDeleteBusy.value = "")
+  )
+}
+
+/** The delete itself, shared by the annotation strip and the procedure picker. */
+async function removeAnnotation(annotation, doctype, docname) {
+  annotationDeleteBusy.value = annotation.name
+  try {
+    await frappe.call({
+      method: "do_derma.api.delete_derma_annotation",
+      args: { annotation_name: annotation.name, doctype, docname },
+    })
+    await refresh()
+    return true
+  } catch (error) {
+    frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
+    return false
+  } finally {
+    annotationDeleteBusy.value = ""
+  }
 }
 
 /** A procedure can hold several drawings: resume one deliberately, or start fresh. */
@@ -1673,20 +1743,31 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
     openAnnotationStudio({ ...anchor, annotation: annotations[index] || null })
   })
   $wrapper.find('[data-test="annotation-picker-delete"]').on("click", (event) => {
+    if (annotationDeleteBusy.value) return
     const index = Number(event.currentTarget.getAttribute("data-delete-index"))
     const target = annotations[index]
-    frappe.confirm(__("Delete this drawing permanently?"), async () => {
-      try {
-        await frappe.call({
-          method: "do_derma.api.delete_derma_annotation",
-          args: { annotation_name: target.name, doctype: "Clinical Procedure", docname: clinicalProcedure },
-        })
-        dialog.hide()
-        await refresh()
-      } catch (error) {
-        frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
+    const button = event.currentTarget
+    const label = button.textContent
+    // Claimed before the confirm, so a second click cannot stack a second dialog.
+    annotationDeleteBusy.value = target.name
+    button.disabled = true
+    frappe.confirm(
+      __("Delete this drawing permanently?"),
+      async () => {
+        button.textContent = __("Deleting...")
+        const deleted = await removeAnnotation(target, "Clinical Procedure", clinicalProcedure)
+        if (deleted) {
+          dialog.hide()
+          return
+        }
+        button.disabled = false
+        button.textContent = label
+      },
+      () => {
+        annotationDeleteBusy.value = ""
+        button.disabled = false
       }
-    })
+    )
   })
   dialog.show()
   nameDialogControls(dialog)

@@ -1042,6 +1042,116 @@ class TestAnnotationAreaValues(DermaTestHelpers, IntegrationTestCase):
 		self.assertIsNone(self._saved_area_values(saved["name"]))
 
 
+class TestAnnotationSelectedAreas(DermaTestHelpers, IntegrationTestCase):
+	"""The selected areas are what the exported image is about, so they have to survive a
+	reopen: an annotation that forgets them resaves a different picture than the one filed."""
+
+	def _scene(self):
+		return json.dumps({"elements": [TEMPLATE_ELEMENT], "files": {}})
+
+	def _saved_selected_areas(self, annotation_name):
+		scene = json.loads(frappe.db.get_value("Health Annotation", annotation_name, "json"))
+		return scene.get("derma_selected_areas")
+
+	def _save(self, patient, encounter, **values):
+		return api.save_derma_annotation(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"file_data": PIXEL_PNG,
+				"json_text": self._scene(),
+				**values,
+			}
+		)
+
+	def test_stores_the_selection_in_the_order_it_was_made(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = self._save(patient, encounter, selected_areas=["Chin", "Forehead"])
+
+		self.assertEqual(self._saved_selected_areas(saved["name"]), ["Chin", "Forehead"])
+
+	def test_an_empty_list_clears_the_stored_selection(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = self._save(patient, encounter, selected_areas=["Forehead"])
+
+		self._save(patient, encounter, annotation_name=first["name"], selected_areas=[])
+
+		self.assertEqual(self._saved_selected_areas(first["name"]), [])
+
+	def test_a_resave_that_says_nothing_keeps_the_selection(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = self._save(patient, encounter, selected_areas=["Forehead"])
+
+		self._save(patient, encounter, annotation_name=first["name"])
+
+		self.assertEqual(self._saved_selected_areas(first["name"]), ["Forehead"])
+
+	def test_drops_duplicates_and_entries_that_are_not_names(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = self._save(patient, encounter, selected_areas=["Forehead", "Forehead", 7, None, ""])
+
+		self.assertEqual(self._saved_selected_areas(saved["name"]), ["Forehead"])
+
+	def test_accepts_a_selection_encoded_as_json_by_the_browser(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = self._save(patient, encounter, selected_areas=json.dumps(["Forehead", "Chin"]))
+
+		self.assertEqual(self._saved_selected_areas(saved["name"]), ["Forehead", "Chin"])
+
+	def test_a_selection_that_is_not_a_list_leaves_the_stored_one_alone(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = self._save(patient, encounter, selected_areas=["Forehead"])
+
+		self._save(patient, encounter, annotation_name=first["name"], selected_areas={"Forehead": True})
+
+		self.assertEqual(self._saved_selected_areas(first["name"]), ["Forehead"])
+
+	def test_selection_and_area_values_round_trip_without_clobbering_each_other(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = self._save(patient, encounter, area_values={"Forehead": {"Severity": "Moderate"}})
+
+		self._save(patient, encounter, annotation_name=first["name"], selected_areas=["Forehead"])
+		scene = json.loads(frappe.db.get_value("Health Annotation", first["name"], "json"))
+
+		self.assertEqual(scene["derma_area_values"], {"Forehead": {"Severity": "Moderate"}})
+		self.assertEqual(scene["derma_selected_areas"], ["Forehead"])
+
+	def test_area_values_saved_after_a_selection_keep_it(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		first = self._save(patient, encounter, selected_areas=["Forehead"])
+
+		self._save(
+			patient,
+			encounter,
+			annotation_name=first["name"],
+			area_values={"Forehead": {"Severity": "Mild"}},
+		)
+		scene = json.loads(frappe.db.get_value("Health Annotation", first["name"], "json"))
+
+		self.assertEqual(scene["derma_selected_areas"], ["Forehead"])
+		self.assertEqual(scene["derma_area_values"], {"Forehead": {"Severity": "Mild"}})
+
+	def test_an_annotation_saved_without_a_selection_stores_none(self):
+		"""The studio's legacy fallback keys off the absent key, so it must stay absent."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+
+		saved = self._save(patient, encounter, area_values={"Forehead": {"Severity": "Moderate"}})
+
+		self.assertIsNone(self._saved_selected_areas(saved["name"]))
+
+
 class TestCompleteDermaSession(DermaTestHelpers, IntegrationTestCase):
 	def test_submits_draft_encounter_with_no_appointment(self):
 		patient = self._make_patient()
