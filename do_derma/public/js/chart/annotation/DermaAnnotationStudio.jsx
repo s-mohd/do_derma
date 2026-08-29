@@ -162,7 +162,12 @@ function resumedTemplateName(annotation) {
   return parseAnnotationScene(annotation)?.derma_template?.name || ""
 }
 
-function collectBadgeItems(elements, partValues, parts, procedures) {
+function hasAreaValues(values) {
+  return Boolean(values) && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined)
+}
+
+function collectBadgeItems(elements, partValues, parts, procedures, selectedAreas) {
+  const selected = new Set(selectedAreas || [])
   const markItems = []
   const areaItems = []
   const seenMarks = new Set()
@@ -192,9 +197,10 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
       ...centroid,
     })
   }
+  // Only the selected areas reach the exported image, so numbering an unselected one would
+  // point the legend at an outline the image does not show.
   for (const [partName, values] of Object.entries(partValues || {})) {
-    const hasValues = values && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined)
-    if (!hasValues) continue
+    if (!selected.has(partName) || !hasAreaValues(values)) continue
     const part = parts.find((row) => row.part_name === partName)
     const partElement = elements.find((element) => element.customData?.kind === "derma_template_part" && element.customData?.partName === partName && !element.isDeleted)
     areaItems.push({
@@ -250,6 +256,17 @@ function seedPartValues(marks, annotation) {
     seeded[mark.region_label] = values
   }
   return seeded
+}
+
+/**
+ * The areas this drawing is about. A drawing saved before selection was stored says nothing,
+ * so its value-holding areas stand in - resaving it must not strip them out of its image. A
+ * stored empty list is a deliberate "none" and is honoured as such.
+ */
+function seedSelectedAreas(annotation, partValues) {
+  const stored = parseAnnotationScene(annotation)?.derma_selected_areas
+  if (Array.isArray(stored)) return stored.filter((partName) => typeof partName === "string" && partName)
+  return Object.entries(partValues).filter(([, values]) => hasAreaValues(values)).map(([partName]) => partName)
 }
 
 function seedAreaMarks(marks) {
@@ -452,7 +469,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
   const [partValues, setPartValues] = useState(() => seedPartValues(marks, annotation))
-  const [selectedPart, setSelectedPart] = useState(null)
+  // The areas the drawing is about: styled bold, exported, and saved with the annotation.
+  const [selectedAreas, setSelectedAreas] = useState(() => seedSelectedAreas(annotation, seedPartValues(marks, annotation)))
+  // The one area the variable editor is bound to. Transient - never saved.
+  const [focusedArea, setFocusedArea] = useState("")
   const [saving, setSaving] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
@@ -538,6 +558,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const selectedTemplate =
     allTemplates.find((template) => template.name === selectedTemplateName) || scopedTemplates[0] || null
   const selectedParts = selectedTemplate?.parts || []
+  // The area the variable editor is bound to, resolved against the template so the editor and
+  // the canvas always describe the same row.
+  const focusedPart = findTemplatePart(selectedParts, focusedArea)
   const activeProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === activeProcedure)
   // The editor binds to the mark being edited first, the armed procedure second.
   const editorProcedureName = editingMark?.procedure || activeProcedure
@@ -618,9 +641,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // Numbered whether or not the badges are drawn: the marks panel lists them either way.
   const legendItems = useMemo(() => {
     const elements = (embeddedRef.current?.getElements?.() || []).filter((element) => !element.isDeleted)
-    return collectBadgeItems(elements, partValues, selectedParts, procedures)
+    return collectBadgeItems(elements, partValues, selectedParts, procedures, selectedAreas)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRevision, partValues, selectedParts, procedures])
+  }, [sceneRevision, partValues, selectedParts, procedures, selectedAreas])
   const badgeItems = includeBadges ? legendItems : []
 
   useEffect(() => {
@@ -659,13 +682,22 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   useEffect(() => {
     const filled = Object.entries(partValues)
-      .filter(([, values]) => values && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined))
+      .filter(([, values]) => hasAreaValues(values))
       .map(([partName]) => partName)
-    embeddedRef.current?.setPartStates?.({
-      selected: selectedPart?.part_name || selectedPart?.partName || "",
-      filled,
-    })
-  }, [selectedPart, partValues, selectedTemplate?.name])
+    embeddedRef.current?.setPartStates?.({ selected: selectedAreas, filled })
+  }, [selectedAreas, partValues, selectedTemplate?.name])
+
+  // A selection can only name areas that are on screen, so switching body template drops
+  // whatever the previous template's areas contributed.
+  useEffect(() => {
+    if (!selectedTemplate?.name) return
+    const declared = new Set(selectedParts.map((part) => part.part_name || part.partName))
+    setSelectedAreas((current) =>
+      current.every((partName) => declared.has(partName)) ? current : current.filter((partName) => declared.has(partName))
+    )
+    setFocusedArea((current) => (declared.has(current) ? current : ""))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplate?.name])
 
   useEffect(() => {
     embeddedRef.current?.setPartsHidden?.(areasHidden)
@@ -1028,8 +1060,35 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     setProcedureValues((current) => ({ ...current, [name]: { ...(custom.procedure_variables || {}) } }))
   }
 
+  /**
+   * Clicking an area selects it and opens its editor; clicking the area already open closes
+   * it and unselects it. Reopening a selected area never costs the selection - correcting a
+   * typed value must not be a trap - and a click on bare canvas only closes the editor.
+   */
   function handleRegionSelected(region) {
-    setSelectedPart(region || null)
+    const partName = region?.partName || region?.part_name || ""
+    if (!partName) {
+      setFocusedArea("")
+      return
+    }
+    if (!selectedAreas.includes(partName)) {
+      setSelectedAreas((current) => [...current, partName])
+      setFocusedArea(partName)
+      return
+    }
+    // The same click also places a mark while a procedure is armed. Unselecting there would
+    // drop the area from the image on the second stamp inside it.
+    if (focusedArea !== partName || activeProcedure) {
+      setFocusedArea(partName)
+      return
+    }
+    unselectArea(partName)
+  }
+
+  /** Values typed into the area stay behind, so reselecting it shows them again. */
+  function unselectArea(partName) {
+    setSelectedAreas((current) => current.filter((name) => name !== partName))
+    setFocusedArea((current) => (current === partName ? "" : current))
   }
 
   /**
@@ -1163,6 +1222,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             annotation_data: generateAnnotationDataHTML(badgeItems),
             // The durable owner of area values: a mark carries them only where one was placed.
             area_values: partValues,
+            // What the exported image shows, so a reopen comes back looking like the file.
+            selected_areas: selectedAreas,
             json_text: exported.json_text,
             file_data: exported.file_data,
           },
@@ -1404,14 +1465,34 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
           <div className="derma-annotation-panel">
             <h3>{__("Selected Area")}</h3>
-            {selectedPart ? (
-              <VariableEditor
-                title={selectedPart.partName || selectedPart.part_name}
-                fields={selectedPart.variables || []}
-                values={partValues[selectedPart.partName || selectedPart.part_name] || {}}
-                onChange={(field, value) => updatePartValue(selectedPart.partName || selectedPart.part_name, field, value)}
-              />
-            ) : <p className="derma-annotation-empty">{__("Click a predefined image part to fill area variables.")}</p>}
+            <p
+              className="derma-annotation-empty"
+              data-test="annotation-selected-area-count"
+              data-selected-count={selectedAreas.length}
+            >
+              {selectedAreas.length
+                ? __("{0} area(s) selected. The saved image shows these only.").replace("{0}", selectedAreas.length)
+                : __("No areas selected. Click a predefined image part to select it and fill its variables.")}
+            </p>
+            {focusedPart ? (
+              <>
+                <VariableEditor
+                  title={focusedArea}
+                  fields={focusedPart.variables || []}
+                  values={partValues[focusedArea] || {}}
+                  onChange={(field, value) => updatePartValue(focusedArea, field, value)}
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  data-test="annotation-unselect-area"
+                  title={__("Take this area out of the saved image. Its values are kept.")}
+                  onClick={() => unselectArea(focusedArea)}
+                >
+                  {__("Unselect this area")}
+                </button>
+              </>
+            ) : null}
           </div>
 
           <div className="derma-annotation-panel">

@@ -2843,6 +2843,9 @@ def save_derma_annotation(payload: str | dict[str, Any]):
 		area_values = _resolve_area_values(values.get("area_values"), values.get("annotation_name"))
 		if area_values is not None:
 			scene["derma_area_values"] = area_values
+		selected_areas = _resolve_selected_areas(values.get("selected_areas"), values.get("annotation_name"))
+		if selected_areas is not None:
+			scene["derma_selected_areas"] = selected_areas
 		json_text = json.dumps(scene)
 
 	annotation_type = values.get("annotation_type") or "Free Drawing"
@@ -2913,6 +2916,26 @@ def _resolve_area_values(raw: Any, annotation_name: str | None) -> dict[str, dic
 		for part, fields in values.items()
 		if isinstance(fields, dict)
 	}
+
+
+def _resolve_selected_areas(raw: Any, annotation_name: str | None) -> list[str] | None:
+	"""The selected areas to store on the scene, or None to leave the saved ones alone.
+
+	Unlike the area values, an empty list is the practitioner unselecting everything and
+	clears the stored selection. Anything that is not a list says nothing.
+	"""
+	areas = _parse_json(raw, None) if isinstance(raw, str) else raw
+	if not isinstance(areas, list):
+		return _get_stored_selected_areas(annotation_name)
+	return list(dict.fromkeys(area for area in areas if isinstance(area, str) and area))
+
+
+def _get_stored_selected_areas(annotation_name: str | None) -> list[str] | None:
+	if not annotation_name or not frappe.db.exists("Health Annotation", annotation_name):
+		return None
+	stored = _parse_json(frappe.db.get_value("Health Annotation", annotation_name, "json"), {})
+	saved = stored.get("derma_selected_areas") if isinstance(stored, dict) else None
+	return saved if isinstance(saved, list) else None
 
 
 def _get_stored_area_values(annotation_name: str | None) -> dict[str, dict[str, str]] | None:

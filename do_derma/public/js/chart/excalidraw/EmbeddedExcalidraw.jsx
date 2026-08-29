@@ -73,7 +73,7 @@ function parseAnnotation(annotation) {
 	const previousDraggingIdRef = useRef(null)
 	// Selection / filled-values / hidden state for the template-part layer, kept in a
 	// ref so a template reload can re-apply it after re-rendering the polygons.
-	const partStateRef = useRef({ hidden: false, selected: "", filled: [] })
+	const partStateRef = useRef({ hidden: false, selected: [], filled: [] })
 
 	function applyDermaTool(nextTemplate) {
 		const effectiveTemplate = nextTemplate !== undefined ? nextTemplate : template
@@ -105,7 +105,7 @@ function parseAnnotation(annotation) {
 			}
 			// Badges are already in the scene, so the export picks them up once.
 			const blob = await excalidrawModule.exportToBlob({
-        elements,
+        elements: exportableElements(elements, partStateRef.current),
         appState: {
           ...api.getAppState(),
           exportBackground: true,
@@ -166,7 +166,7 @@ function parseAnnotation(annotation) {
     setPartStates: (state) => {
       partStateRef.current = {
         ...partStateRef.current,
-        selected: state?.selected || "",
+        selected: state?.selected || [],
         filled: state?.filled || [],
       }
       styleTemplateParts(api, partStateRef.current)
@@ -338,9 +338,8 @@ function parseAnnotation(annotation) {
 	          if (!api) return
 	          const origin = pointerDownState?.origin || pointerDownState?.lastCoords
 	          const hitRegion = origin ? findTemplatePartAtPoint(api, origin.x, origin.y) : null
-	          if (hitRegion) {
-	            onRegionSelected?.(hitRegion)
-	          }
+	          // Reported on a miss too: bare canvas is how the practitioner closes the area editor.
+	          onRegionSelected?.(hitRegion)
 	          if (dermaToolRef.current !== "mark" || !isStampBehavior(template)) return
 	          if (pointerDownState?.scrollbars?.isOverEither) return
 	          if (!getTemplateElement(api)) {
@@ -875,13 +874,14 @@ function createTemplatePartElements(parts = [], bounds) {
 function styleTemplateParts(api, state = {}) {
   if (!api) return
   const filled = new Set(state.filled || [])
+  const selected = new Set(state.selected || [])
   let changed = false
   const elements = api.getSceneElements().map((element) => {
     if (element.isDeleted || element.customData?.kind !== TEMPLATE_PART_KIND) return element
     const partName = element.customData?.part_name || element.customData?.partName || ""
     const baseColor = element.customData?.base_color || "#4dabf7"
     const baseOpacity = Number(element.customData?.base_opacity || 0.14)
-    const isSelected = Boolean(partName) && state.selected === partName
+    const isSelected = Boolean(partName) && selected.has(partName)
     const isFilled = filled.has(partName)
     const next = {
       opacity: state.hidden ? 0 : 100,
@@ -898,6 +898,25 @@ function styleTemplateParts(api, state = {}) {
   if (!changed) return
   api.updateScene({ elements, commitToHistory: false })
   api.refresh?.()
+}
+
+/**
+ * The scene as the exported image should show it: only the selected areas, drawn as they are
+ * on screen even while "Hide Areas" fades them, so a view toggle never changes what is filed.
+ * The live scene is untouched, so a failed export cannot leave the canvas half-hidden.
+ */
+function exportableElements(elements, state = {}) {
+  const selected = new Set(state.selected || [])
+  return (elements || [])
+    .filter((element) => {
+      if (element.customData?.kind !== TEMPLATE_PART_KIND) return true
+      return selected.has(element.customData?.part_name || element.customData?.partName || "")
+    })
+    .map((element) =>
+      element.customData?.kind === TEMPLATE_PART_KIND && element.opacity !== 100
+        ? { ...element, opacity: 100 }
+        : element
+    )
 }
 
 function findTemplatePartAtPoint(api, sceneX, sceneY) {
