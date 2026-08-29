@@ -479,6 +479,7 @@ import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
 import ConsumablesEditor from "./consumables/ConsumablesEditor.vue"
 import { procedureDisplayName } from "../../shared/procedure_label.js"
 import { nameDialogControls } from "../../shared/dialog_a11y.js"
+import { htmlToPlainText, serverErrorText } from "../server_error.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -832,10 +833,11 @@ const emptyStateTitle = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value ? __("No matching procedures") : __("No procedures added yet")
 )
 
+// The list holds this visit only; earlier visits live on the Review timeline.
 const emptyStateMessage = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value
-    ? __("Adjust or clear the filters to bring procedure history back into view.")
-    : __("Procedures will appear here after they are recorded for this patient.")
+    ? __("Adjust or clear the filters to bring this visit's procedures back into view.")
+    : __("Procedures recorded on this visit appear here. Earlier visits are on the Review timeline.")
 )
 
 function setFilter(status) {
@@ -1055,16 +1057,8 @@ async function saveConsumables(owner, rows) {
   }
 }
 
-// A refused frappe.call rejects with the jqXHR, so the reason the clinician needs is in
-// the response body rather than on the error itself.
 function consumableErrorText(err) {
-  const raw = err?.responseJSON?._server_messages || err?._server_messages
-  try {
-    const first = JSON.parse(JSON.parse(raw)[0])
-    return htmlToPlainText(first?.message || first)
-  } catch (parseError) {
-    return htmlToPlainText(err?.message || "") || __("The materials could not be saved.")
-  }
+  return serverErrorText(err, __("The materials could not be saved."))
 }
 
 function updateLocal(row, key, value) {
@@ -1075,22 +1069,6 @@ function updateLocal(row, key, value) {
       [key]: value,
     },
   }
-}
-
-function htmlToPlainText(value) {
-  const raw = String(value || "")
-  if (!raw) return ""
-  if (!/[<>]/.test(raw)) return raw
-  const html = raw
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "- ")
-  const el = document.createElement("div")
-  el.innerHTML = html
-  return (el.textContent || el.innerText || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
 }
 
 function resolveRowPatient(row) {
@@ -1562,14 +1540,14 @@ async function repriceRow(row, priceList) {
 }
 
 // Client row keys -> Clinical Procedure fieldnames (do_derma custom fields,
-// created by schema.py). Notes deliberately avoid the core `notes` field:
-// healthcare marks it set_only_once, so any edit after insert throws.
+// created by schema.py). The note rides on the core `notes` field, which do_derma's
+// property setter unlocks so an edit after insert lands instead of throwing.
 const PROCEDURE_UPDATE_FIELD_MAP = {
   price_override: "custom_derma_price_override",
   price_list: "custom_derma_price_list",
   no_charge: "custom_derma_no_charge",
   price_override_reason: "custom_derma_price_override_reason",
-  notes: "custom_derma_notes",
+  notes: "notes",
 }
 
 /** Resolves true when the row is persisted (or there was nothing to save), false on failure. */

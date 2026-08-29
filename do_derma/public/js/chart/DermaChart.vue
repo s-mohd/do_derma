@@ -538,6 +538,7 @@ import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
+import { serverErrorText } from "./server_error.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -620,7 +621,9 @@ const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
 const selectedBodyTemplate = ref(null)
 const activeWorkspaceTab = ref("procedure_history")
-const activeSection = ref(loadStoredDermaSection())
+// A newly opened visit starts where the visit starts; a tab picked on this visit is
+// restored by hydrateDermaSectionPreference once the encounter is known.
+const activeSection = ref(DEFAULT_SECTION)
 const selectedMarkName = ref("")
 const selectedTimelineVisitKey = ref("")
 const chartOverlayMode = ref("today")
@@ -808,8 +811,10 @@ const encounterAlertItems = computed(() => {
   for (const item of inventoryBlockers.value.slice(0, 2)) {
     alerts.push({
       key: `inventory-${item.key || item.product_item || item.product_name}`,
-      label: __("Inventory Blocker"),
-      detail: item.message || item.product_name || item.product_item,
+      // The item comes first: "Insufficient available stock" alone sends the clinician
+      // into the completion dialog just to learn which product it means.
+      label: `${__("Inventory Blocker")}: ${item.product_name || item.product_item || __("Product")}`,
+      detail: item.message || "",
       tone: "warning",
       tab: "inventory",
     })
@@ -925,14 +930,14 @@ function normalizeDermaSection(section) {
   return SECTION_ALIASES[section] || DEFAULT_SECTION
 }
 
-function storedUserSettingsSection() {
-  try {
-    const settings = window.frappe?.get_user_settings?.(DERMA_USER_SETTINGS_DOCTYPE) || {}
-    return settings.last_section || settings.last_mode || ""
-  } catch (error) {
-    // User settings may not be bootstrapped yet; localStorage still answers.
-    return ""
-  }
+/**
+ * The stored tab belongs to the visit it was chosen on: "{encounter}:{section}".
+ * A different visit starts where documentation starts, on Assessment.
+ */
+function storedSectionForEncounter(stored, encounterName) {
+  const [storedEncounter, storedSection] = String(stored || "").split(":")
+  if (!storedSection || !encounterName || storedEncounter !== encounterName) return ""
+  return storedSection
 }
 
 function storedLocalSection() {
@@ -943,19 +948,15 @@ function storedLocalSection() {
   }
 }
 
-function loadStoredDermaSection() {
-  return normalizeDermaSection(storedUserSettingsSection() || storedLocalSection())
-}
-
 function persistDermaSection(section) {
-  const nextSection = normalizeDermaSection(section)
+  const stamped = `${encounter.value.name || ""}:${normalizeDermaSection(section)}`
   try {
-    window.localStorage?.setItem(DERMA_SECTION_STORAGE_KEY, nextSection)
+    window.localStorage?.setItem(DERMA_SECTION_STORAGE_KEY, stamped)
   } catch (error) {
     // Non-critical preference persistence.
   }
   try {
-    window.frappe?.model?.user_settings?.save?.(DERMA_USER_SETTINGS_DOCTYPE, "last_section", nextSection)
+    window.frappe?.model?.user_settings?.save?.(DERMA_USER_SETTINGS_DOCTYPE, "last_section", stamped)
   } catch (error) {
     // User settings may be unavailable in tests or early boot.
   }
@@ -969,9 +970,15 @@ async function hydrateDermaSectionPreference() {
   if (sectionPreferenceHydrated.value) return
   sectionPreferenceHydrated.value = true
   if (sectionChosenByUser.value) return
+  const encounterName = encounter.value.name || ""
+  const local = storedSectionForEncounter(storedLocalSection(), encounterName)
+  if (local) activeSection.value = normalizeDermaSection(local)
   try {
     const response = await window.frappe?.model?.user_settings?.get?.(DERMA_USER_SETTINGS_DOCTYPE)
-    const savedSection = response?.last_section || response?.last_mode
+    const savedSection = storedSectionForEncounter(
+      response?.last_section || response?.last_mode,
+      encounterName
+    )
     if (savedSection) activeSection.value = normalizeDermaSection(savedSection)
   } catch (error) {
     // The local fallback selected during setup remains valid.
@@ -1043,7 +1050,7 @@ async function load(context = props.context) {
     if (contextReady.value) loadAssessment()
     if (encounter.value.name) await loadConsentPanel(true)
   } catch (error) {
-    loadError.value = error?.message || __("Unable to load derma chart.")
+    loadError.value = serverErrorText(error, __("Unable to load derma chart."))
   } finally {
     loading.value = false
   }
@@ -1165,7 +1172,10 @@ function overlayTimelineVisit(visit = selectedTimelineVisit.value) {
     const template = bodyTemplates.value.find((row) => row.name === firstTemplate)
     if (template) loadBodyTemplate(template)
   }
-  frappe.show_alert({ message: __("Previous visit marks overlaid"), indicator: "blue" })
+  frappe.show_alert({
+    message: __("Previous visit marks are now drawn on the body map above. Use Clear Overlay to remove them."),
+    indicator: "blue",
+  })
 }
 
 function clearTimelineOverlay() {
@@ -1611,7 +1621,7 @@ async function deleteAnnotation(annotation, doctype, docname) {
       })
       await refresh()
     } catch (error) {
-      frappe.show_alert({ message: error.message || __("Unable to delete annotation"), indicator: "red" })
+      frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
     }
   })
 }
@@ -1674,7 +1684,7 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
         dialog.hide()
         await refresh()
       } catch (error) {
-        frappe.show_alert({ message: error.message || __("Unable to delete annotation"), indicator: "red" })
+        frappe.show_alert({ message: serverErrorText(error, __("Unable to delete annotation")), indicator: "red" })
       }
     })
   })
@@ -1691,7 +1701,7 @@ async function loadAssessment(force = false) {
     applyAssessmentResponse(response.message || {})
     loadedTabs.assessment = true
   } catch (error) {
-    assessmentPanel.error = error?.message || __("Unable to load assessment.")
+    assessmentPanel.error = serverErrorText(error, __("Unable to load assessment."))
   } finally {
     assessmentPanel.loading = false
   }
@@ -1713,6 +1723,7 @@ function applyAssessmentResponse(message) {
 
 async function saveAssessment({ payload, mode }) {
   assessmentPanel.saving = true
+  assessmentPanel.error = ""
   try {
     const response = await frappe.call({
       method: "do_derma.api.set_derma_assessment",
@@ -1720,6 +1731,9 @@ async function saveAssessment({ payload, mode }) {
     })
     applyAssessmentResponse(response.message || {})
     frappe.show_alert({ message: __("Assessment saved"), indicator: "green" })
+  } catch (error) {
+    assessmentPanel.error = serverErrorText(error, __("The assessment could not be saved."))
+    frappe.show_alert({ message: assessmentPanel.error, indicator: "red" })
   } finally {
     assessmentPanel.saving = false
   }
@@ -1780,7 +1794,7 @@ async function setAssessmentMode(mode) {
     applyAssessmentResponse(response.message || {})
     assessmentPanel.editing = true
   } catch (error) {
-    assessmentPanel.error = error?.message || __("Unable to change the documentation format.")
+    assessmentPanel.error = serverErrorText(error, __("Unable to change the documentation format."))
   } finally {
     assessmentPanel.saving = false
   }
@@ -1796,7 +1810,7 @@ async function loadPrescriptionPanel(force = false) {
     prescriptionPanel.rows = response.message?.drug_prescription || []
     loadedTabs.prescriptions = true
   } catch (error) {
-    prescriptionPanel.error = error?.message || __("Unable to load prescriptions.")
+    prescriptionPanel.error = serverErrorText(error, __("Unable to load prescriptions."))
   } finally {
     prescriptionPanel.loading = false
   }
@@ -1804,11 +1818,16 @@ async function loadPrescriptionPanel(force = false) {
 
 async function savePrescriptionPanel(rows) {
   prescriptionPanel.saving = true
+  prescriptionPanel.error = ""
   try {
     const response = await frappe.call({ method: "do_derma.api.set_derma_prescriptions", args: { ...contextArgs(), payload: rows } })
     prescriptionPanel.encounter = response.message?.encounter || prescriptionPanel.encounter
     prescriptionPanel.rows = response.message?.drug_prescription || []
     frappe.show_alert({ message: __("Prescriptions saved"), indicator: "green" })
+  } catch (error) {
+    // A refused save must never look like a saved one: the row is not in the record.
+    prescriptionPanel.error = serverErrorText(error, __("Prescriptions could not be saved."))
+    frappe.show_alert({ message: prescriptionPanel.error, indicator: "red" })
   } finally {
     prescriptionPanel.saving = false
   }
@@ -1824,7 +1843,7 @@ async function loadAnesthesiaPanel(force = false) {
     anesthesiaPanel.rows = response.message?.anesthesia || []
     loadedTabs.anesthesia = true
   } catch (error) {
-    anesthesiaPanel.error = error?.message || __("Unable to load anesthesia.")
+    anesthesiaPanel.error = serverErrorText(error, __("Unable to load anesthesia."))
   } finally {
     anesthesiaPanel.loading = false
   }
@@ -1840,7 +1859,7 @@ async function loadConsentPanel(force = false) {
     consentPanel.consents = response.message || []
     loadedTabs.consents = true
   } catch (error) {
-    consentPanel.error = error?.message || __("Unable to load consents.")
+    consentPanel.error = serverErrorText(error, __("Unable to load consents."))
   } finally {
     consentPanel.loading = false
   }
@@ -1857,8 +1876,9 @@ async function requestConsentPreview(payload) {
     })
     const raw = response.message?.rendered_html || ""
     consentPanel.previewHtml = frappe?.utils?.unescape_html ? frappe.utils.unescape_html(raw) : raw
+    consentPanel.error = response.message?.error || ""
   } catch (error) {
-    consentPanel.error = error?.message || __("Unable to render consent preview.")
+    consentPanel.error = serverErrorText(error, __("Unable to render consent preview."))
   } finally {
     consentPanel.previewLoading = false
   }
@@ -1880,7 +1900,7 @@ async function createConsentFromPanel(payload) {
     consentPanel.resetKey += 1
     frappe.show_alert({ message: __("Consent created."), indicator: "green" })
   } catch (error) {
-    consentPanel.error = error?.message || __("Unable to create consent.")
+    consentPanel.error = serverErrorText(error, __("Unable to create consent."))
   } finally {
     consentPanel.saving = false
   }
@@ -1940,7 +1960,7 @@ async function openSignedConsent(row) {
     )
   } catch (err) {
     dialog.fields_dict.body.$wrapper.html(
-      `<p class="text-danger">${escapeHtml(err?.message || __("Unable to load this consent."))}</p>`
+      `<p class="text-danger">${escapeHtml(serverErrorText(err, __("Unable to load this consent.")))}</p>`
     )
   }
 }
@@ -2022,7 +2042,7 @@ async function syncBillablesForSession() {
   } catch (err) {
     frappe.msgprint({
       title: __("Sync Failed"),
-      message: err?.message || __("Unable to sync billables for this session."),
+      message: serverErrorText(err, __("Unable to sync billables for this session.")),
       indicator: "red",
     })
   } finally {
@@ -2055,22 +2075,42 @@ async function submitSessionCompletion(overrideReason) {
       args: { ...contextArgs(), override_reason: overrideReason },
     })
     const result = response.message || {}
-    frappe.show_alert({
-      message: result.encounter_submitted
-        ? __("Encounter completed and submitted.")
-        : __("Session billing synced."),
-      indicator: "green",
-    })
+    frappe.show_alert({ message: completionSummary(result), indicator: "green" })
+    if (result.invoice_error) {
+      frappe.msgprint({
+        title: __("Invoice Not Raised"),
+        message: result.invoice_error,
+        indicator: "orange",
+      })
+    }
   } catch (err) {
     frappe.msgprint({
       title: __("Unable to Complete Session"),
-      message: err?.message || __("Something went wrong while completing this session."),
+      message: serverErrorText(err, __("Something went wrong while completing this session.")),
       indicator: "red",
     })
   }
   // Either way the server has the last word on readiness, so re-read it: a refusal
   // means this chart's copy was stale, and the next attempt must prompt on the new one.
   await refresh()
+}
+
+/** What reception needs to hear: what was submitted, what completed, what was billed. */
+function completionSummary(result) {
+  const parts = [
+    result.encounter_submitted ? __("Encounter submitted.") : __("Encounter already submitted."),
+  ]
+  const completed = (result.procedures_completed || []).length
+  if (completed) {
+    parts.push(__("{0} procedure(s) completed.").replace("{0}", completed))
+  }
+  const invoiceName = result.invoice?.name || result.invoice?.invoice || ""
+  if (invoiceName) {
+    parts.push(__("Invoice {0} raised.").replace("{0}", invoiceName))
+  } else if (!result.invoice_error) {
+    parts.push(__("No invoice was needed."))
+  }
+  return parts.join(" ")
 }
 
 function contextArgs() {
@@ -2166,9 +2206,8 @@ function normalizeProcedureRow(row) {
     date,
     tooth: row.derma_category || row.custom_derma_category || row.procedure_template || "Derma",
     // derma_detail_text is a computed summary, never a note: pre-filling it here
-    // once let Save Note write that summary into the procedure note. The derma
-    // note (editable) outranks the core notes field (set_only_once, legacy).
-    notes: row.custom_derma_notes || row.notes || "",
+    // once let Save Note write that summary into the procedure note.
+    notes: row.notes || "",
     note_sentence_template:
       procedureTemplates.value.find((template) => template.name === row.procedure_template)
         ?.custom_derma_note_template || "",

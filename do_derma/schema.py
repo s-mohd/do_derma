@@ -86,22 +86,16 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"read_only": 1,
 		},
 	],
-	# The chart's note dialog and price-override controls write these through
+	# The chart's price-override controls write these through
 	# update_clinical_procedure_fields; without them the endpoint silently
-	# dropped every value. The note cannot ride on the core `notes` field, which
-	# healthcare marks set_only_once.
+	# dropped every value. The note itself rides on the core `notes` field,
+	# which DERMA_PROPERTY_SETTERS unlocks for editing.
 	"Clinical Procedure": [
-		{
-			"fieldname": "custom_derma_notes",
-			"fieldtype": "Small Text",
-			"label": "Derma Notes",
-			"insert_after": "notes",
-		},
 		{
 			"fieldname": "custom_derma_billing_section",
 			"fieldtype": "Section Break",
 			"label": "Derma Billing",
-			"insert_after": "custom_derma_notes",
+			"insert_after": "notes",
 			"collapsible": 1,
 		},
 		{
@@ -155,9 +149,33 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 }
 
 
+# healthcare marks Clinical Procedure.notes set_only_once, which turned every
+# correction to a procedure note into a silent no-op. The chart owns the note, so
+# do_derma unlocks the field instead of shadowing it with a second one.
+DERMA_PROPERTY_SETTERS: list[dict[str, Any]] = [
+	{
+		"doctype_or_field": "DocField",
+		"doctype": "Clinical Procedure",
+		"fieldname": "notes",
+		"property": "set_only_once",
+		"property_type": "Check",
+		"value": "0",
+	},
+	{
+		"doctype_or_field": "DocField",
+		"doctype": "Clinical Procedure",
+		"fieldname": "notes",
+		"property": "allow_on_submit",
+		"property_type": "Check",
+		"value": "1",
+	},
+]
+
+
 def ensure_derma_schema() -> dict[str, list[str]]:
-	"""Create every missing custom field. Returns what was created, per doctype."""
+	"""Create every missing custom field and property setter. Returns what was created."""
 	created: dict[str, list[str]] = {}
+	_ensure_property_setters()
 	for doctype, specs in DERMA_CUSTOM_FIELDS.items():
 		if not frappe.db.exists("DocType", doctype):
 			continue
@@ -179,6 +197,28 @@ def ensure_derma_schema() -> dict[str, list[str]]:
 				continue
 			created.setdefault(doctype, []).append(fieldname)
 	return created
+
+
+def _ensure_property_setters() -> None:
+	for spec in DERMA_PROPERTY_SETTERS:
+		doctype, fieldname = spec["doctype"], spec["fieldname"]
+		if not frappe.db.exists("DocType", doctype) or not has_field(doctype, fieldname):
+			continue
+		existing = frappe.db.exists(
+			"Property Setter",
+			{"doc_type": doctype, "field_name": fieldname, "property": spec["property"]},
+		)
+		if existing:
+			frappe.db.set_value("Property Setter", existing, "value", spec["value"])
+			frappe.clear_cache(doctype=doctype)
+			continue
+		try:
+			frappe.make_property_setter(spec, is_system_generated=False, module=DERMA_MODULE)
+		except Exception:
+			frappe.log_error(
+				title=_("Derma schema: {0}.{1}").format(doctype, fieldname),
+				message=frappe.get_traceback(),
+			)
 
 
 def has_field(doctype: str, fieldname: str) -> bool:

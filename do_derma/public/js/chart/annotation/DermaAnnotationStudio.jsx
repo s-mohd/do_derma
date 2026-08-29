@@ -204,7 +204,9 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
       ...elementCentroid(partElement),
     })
   }
-  items.sort((a, b) => a.centroidY - b.centroidY || a.centroidX - b.centroidX)
+  // Numbered in the order they were made, not top-to-bottom on the body: sorting by
+  // position renumbered marks the practitioner had already read off the legend every
+  // time a new mark or area landed above them.
   return items.map((item, index) => ({ ...item, badgeNum: index + 1 }))
 }
 
@@ -549,6 +551,17 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     chartMarkName: editingMark?.name || "",
     embeddedRef,
   })
+
+  // Opening from a procedure row already claims "Procedure: X" in the header, so the
+  // canvas has to agree: arm that procedure once, exactly as a click on it would.
+  const hasArmedAnchor = useRef(false)
+  useEffect(() => {
+    if (hasArmedAnchor.current || !isProcedureAnchor || !anchorProcedureDoc) return
+    hasArmedAnchor.current = true
+    const name = procedureLabel(anchorProcedureDoc)
+    setSelectedProcedures((current) => (current.includes(name) ? current : [...current, name]))
+    setActiveProcedure(name)
+  }, [isProcedureAnchor, anchorProcedureDoc])
 
   useEffect(() => {
     if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
@@ -970,6 +983,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         rememberAreaMark(payload.region_label, mark.name)
       }
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
+      // The link writes the mark's name onto elements the canvas already holds, which is
+      // not a scene change it announces. Without this the panel lists one mark fewer than
+      // the drawing shows until the next stroke.
+      setSceneRevision((revision) => revision + 1)
       window.frappe.show_alert?.({ message: __("Mark saved"), indicator: "green" })
     } catch (error) {
       window.frappe?.msgprint?.({ title: __("Unable to save mark"), message: describeError(error), indicator: "red" })

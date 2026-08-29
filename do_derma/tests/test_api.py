@@ -952,9 +952,7 @@ class TestAnnotationAreaValues(DermaTestHelpers, IntegrationTestCase):
 		rows = context.get("encounter_annotations") or context.get("annotations") or []
 		row = next(row for row in rows if row["name"] == saved["name"])
 
-		self.assertEqual(
-			json.loads(row["json"])["derma_area_values"], {"Forehead": {"Severity": "Moderate"}}
-		)
+		self.assertEqual(json.loads(row["json"])["derma_area_values"], {"Forehead": {"Severity": "Moderate"}})
 
 	def test_a_studio_that_seeded_nothing_cannot_erase_the_saved_values(self):
 		"""An empty map is what a failed seed sends, not what clearing an area sends - a
@@ -1319,14 +1317,12 @@ class TestProcedureFieldUpdates(DermaTestHelpers, IntegrationTestCase):
 		frappe.set_user("Administrator")
 
 	def test_notes_and_price_override_round_trip(self):
-		# The core `notes` field is set_only_once (healthcare), so the note
-		# dialog writes custom_derma_notes instead.
 		procedure = self._make_clinical_procedure(self._make_patient())
 		api.update_clinical_procedure_fields(
 			procedure.name,
 			updates=json.dumps(
 				{
-					"custom_derma_notes": "Post-care advice given.",
+					"notes": "Post-care advice given.",
 					"custom_derma_price_override": 120.5,
 					"custom_derma_no_charge": 1,
 					"custom_derma_price_list": None,
@@ -1335,24 +1331,33 @@ class TestProcedureFieldUpdates(DermaTestHelpers, IntegrationTestCase):
 			),
 		)
 		doc = frappe.get_doc("Clinical Procedure", procedure.name)
-		self.assertEqual(doc.custom_derma_notes, "Post-care advice given.")
+		self.assertEqual(doc.notes, "Post-care advice given.")
 		self.assertEqual(doc.custom_derma_price_override, 120.5)
 		self.assertEqual(doc.custom_derma_no_charge, 1)
 		self.assertEqual(doc.custom_derma_price_override_reason, "Loyalty discount")
 
 	def test_note_edit_survives_a_second_save(self):
-		"""set_only_once on the core notes field is exactly what broke Save Note."""
+		"""healthcare marks notes set_only_once; do_derma lifts that so an edit lands."""
 		procedure = self._make_clinical_procedure(self._make_patient())
-		api.update_clinical_procedure_fields(
-			procedure.name, updates=json.dumps({"custom_derma_notes": "First note"})
-		)
-		api.update_clinical_procedure_fields(
-			procedure.name, updates=json.dumps({"custom_derma_notes": "Amended note"})
-		)
+		api.update_clinical_procedure_fields(procedure.name, updates=json.dumps({"notes": "First note"}))
+		api.update_clinical_procedure_fields(procedure.name, updates=json.dumps({"notes": "Amended note"}))
 		self.assertEqual(
-			frappe.db.get_value("Clinical Procedure", procedure.name, "custom_derma_notes"),
+			frappe.db.get_value("Clinical Procedure", procedure.name, "notes"),
 			"Amended note",
 		)
+
+	def test_the_note_has_exactly_one_owner_field(self):
+		"""Nothing outside the chart reads a shadow copy, so no shadow copy is written."""
+		procedure = self._make_clinical_procedure(self._make_patient())
+		api.update_clinical_procedure_fields(procedure.name, updates=json.dumps({"notes": "Single owner"}))
+		self.assertFalse(api._has_field("Clinical Procedure", "custom_derma_notes"))
+
+	def test_a_field_the_procedure_does_not_have_is_refused(self):
+		procedure = self._make_clinical_procedure(self._make_patient())
+		with self.assertRaises(frappe.ValidationError):
+			api.update_clinical_procedure_fields(
+				procedure.name, updates=json.dumps({"not_a_field": "anything"})
+			)
 
 	def test_is_gated(self):
 		frappe.set_user(self._make_limited_user())
