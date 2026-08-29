@@ -34,6 +34,14 @@ class ConsumableHelpers:
 			.name
 		)
 
+	def _make_convertible_item(self, uom, conversion_factor, **custom):
+		"""A stock item that also converts from one other unit, so a unit change has somewhere to go."""
+		item_code = self._make_stock_item(**custom)
+		doc = frappe.get_doc("Item", item_code)
+		doc.append("uoms", {"uom": uom, "conversion_factor": conversion_factor})
+		doc.save(ignore_permissions=True)
+		return item_code
+
 	def _make_batch(self, item_code, expiry_date=None):
 		return (
 			frappe.get_doc(
@@ -173,6 +181,32 @@ class TestConsumableDefaults(ConsumableHelpers, ConfigTemplateHelpers, DermaTest
 		with patch.object(api, "_has_doctype", return_value=False):
 			self.assertEqual(defaults.get_template_consumables("Anything"), [])
 
+	def test_a_template_unit_the_item_cannot_convert_reaches_the_mark_with_no_factor(self):
+		item = self._make_stock_item(stock_uom="Box")
+		template = self._make_consuming_template(
+			[self._consumable_row(item, uom="Nos", stock_uom="Box", conversion_factor=1)]
+		)
+
+		mark = self._make_mark(procedure_template=template)
+
+		self.assertEqual(mark.consumables[0].conversion_factor, 0)
+
+	def test_a_template_unit_the_item_converts_carries_the_items_own_factor(self):
+		item = self._make_convertible_item("Box", 10)
+		template = self._make_consuming_template([self._consumable_row(item, uom="Box", conversion_factor=1)])
+
+		mark = self._make_mark(procedure_template=template)
+
+		self.assertEqual(mark.consumables[0].conversion_factor, 10)
+
+	def test_a_row_in_the_stock_unit_needs_no_factor_recorded_on_the_template(self):
+		item = self._make_stock_item()
+		template = self._make_consuming_template([self._consumable_row(item, conversion_factor=0)])
+
+		mark = self._make_mark(procedure_template=template)
+
+		self.assertEqual(mark.consumables[0].conversion_factor, 1)
+
 
 class TestConsumablesApi(ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase):
 	"""What the chart reads and what it may write back."""
@@ -289,6 +323,23 @@ class TestConsumablesApi(ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelp
 			)
 
 		self.assertIn("Box", str(caught.exception))
+
+	def test_a_unit_change_on_a_multi_unit_item_can_be_made_and_undone(self):
+		item = self._make_convertible_item("Box", 10)
+
+		changed = api.save_consumables(
+			"Derma Chart Mark", self.mark.name, [{"item_code": item, "qty": 1, "uom": "Box"}]
+		)
+		undone = api.save_consumables(
+			"Derma Chart Mark", self.mark.name, [{"item_code": item, "qty": 1, "uom": "Nos"}]
+		)
+
+		self.assertEqual(
+			(changed["consumables"][0]["uom"], changed["consumables"][0]["conversion_factor"]), ("Box", 10)
+		)
+		self.assertEqual(
+			(undone["consumables"][0]["uom"], undone["consumables"][0]["conversion_factor"]), ("Nos", 1)
+		)
 
 	def test_the_only_batch_on_the_list_becomes_the_marks_lot_and_expiry(self):
 		batched = self._make_stock_item(has_batch_no=1)
@@ -443,6 +494,19 @@ class TestConsumablesOnClinicalProcedure(
 		self.assertNotEqual(first_procedure.name, second_procedure.name)
 		self.assertEqual([row.item_code for row in first_procedure.items], [self.item])
 		self.assertEqual([row.item_code for row in second_procedure.items], [other_item])
+
+	def test_a_template_unit_the_item_cannot_convert_stops_the_procedure_by_name(self):
+		item = self._make_stock_item(stock_uom="Box")
+		template = self._make_consuming_template(
+			[self._consumable_row(item, uom="Nos", stock_uom="Box", conversion_factor=1)]
+		)
+		mark = self._make_mark(procedure_template=template, encounter=self.encounter)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self._create_procedure(mark=mark.name, procedure_template=template)
+
+		self.assertIn(item, str(caught.exception))
+		self.assertIn("Nos", str(caught.exception))
 
 	def test_the_procedure_stays_a_draft_and_posts_no_stock(self):
 		mark = self._make_mark(procedure_template=self.template, encounter=self.encounter)

@@ -5,10 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import frappe
-from frappe import _
-from frappe.utils import flt
 
-from do_derma.consumables import snapshot
+from do_derma.consumables import conversion, snapshot
 from do_derma.consumables.defaults import CONSUMABLE_FIELDS, select_fields
 
 
@@ -83,13 +81,7 @@ def apply_to_procedure(procedure, mark_doc) -> None:
 	if not rows:
 		return
 	for row in rows:
-		# Stock would move at zero without a factor, so this is refused rather than posted wrong.
-		if not flt(row.get("conversion_factor")):
-			frappe.throw(
-				_("{0} is recorded in {1}, which does not convert to its stock unit.").format(
-					row.get("item_code"), row.get("uom")
-				)
-			)
+		conversion.ensure_convertible(row.get("item_code"), row.get("uom"), row.get("conversion_factor"))
 	procedure.set("items", rows)
 	if api._has_field("Clinical Procedure", "consume_stock"):
 		procedure.consume_stock = 1

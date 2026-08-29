@@ -454,6 +454,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [partValues, setPartValues] = useState(() => seedPartValues(marks, annotation))
   const [selectedPart, setSelectedPart] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [discarding, setDiscarding] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
   const [showAllTemplates, setShowAllTemplates] = useState(false)
   const [showAllProcedures, setShowAllProcedures] = useState(false)
@@ -714,6 +715,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   /** The one way out. Closing is only unguarded when there is nothing to lose. */
   function requestClose() {
+    if (discarding) return
     const placedMarks = [...sessionMarks.current]
     const capturedPhotos = photoCapture.sessionPhotoCount()
     const isDrawingDirty = savedSignature.current !== null && userSignature() !== savedSignature.current
@@ -747,24 +749,27 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   async function discardDrawing(markNames) {
     const hadPhotos = photoCapture.sessionPhotoCount() > 0
     let kept = []
-    if (markNames.length) {
-      try {
+    setDiscarding(true)
+    try {
+      if (markNames.length) {
         const response = await window.frappe.call({
           method: "do_derma.api.discard_chart_marks",
           args: { names: markNames },
         })
         kept = response.message?.kept || []
-      } catch (error) {
-        // Closing now would lose the drawing and keep the marks - the very thing being fixed.
-        window.frappe?.msgprint?.({
-          title: __("Unable to discard the marks"),
-          message: `${describeError(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
-          indicator: "red",
-        })
-        return
       }
+      await photoCapture.discardSessionPhotos()
+    } catch (error) {
+      // Closing now would lose the drawing and keep the marks - the very thing being fixed.
+      window.frappe?.msgprint?.({
+        title: __("Unable to discard the marks"),
+        message: `${describeError(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
+        indicator: "red",
+      })
+      return
+    } finally {
+      setDiscarding(false)
     }
-    await photoCapture.discardSessionPhotos()
     sessionMarks.current = new Set(kept)
     onClose?.({ marksChanged: Boolean(markNames.length), photosChanged: hadPhotos })
     if (kept.length) {
@@ -1231,8 +1236,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 {badgeItems.length ? `${__("Badges")} (${badgeItems.length})` : __("Badges")}
               </label>
             ) : null}
-            <button type="button" className="ghost" data-test="annotation-cancel" onClick={requestClose}>{__("Cancel")}</button>
-            <button type="button" className="primary" disabled={saving || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
+            <button type="button" className="ghost" data-test="annotation-cancel" disabled={discarding} onClick={requestClose}>{discarding ? __("Discarding...") : __("Cancel")}</button>
+            <button type="button" className="primary" disabled={saving || discarding || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
           </div>
         </header>
 

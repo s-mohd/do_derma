@@ -7,6 +7,8 @@ from typing import Any
 import frappe
 from frappe.utils import flt
 
+from do_derma.consumables import conversion
+
 # The stock fields do_derma owns on a consumable row. `actual_qty` and `transfer_qty` are
 # healthcare's to write during stock movement, so they are never copied.
 CONSUMABLE_FIELDS = [
@@ -43,10 +45,17 @@ def has_consumable_doctypes() -> bool:
 
 
 def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
-	"""One row reduced to the fields do_derma carries, with quantities as numbers."""
+	"""One row reduced to the fields do_derma carries, with quantities as numbers.
+
+	The conversion factor is read off the item rather than copied: healthcare's template grid
+	keeps the 1.0 it wrote when the item was picked even after the unit is changed by hand, so a
+	copied factor can silently consume a whole stock unit per row unit.
+	"""
 	normalized = {field: row.get(field) for field in CONSUMABLE_FIELDS}
 	normalized["qty"] = flt(row.get("qty"))
-	normalized["conversion_factor"] = flt(row.get("conversion_factor")) or 1.0
+	normalized["conversion_factor"] = conversion.get_factor(
+		normalized["item_code"], normalized["uom"], normalized["stock_uom"]
+	)
 	return normalized
 
 

@@ -15,8 +15,15 @@
         </button>
         <small data-test="photo-count">{{ photoCountText }}</small>
       </div>
-      <button type="button" class="primary small" data-test="photos-upload" @click="$emit('upload')">
-        {{ __("Upload Photo") }}
+      <button
+        type="button"
+        class="primary small"
+        data-test="photos-upload"
+        :disabled="Boolean(busy)"
+        @click="$emit('upload')"
+      >
+        <span v-if="busy === 'upload'" class="chart-spinner" aria-hidden="true"></span>
+        {{ busy === "upload" ? __("Saving photos...") : __("Upload Photo") }}
       </button>
     </header>
 
@@ -27,7 +34,7 @@
         type="button"
         class="photo-required-slot"
         :class="{ filled: slot.filled }"
-        :disabled="slot.filled"
+        :disabled="slot.filled || Boolean(busy)"
         @click="$emit('upload')"
       >
         <b>{{ slot.stage }}</b>
@@ -87,6 +94,7 @@
       :partner="partnerRow"
       :stages="RETAG_STAGES"
       :can-edit="openPhotoRow.isEditable && !readOnly"
+      :busy="busy"
       @close="closeViewer"
       @retag="(stage) => $emit('retag', { photo: openPhotoRow.name, stage })"
       @delete="requestDelete"
@@ -122,6 +130,8 @@ const props = defineProps({
   activeProcedureTreatments: { type: Array, default: () => [] },
   requiresBeforeAfter: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
+  // Which photo write is in flight: "upload", "retag", "delete", or empty.
+  busy: { type: String, default: "" },
 })
 
 const emit = defineEmits(["upload", "retag", "delete"])

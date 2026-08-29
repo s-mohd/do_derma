@@ -27,6 +27,10 @@
       {{ __("No encounter found for this session.") }}
     </div>
     <div v-else>
+      <p v-if="fillingDefaults" class="status-note" data-test="prescription-filling-defaults">
+        <span class="chart-spinner" aria-hidden="true"></span>
+        {{ __("Filling in the medication's dosage and duration...") }}
+      </p>
       <div ref="tableHost" class="table-host" data-test="prescription-table-host"></div>
     </div>
   </section>
@@ -53,6 +57,8 @@ const emit = defineEmits(["save"])
 const tableHost = ref(null)
 let tableControl = null
 const dirtyRows = ref([])
+// A picked medication fills its own dosage and duration; the grid says so while it does.
+const fillingDefaults = ref(false)
 let renderQueued = false
 
 const canSave = computed(() => props.hasSessionContext && props.hasEncounter && !props.readOnly)
@@ -127,6 +133,7 @@ async function onMedicationChange() {
     return
   }
 
+  fillingDefaults.value = true
   try {
     const [medicationsResp, defaultsResp] = await Promise.all([
       frappe.call("healthcare.healthcare.doctype.patient_encounter.patient_encounter.get_medications", {
@@ -159,6 +166,9 @@ async function onMedicationChange() {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("Failed to apply medication defaults", err)
+    frappe.show_alert({ message: __("Could not fill in this medication's defaults."), indicator: "red" })
+  } finally {
+    fillingDefaults.value = false
   }
 }
 

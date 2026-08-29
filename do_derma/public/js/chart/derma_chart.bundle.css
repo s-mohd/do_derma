@@ -1253,6 +1253,42 @@
   }
 }
 
+.chart-refresh-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--derma-surface-muted, #f6f8fa);
+  color: var(--derma-text-muted);
+  font-size: 13px;
+}
+
+/* The one in-flight mark on this page: every busy control wears it. */
+.chart-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: derma-spin 0.7s linear infinite;
+}
+
+@keyframes derma-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
 .chart-error-state {
   min-height: 240px;
   display: flex;
