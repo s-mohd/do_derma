@@ -2,8 +2,7 @@
   <div class="dental-chart-page derma-chart-page" data-test="derma-chart-root">
     <div v-if="!contextReady" class="chart-empty-state" data-test="chart-empty-state">
       <h3>{{ __("Select a patient") }}</h3>
-      <p>{{ __("Search for a patient here, or pick one in the health sidebar.") }}</p>
-      <div ref="patientPickerHost" class="chart-empty-picker" data-test="chart-empty-patient-picker"></div>
+      <p>{{ __("Use the health sidebar to select a patient, then open Derma Chart.") }}</p>
     </div>
 
     <div v-else-if="loading && !patient.name" class="chart-loading-skeleton" role="status" data-test="chart-loading" :aria-label="__('Loading derma chart')">
@@ -525,7 +524,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from "vue"
+import { computed, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
@@ -613,7 +612,6 @@ const loading = ref(false)
 const loadError = ref("")
 const syncingBillables = ref(false)
 const completingSession = ref(false)
-const patientPickerHost = ref(null)
 const { isBroken, markBroken } = useBrokenImages()
 // A completion the clinician has started but not yet confirmed. Guards re-entry without
 // claiming the button's busy label.
@@ -911,39 +909,6 @@ watch(
   () => activeWorkspaceTab.value,
   (tab) => ensureWorkspaceTab(tab)
 )
-
-// The empty state is where the eye lands, so the search lives there rather than only in
-// the sidebar it used to point at.
-watch(
-  () => contextReady.value,
-  (ready) => {
-    if (ready) return
-    nextTick(mountPatientPicker)
-  },
-  { immediate: true }
-)
-
-function mountPatientPicker() {
-  const host = patientPickerHost.value
-  if (!host || !window.frappe?.ui?.form?.make_control) return
-  host.innerHTML = ""
-  const control = frappe.ui.form.make_control({
-    parent: host,
-    df: {
-      fieldtype: "Link",
-      fieldname: "patient",
-      options: "Patient",
-      label: __("Patient"),
-      placeholder: __("Search patients"),
-      only_select: 1,
-      change: () => {
-        const chosen = control.get_value()
-        if (chosen) load({ patient: chosen })
-      },
-    },
-    render_input: true,
-  })
-}
 
 watch(
   () => visibleMarks.value.map((mark) => mark.name).join(","),

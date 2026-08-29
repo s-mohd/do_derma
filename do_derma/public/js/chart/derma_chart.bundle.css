@@ -1203,11 +1203,6 @@
   color: var(--derma-text-muted);
 }
 
-.chart-empty-picker {
-  min-width: 260px;
-  text-align: left;
-}
-
 .workspace-error,
 .error-overlay {
   color: var(--derma-danger);
