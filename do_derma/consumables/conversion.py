@@ -7,6 +7,13 @@ from frappe import _
 from frappe.utils import flt
 
 
+def get_stock_unit(item_code: str | None) -> str | None:
+	"""The unit the item is actually stocked in, whatever a stored row claims."""
+	if not item_code:
+		return None
+	return frappe.get_cached_value("Item", item_code, "stock_uom")
+
+
 def get_factor(item_code: str | None, uom: str | None, stock_uom: str | None) -> float:
 	"""The item master's own factor, zero when the item cannot convert that unit.
 

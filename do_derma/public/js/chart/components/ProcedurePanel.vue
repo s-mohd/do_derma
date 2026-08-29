@@ -313,7 +313,6 @@
                       class="inline-input"
                       :placeholder="__('Override')"
                       :value="edits[row.name]?.price ?? row.price_override ?? ''"
-                      :disabled="isRowSaving(row)"
                       @focus="openOverrideList(row)"
                       @click="openOverrideList(row)"
                       @change="updatePriceManual(row, $event.target.value)"
@@ -323,7 +322,6 @@
                       class="ghost small no-charge-btn"
                       :class="{ active: isNoCharge(row) }"
                       :title="__('Mark as no charge')"
-                      :disabled="isRowSaving(row)"
                       @click.stop="markNoCharge(row)"
                     >
                       {{ __("No charge") }}
@@ -333,7 +331,6 @@
                       type="button"
                       class="ghost small reset-btn"
                       :title="__('Clear override')"
-                      :disabled="isRowSaving(row)"
                       @click.stop="clearPriceOverride(row)"
                     >
                       {{ __("Reset") }}
@@ -1594,12 +1591,14 @@ function isRowSaving(row) {
   return Boolean(savingRows.value[row?.name])
 }
 
+/** Counted, because a reprice wraps this around the save that wraps it again. */
 async function withRowSaving(name, action) {
-  savingRows.value = { ...savingRows.value, [name]: true }
+  const depth = (savingRows.value[name] || 0) + 1
+  savingRows.value = { ...savingRows.value, [name]: depth }
   try {
     return await action()
   } finally {
-    savingRows.value = { ...savingRows.value, [name]: false }
+    savingRows.value = { ...savingRows.value, [name]: depth - 1 }
   }
 }
 

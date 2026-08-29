@@ -204,6 +204,7 @@ const itemHost = ref(null)
 const itemOptions = ref({})
 // The items whose options are still in flight, so a row says so instead of looking single-unit.
 const pendingItems = ref([])
+const optionRequests = new Map()
 // Which line the last change came from, so a refused save reports itself where it happened.
 const failedIndex = ref(null)
 let itemControl = null
@@ -301,7 +302,15 @@ function loadOptionsForRows() {
 }
 
 async function loadOptions(itemCode) {
-  if (!itemCode || itemOptions.value[itemCode] || pendingItems.value.includes(itemCode)) return null
+  if (!itemCode) return null
+  if (itemOptions.value[itemCode]) return itemOptions.value[itemCode]
+  // The in-flight call is shared rather than skipped, so a second asker waits for the same
+  // answer instead of being told there is none and settling for a blank unit.
+  if (!optionRequests.has(itemCode)) optionRequests.set(itemCode, fetchOptions(itemCode))
+  return optionRequests.get(itemCode)
+}
+
+async function fetchOptions(itemCode) {
   pendingItems.value = [...pendingItems.value, itemCode]
   try {
     const resp = await frappe.call({
@@ -314,6 +323,7 @@ async function loadOptions(itemCode) {
     return resp.message
   } finally {
     pendingItems.value = pendingItems.value.filter((code) => code !== itemCode)
+    optionRequests.delete(itemCode)
   }
 }
 

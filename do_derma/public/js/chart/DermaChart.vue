@@ -1123,47 +1123,43 @@ function uploadPhotos() {
 async function createPhotoSetFromImages(images) {
   photoBusy.value = "upload"
   try {
-    await savePhotoSet(images)
+    const response = await frappe.call({
+      method: "do_derma.api.create_photo_set",
+      args: {
+        values: {
+          patient: patient.value.name,
+          appointment: appointment.value.name,
+          encounter: encounter.value.name,
+          clinical_procedure: activeProcedure.value?.name || "",
+          chart_mark: selectedMark.value?.name,
+          body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
+          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+          treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
+          notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
+          photos: images.map((image) => ({
+            image,
+            view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
+            body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+            treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
+          })),
+        },
+      },
+    })
+    if (response.message?.name) {
+      data.value = {
+        ...data.value,
+        photo_sets: [response.message, ...photoSets.value.filter((set) => set.name !== response.message.name)],
+        marks: selectedMark.value?.name
+          ? marks.value.map((mark) => (mark.name === selectedMark.value.name ? { ...mark, photo_set: response.message.name } : mark))
+          : marks.value,
+      }
+      frappe.show_alert({ message: __("Photos linked to chart"), indicator: "green" })
+      await refresh()
+    }
   } finally {
     photoBusy.value = ""
   }
 }
-
-async function savePhotoSet(images) {
-  const response = await frappe.call({
-    method: "do_derma.api.create_photo_set",
-    args: {
-      values: {
-        patient: patient.value.name,
-	        appointment: appointment.value.name,
-	        encounter: encounter.value.name,
-	        clinical_procedure: activeProcedure.value?.name || "",
-	        chart_mark: selectedMark.value?.name,
-	        body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-	        body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
-	        treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
-	        notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
-	        photos: images.map((image) => ({
-	          image,
-	          view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-	          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
-	          treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
-	        })),
-      },
-    },
-  })
-  if (response.message?.name) {
-    data.value = {
-      ...data.value,
-      photo_sets: [response.message, ...photoSets.value.filter((set) => set.name !== response.message.name)],
-      marks: selectedMark.value?.name
-        ? marks.value.map((mark) => (mark.name === selectedMark.value.name ? { ...mark, photo_set: response.message.name } : mark))
-        : marks.value,
-    }
-	    frappe.show_alert({ message: __("Photos linked to chart"), indicator: "green" })
-	    await refresh()
-	  }
-	}
 
 async function retagPhoto({ photo, stage }) {
   if (!photo || !stage || photoBusy.value) return
@@ -1184,6 +1180,8 @@ async function retagPhoto({ photo, stage }) {
 
 async function deletePhoto({ photo }) {
   if (!photo || photoBusy.value) return
+  // Claimed before the confirm, so a second click cannot stack a second dialog.
+  photoBusy.value = "delete"
   const confirmed = await new Promise((resolve) => {
     frappe.confirm(
       __("Delete this photo? This cannot be undone."),
@@ -1191,8 +1189,10 @@ async function deletePhoto({ photo }) {
       () => resolve(false)
     )
   })
-  if (!confirmed) return
-  photoBusy.value = "delete"
+  if (!confirmed) {
+    photoBusy.value = ""
+    return
+  }
   try {
     await frappe.call({ method: "do_derma.api.delete_photo", args: { photo } })
     frappe.show_alert({ message: __("Photo deleted"), indicator: "green" })
@@ -1669,7 +1669,13 @@ function annotateProcedure(row) {
 
 function deleteAnnotation(annotation, doctype, docname) {
   if (annotationDeleteBusy.value) return
-  frappe.confirm(__("Delete this drawing permanently?"), () => removeAnnotation(annotation, doctype, docname))
+  // Claimed before the confirm, so a second click cannot stack a second dialog.
+  annotationDeleteBusy.value = annotation.name
+  frappe.confirm(
+    __("Delete this drawing permanently?"),
+    () => removeAnnotation(annotation, doctype, docname),
+    () => (annotationDeleteBusy.value = "")
+  )
 }
 
 /** The delete itself, shared by the annotation strip and the procedure picker. */
@@ -1737,21 +1743,31 @@ function openProcedureAnnotationPicker({ clinicalProcedure, procedureLabel, proc
     openAnnotationStudio({ ...anchor, annotation: annotations[index] || null })
   })
   $wrapper.find('[data-test="annotation-picker-delete"]').on("click", (event) => {
+    if (annotationDeleteBusy.value) return
     const index = Number(event.currentTarget.getAttribute("data-delete-index"))
     const target = annotations[index]
     const button = event.currentTarget
-    frappe.confirm(__("Delete this drawing permanently?"), async () => {
-      const label = button.textContent
-      button.disabled = true
-      button.textContent = __("Deleting...")
-      const deleted = await removeAnnotation(target, "Clinical Procedure", clinicalProcedure)
-      if (deleted) {
-        dialog.hide()
-        return
+    const label = button.textContent
+    // Claimed before the confirm, so a second click cannot stack a second dialog.
+    annotationDeleteBusy.value = target.name
+    button.disabled = true
+    frappe.confirm(
+      __("Delete this drawing permanently?"),
+      async () => {
+        button.textContent = __("Deleting...")
+        const deleted = await removeAnnotation(target, "Clinical Procedure", clinicalProcedure)
+        if (deleted) {
+          dialog.hide()
+          return
+        }
+        button.disabled = false
+        button.textContent = label
+      },
+      () => {
+        annotationDeleteBusy.value = ""
+        button.disabled = false
       }
-      button.disabled = false
-      button.textContent = label
-    })
+    )
   })
   dialog.show()
   nameDialogControls(dialog)

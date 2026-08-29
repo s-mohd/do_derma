@@ -207,6 +207,29 @@ class TestConsumableDefaults(ConsumableHelpers, ConfigTemplateHelpers, DermaTest
 
 		self.assertEqual(mark.consumables[0].conversion_factor, 1)
 
+	def test_a_template_row_naming_the_wrong_stock_unit_is_judged_by_the_item(self):
+		item = self._make_stock_item(stock_uom="Box")
+		template = self._make_consuming_template(
+			[self._consumable_row(item, uom="Nos", stock_uom="Nos", conversion_factor=1)]
+		)
+
+		mark = self._make_mark(procedure_template=template)
+
+		self.assertEqual(mark.consumables[0].stock_uom, "Box")
+		self.assertEqual(mark.consumables[0].conversion_factor, 0)
+
+	def test_the_frozen_defaults_keep_the_factor_they_were_written_with(self):
+		item = self._make_convertible_item("Box", 10)
+		template = self._make_consuming_template([self._consumable_row(item, uom="Box")])
+		mark = self._make_mark(procedure_template=template)
+
+		doc = frappe.get_doc("Item", item)
+		next(row for row in doc.uoms if row.uom == "Box").conversion_factor = 5
+		doc.save(ignore_permissions=True)
+
+		mark.reload()
+		self.assertEqual(snapshot.load(mark.default_consumables_json)[0]["conversion_factor"], 10)
+
 
 class TestConsumablesApi(ConsumableHelpers, ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase):
 	"""What the chart reads and what it may write back."""

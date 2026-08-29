@@ -45,18 +45,28 @@ def has_consumable_doctypes() -> bool:
 
 
 def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
-	"""One row reduced to the fields do_derma carries, with quantities as numbers.
+	"""One template row reduced to the fields do_derma carries, judged against the item master.
 
-	The conversion factor is read off the item rather than copied: healthcare's template grid
-	keeps the 1.0 it wrote when the item was picked even after the unit is changed by hand, so a
-	copied factor can silently consume a whole stock unit per row unit.
+	The stock unit and conversion factor are read off the item rather than copied: healthcare's
+	template grid keeps the 1.0 it wrote when the item was picked even after the unit is changed
+	by hand, so a copied factor can silently consume a whole stock unit per row unit.
 	"""
 	normalized = {field: row.get(field) for field in CONSUMABLE_FIELDS}
 	normalized["qty"] = flt(row.get("qty"))
+	normalized["stock_uom"] = conversion.get_stock_unit(normalized["item_code"]) or row.get("stock_uom")
 	normalized["conversion_factor"] = conversion.get_factor(
 		normalized["item_code"], normalized["uom"], normalized["stock_uom"]
 	)
 	return normalized
+
+
+def read_stored_row(row: dict[str, Any]) -> dict[str, Any]:
+	"""One already-stored row, taken at its word except for the quantity's type.
+
+	A frozen snapshot is a record of what the template said at the time, so nothing here is
+	re-derived from today's item master.
+	"""
+	return {**{field: row.get(field) for field in CONSUMABLE_FIELDS}, "qty": flt(row.get("qty"))}
 
 
 def select_fields(rows: list[dict[str, Any]], fields: list[str] | None = None) -> list[dict[str, Any]]:
