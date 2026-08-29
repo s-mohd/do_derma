@@ -688,9 +688,15 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   }, [selectedAreas, partValues, selectedTemplate?.name])
 
   // A selection can only name areas that are on screen, so switching body template drops
-  // whatever the previous template's areas contributed.
+  // whatever the previous template's areas contributed. Opening a drawing on the template it
+  // was made with prunes nothing: an area disabled since then is still that drawing's, and
+  // rewriting the stored selection behind the practitioner's back is not this effect's job.
+  const seededTemplateName = useRef("")
   useEffect(() => {
     if (!selectedTemplate?.name) return
+    const previous = seededTemplateName.current
+    seededTemplateName.current = selectedTemplate.name
+    if (!previous) return
     const declared = new Set(selectedParts.map((part) => part.part_name || part.partName))
     setSelectedAreas((current) =>
       current.every((partName) => declared.has(partName)) ? current : current.filter((partName) => declared.has(partName))
@@ -1065,7 +1071,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
    * it and unselects it. Reopening a selected area never costs the selection - correcting a
    * typed value must not be a trap - and a click on bare canvas only closes the editor.
    */
-  function handleRegionSelected(region) {
+  function handleRegionSelected(region, { isPlacingMark } = {}) {
     const partName = region?.partName || region?.part_name || ""
     if (!partName) {
       setFocusedArea("")
@@ -1078,7 +1084,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
     // The same click also places a mark while a procedure is armed. Unselecting there would
     // drop the area from the image on the second stamp inside it.
-    if (focusedArea !== partName || activeProcedure) {
+    if (focusedArea !== partName || isPlacingMark) {
       setFocusedArea(partName)
       return
     }
