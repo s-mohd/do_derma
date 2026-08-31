@@ -1,11 +1,12 @@
 <template>
-  <section class="workspace-panel consent-panel">
+  <section class="workspace-panel consent-panel" data-test="consent-panel">
     <header class="panel-header">
       <div class="actions">
-        <button type="button" class="ghost" :disabled="loading || saving || sending" @click="$emit('refresh')">{{ __("Refresh") }}</button>
         <button
+          v-if="enableWhatsappConsent"
           type="button"
           class="ghost"
+          data-test="consent-send-whatsapp"
           :disabled="loading || saving || sending || !canCreate"
           @click="emitSend"
         >
@@ -14,6 +15,7 @@
         <button
           type="button"
           class="primary"
+          data-test="consent-create"
           :disabled="loading || saving || sending || !canCreate"
           @click="emitCreate"
         >
@@ -31,7 +33,7 @@
     <div v-else>
       <div class="consent-workspace">
         <div class="setup-row">
-          <div class="field-host" :ref="(el) => bindHost('consent_form_template', el)"></div>
+          <div class="field-host" data-test="consent-template-host" :ref="(el) => bindHost('consent_form_template', el)"></div>
           <div class="field-host" :ref="(el) => bindHost('procedure_selection', el)"></div>
         </div>
 
@@ -43,6 +45,7 @@
               v-else
               ref="previewBoxRef"
               class="preview-box"
+              data-test="consent-preview"
               :class="{ editable: hasEditableFields }"
               v-html="previewMarkup"
             ></div>
@@ -51,12 +54,12 @@
           <div class="history-column">
             <h4>{{ __("Existing Consents") }}</h4>
             <div v-if="consents.length" class="consent-list">
-              <div v-for="row in consents" :key="row.name" class="consent-row">
+              <div v-for="row in consents" :key="row.name" class="consent-row" data-test="consent-row">
                 <button type="button" class="consent-row-main" @click="$emit('open-consent', row)">
                   <span class="name">{{ row.consent_form_template || row.name }}</span>
                   <span class="meta">{{ consentMeta(row) }}</span>
                 </button>
-                <div v-if="canManageRemote(row)" class="consent-row-actions">
+                <div v-if="enableWhatsappConsent && canManageRemote(row)" class="consent-row-actions" data-test="consent-remote-actions">
                   <button type="button" class="ghost" :disabled="sending" @click="$emit('resend-consent', row)">{{ __("Resend") }}</button>
                   <button type="button" class="ghost danger" :disabled="sending" @click="$emit('cancel-consent', row)">{{ __("Cancel") }}</button>
                 </div>
@@ -89,9 +92,10 @@ const props = defineProps({
   defaultSignedBy: { type: String, default: "" },
   resetKey: { type: Number, default: 0 },
   readOnly: { type: Boolean, default: false },
+  enableWhatsappConsent: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["refresh", "request-preview", "create", "send-whatsapp", "open-consent", "resend-consent", "cancel-consent"])
+const emit = defineEmits(["request-preview", "create", "send-whatsapp", "open-consent", "resend-consent", "cancel-consent"])
 
 const hosts = new Map()
 const controls = new Map()

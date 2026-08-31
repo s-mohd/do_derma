@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "creation": "2026-08-09 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "assessment_section",
+  "structured_assessment_fields",
+  "session_completion_section",
+  "blocker_enforcement",
+  "todo_downgrades_blockers",
+  "features_section",
+  "enable_whatsapp_consent",
+  "enable_lab_cases",
+  "enable_billing_sync"
+ ],
+ "fields": [
+  {
+   "fieldname": "assessment_section",
+   "fieldtype": "Section Break",
+   "label": "Structured Assessment"
+  },
+  {
+   "description": "Patient Encounter fields rendered by the Structured Assessment mode, in order. Fields missing from this site are skipped.",
+   "fieldname": "structured_assessment_fields",
+   "fieldtype": "Table",
+   "label": "Structured Assessment Fields",
+   "options": "Derma Structured Field"
+  },
+  {
+   "fieldname": "session_completion_section",
+   "fieldtype": "Section Break",
+   "label": "Session Completion"
+  },
+  {
+   "default": "Warn",
+   "description": "Warn lets a session with unresolved blockers be completed. Block refuses it unless a reason is recorded on the encounter.",
+   "fieldname": "blocker_enforcement",
+   "fieldtype": "Select",
+   "label": "Blocker Enforcement",
+   "options": "Warn\nBlock"
+  },
+  {
+   "default": "1",
+   "description": "An open follow-up ToDo turns a blocker into a warning.",
+   "fieldname": "todo_downgrades_blockers",
+   "fieldtype": "Check",
+   "label": "An Open ToDo Downgrades A Blocker"
+  },
+  {
+   "description": "Features that are not finished. Leave off unless the integration behind them is configured.",
+   "fieldname": "features_section",
+   "fieldtype": "Section Break",
+   "label": "Incomplete Features"
+  },
+  {
+   "default": "0",
+   "description": "Show the WhatsApp send, resend and cancel actions on the Consent tab.",
+   "fieldname": "enable_whatsapp_consent",
+   "fieldtype": "Check",
+   "label": "Enable WhatsApp Consent"
+  },
+  {
+   "default": "0",
+   "description": "Show the lab case actions on procedure rows.",
+   "fieldname": "enable_lab_cases",
+   "fieldtype": "Check",
+   "label": "Enable Lab Cases"
+  },
+  {
+   "default": "0",
+   "description": "Show the Sync Billables action.",
+   "fieldname": "enable_billing_sync",
+   "fieldtype": "Check",
+   "label": "Enable Billing Sync"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-08-09 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Do Derma",
+ "name": "Derma Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Healthcare Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Healthcare Practitioner"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

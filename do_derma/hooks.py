@@ -13,9 +13,42 @@ app_license = "mit"
 
 app_include_js = [
 	"/assets/do_derma/js/derma_sidebar.js",
+	"/assets/do_derma/js/annotations_button.js",
 ]
+
+app_include_css = [
+	"/assets/do_derma/css/annotations_button.css",
+]
+
+# Surfaces this app's drawings on the two documents that can hold them. The shims are thin on
+# purpose - the shared implementation lives in annotations_button.js.
+doctype_js = {
+	"Patient Encounter": "public/js/doctype/patient_encounter.js",
+	"Clinical Procedure": "public/js/doctype/clinical_procedure.js",
+}
+
+# A procedure's marks, treatment entries, findings and drawings are this app's records,
+# so deleting the procedure deletes them instead of being refused by Frappe's link check.
+doc_events = {
+	"Clinical Procedure": {
+		"on_trash": "do_derma.teardown.procedure.delete_derma_records",
+	}
+}
 
 fixtures = [
 	{"dt": "Custom Field", "filters": {"module": "Do Derma"}},
 	{"dt": "Property Setter", "filters": {"module": "Do Derma"}},
 ]
+
+# Lets a Patient Encounter print format render the assessment and the session's consumables
+# without carrying a copy of either list. Injected into the site's formats by printing/inject.py.
+jinja = {
+	"methods": [
+		"do_derma.printing.render.derma_assessment_html",
+		"do_derma.printing.render.derma_consumables_html",
+	]
+}
+
+# Runs on every migrate, bypassing Patch Log, so a site whose patches are recorded
+# as applied but whose fields are missing converges anyway. Idempotent.
+after_migrate = "do_derma.install.after_migrate"

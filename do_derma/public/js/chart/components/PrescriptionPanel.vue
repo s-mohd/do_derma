@@ -1,11 +1,11 @@
 <template>
-  <section class="workspace-panel prescription-panel">
+  <section class="workspace-panel prescription-panel" data-test="prescription-panel">
     <header class="panel-header">
       <div class="actions">
-        <button type="button" class="ghost" :disabled="loading || saving" @click="$emit('refresh')">{{ __("Refresh") }}</button>
         <button
           type="button"
           class="primary"
+          data-test="prescription-save"
           :disabled="loading || saving || !canSave"
           @click="emitSave"
         >
@@ -27,7 +27,11 @@
       {{ __("No encounter found for this session.") }}
     </div>
     <div v-else>
-      <div ref="tableHost" class="table-host"></div>
+      <p v-if="fillingDefaults" class="status-note" data-test="prescription-filling-defaults">
+        <span class="chart-spinner" aria-hidden="true"></span>
+        {{ __("Filling in the medication's dosage and duration...") }}
+      </p>
+      <div ref="tableHost" class="table-host" data-test="prescription-table-host"></div>
     </div>
   </section>
 </template>
@@ -48,11 +52,13 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["refresh", "save"])
+const emit = defineEmits(["save"])
 
 const tableHost = ref(null)
 let tableControl = null
 const dirtyRows = ref([])
+// A picked medication fills its own dosage and duration; the grid says so while it does.
+const fillingDefaults = ref(false)
 let renderQueued = false
 
 const canSave = computed(() => props.hasSessionContext && props.hasEncounter && !props.readOnly)
@@ -127,6 +133,7 @@ async function onMedicationChange() {
     return
   }
 
+  fillingDefaults.value = true
   try {
     const [medicationsResp, defaultsResp] = await Promise.all([
       frappe.call("healthcare.healthcare.doctype.patient_encounter.patient_encounter.get_medications", {
@@ -159,6 +166,9 @@ async function onMedicationChange() {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("Failed to apply medication defaults", err)
+    frappe.show_alert({ message: __("Could not fill in this medication's defaults."), indicator: "red" })
+  } finally {
+    fillingDefaults.value = false
   }
 }
 
@@ -208,6 +218,7 @@ async function renderTable() {
           options: "Medication",
           label: __("Medication"),
           in_list_view: 1,
+          reqd: 1,
           columns: 4,
           onchange: onMedicationChange,
         },
@@ -239,8 +250,11 @@ async function renderTable() {
           fieldname: "period",
           fieldtype: "Link",
           options: "Prescription Duration",
-          label: __("Period"),
+          // Healthcare labels this field Duration; a validation message naming
+          // "Duration" must point at a column the practitioner can see.
+          label: __("Duration"),
           in_list_view: 1,
+          reqd: 1,
           columns: 1,
         },
         {

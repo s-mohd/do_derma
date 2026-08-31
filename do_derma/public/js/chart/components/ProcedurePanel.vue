@@ -1,5 +1,5 @@
 <template>
-  <section class="procedure-panel">
+  <section class="procedure-panel" data-test="procedure-panel">
     <div class="procedure-primary-toolbar">
       <label class="history-search">
         <i class="fa-solid fa-magnifying-glass"></i>
@@ -26,6 +26,7 @@
       <button
         type="button"
         class="filter-toggle-btn"
+        data-test="procedure-filters-toggle"
         :class="{ active: advancedFiltersOpen || hasSecondaryFilters }"
         @click="advancedFiltersOpen = !advancedFiltersOpen"
       >
@@ -45,9 +46,27 @@
             <option v-for="size in ROW_BATCH_OPTIONS" :key="size" :value="size">{{ size }}</option>
           </select>
         </label>
+        <button
+          type="button"
+          class="ghost small"
+          data-test="procedure-copy-marks"
+          :disabled="readOnly || !previousMarkCount"
+          :title="previousMarkCount ? '' : __('This patient has no marks on an earlier visit.')"
+          @click="emit('copy-marks')"
+        >
+          {{ __("Copy marks from last visit") }}
+        </button>
+        <button
+          type="button"
+          class="primary small"
+          data-test="procedure-new"
+          :disabled="readOnly"
+          @click="emit('new-procedure')"
+        >
+          {{ __("New Procedure") }}
+        </button>
         <span v-if="readOnly" class="badge read-only-badge">{{ __("Read only") }}</span>
         <span v-if="anesthesiaRecorded" class="badge anesthesia-badge">{{ __("Anesthesia recorded") }}</span>
-        <button type="button" class="ghost" @click="$emit('refresh')">Refresh</button>
       </div>
     </div>
 
@@ -97,7 +116,7 @@
           <option value="undated">{{ __("No date") }}</option>
         </select>
       </label>
-      <label class="history-filter-control">
+      <label v-if="enableLabCases" class="history-filter-control" data-test="procedure-lab-filter">
         <span>{{ __("Lab") }}</span>
         <select v-model="labFilter">
           <option value="all">{{ __("All") }}</option>
@@ -141,7 +160,7 @@
         <span>{{ __("Missing notes") }}</span>
         <strong>{{ historyStats.missingNotes }}</strong>
       </div>
-      <div class="summary-tile">
+      <div v-if="enableLabCases" class="summary-tile">
         <span>{{ __("Lab follow-up") }}</span>
         <strong>{{ historyStats.labFollowUp }}</strong>
       </div>
@@ -185,7 +204,8 @@
             <tr class="procedure-date-row">
               <td colspan="8">{{ formatGroupLabel(group) }}</td>
             </tr>
-            <tr v-for="row in group.items" :key="row.name" @dblclick="handleRowDoubleClick(row, $event)">
+            <template v-for="row in group.items" :key="row.name">
+            <tr @dblclick="handleRowDoubleClick(row, $event)">
               <td>
                 <span class="pill" :class="statusClass(row.status)">
                   {{ row.status || "Draft" }}
@@ -218,9 +238,10 @@
                     <span>{{ row.derma_detail_text }}</span>
                   </button>
                   <button
-                    v-else-if="rowAllowsSurfaces(row)"
+                    v-else-if="enableLabCases && rowAllowsSurfaces(row)"
                     type="button"
                     class="detail-chip detail-chip-button"
+                    data-test="procedure-edit-surfaces"
                     :class="{ muted: !formatSurfaceText(row) }"
                     :disabled="!isEditable(row)"
                     @click="isEditable(row) ? $emit('edit-surfaces', row) : null"
@@ -233,21 +254,23 @@
                     <span>{{ __("No details") }}</span>
                   </span>
 
-                  <template v-if="row.lab_case_name">
+                  <template v-if="enableLabCases && row.lab_case_name">
                     <button
                       class="detail-chip detail-chip-button"
                       :class="labCaseStatusClass(row.lab_case_status)"
                       type="button"
+                      data-test="procedure-open-lab-case"
                       @click="$emit('open-lab-case', row)"
                     >
                       <i class="fa-solid fa-flask"></i>
                       <span>{{ row.lab_case_status || __("Lab linked") }}</span>
                     </button>
                   </template>
-                  <template v-else-if="row.lab_case_recommended && isEditable(row)">
+                  <template v-else-if="enableLabCases && row.lab_case_recommended && isEditable(row)">
                     <button
                       class="detail-chip detail-chip-button lab-suggested"
                       type="button"
+                      data-test="procedure-create-lab-case"
                       @click="$emit('create-lab-case', row)"
                     >
                       <i class="fa-solid fa-flask"></i>
@@ -259,6 +282,18 @@
                     <i class="fa-solid fa-shield-halved"></i>
                     <span>{{ __("Insurance") }}</span>
                   </span>
+                  <button
+                    v-if="consumableOwners(row).length"
+                    type="button"
+                    class="detail-chip detail-chip-button"
+                    data-test="procedure-toggle-consumables"
+                    :aria-expanded="isConsumablesOpen(row)"
+                    :title="__('Materials consumed')"
+                    @click.stop="toggleConsumables(row)"
+                  >
+                    <i class="fa-solid fa-box-open"></i>
+                    <span>{{ __("Materials") }} ({{ consumableCount(row) }})</span>
+                  </button>
                   <span v-if="row.derma_artifact_text" class="detail-chip derma-artifact-chip">
                     <i class="fa-regular fa-images"></i>
                     <span>{{ row.derma_artifact_text }}</span>
@@ -300,6 +335,13 @@
                     >
                       {{ __("Reset") }}
                     </button>
+                    <span
+                      v-if="isRowSaving(row)"
+                      class="chart-spinner"
+                      role="status"
+                      data-test="procedure-row-saving"
+                      :aria-label="__('Saving the price')"
+                    ></span>
                     <div v-if="overrideListOpenRow === row.name" class="override-dropdown" @mousedown.prevent>
                       <button
                         v-for="pl in getPriceListOptions(row)"
@@ -358,12 +400,52 @@
                 </template>
               </td>
               <td>{{ row.practitioner_name || row.practitioner || "—" }}</td>
-              <td>
-                <button class="ghost small" type="button" @click="$emit('activate-procedure', row)">{{ __("Use Chart") }}</button>
-                <button v-if="isEditable(row)" class="ghost small danger" type="button" @click="deleteRow(row)">Delete</button>
-                <span v-else class="text-muted">—</span>
+              <td class="row-actions">
+                <button
+                  v-if="getProcedureName(row)"
+                  class="icon-btn"
+                  type="button"
+                  data-test="procedure-annotate"
+                  :title="annotateLabel(row)"
+                  :aria-label="annotateLabel(row)"
+                  @click="$emit('annotate-procedure', row)"
+                >
+                  <i class="fa-regular fa-pen-to-square"></i>
+                  <span v-if="Number(row.annotation_count || 0)" class="icon-badge">{{ row.annotation_count }}</span>
+                </button>
+                <button
+                  v-if="isEditable(row)"
+                  class="icon-btn danger"
+                  type="button"
+                  data-test="procedure-delete"
+                  :title="__('Delete procedure')"
+                  :aria-label="__('Delete procedure')"
+                  @click="deleteRow(row)"
+                >
+                  <i class="fa-regular fa-trash-can"></i>
+                </button>
+                <span v-if="!getProcedureName(row) && !isEditable(row)" class="text-muted">—</span>
               </td>
             </tr>
+            <tr v-if="isConsumablesOpen(row)" class="consumables-row" data-test="procedure-consumables-row">
+              <td colspan="8">
+                <ConsumablesEditor
+                  v-for="owner in consumableOwners(row)"
+                  :key="owner.name"
+                  :owner-doctype="owner.doctype"
+                  :owner-name="owner.name"
+                  :label="owner.label"
+                  :rows="consumablesOf(owner.source).consumables"
+                  :removed="consumablesOf(owner.source).removed_consumables"
+                  :defaults="consumablesOf(owner.source).default_consumables"
+                  :read-only="readOnly || !owner.editable"
+                  :saving="!!savingConsumables[owner.name]"
+                  :error="consumableErrors[owner.name] || ''"
+                  @change="saveConsumables(owner, $event)"
+                />
+              </td>
+            </tr>
+            </template>
           </template>
         </tbody>
       </table>
@@ -383,24 +465,16 @@
       </button>
     </div>
 
-    <div class="invoice-footer">
+    <div v-if="enableBillingSync" class="invoice-footer">
       <button
         type="button"
         class="invoice-btn ghost"
+        data-test="procedure-sync-billables"
         :class="{ disabled: syncDisabled || readOnly }"
         :disabled="syncDisabled || readOnly"
         @click="$emit('sync-billables')"
       >
-        Sync Billables ({{ totalCount }})
-      </button>
-      <button
-        type="button"
-        class="invoice-btn complete"
-        :class="{ disabled: completeDisabled || readOnly }"
-        :disabled="completeDisabled || readOnly"
-        @click="$emit('complete-session')"
-      >
-        Complete Session
+        {{ __("Sync Billables") }} ({{ totalCount }})
       </button>
     </div>
 
@@ -409,6 +483,11 @@
 
 <script setup>
 import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
+import ConsumablesEditor from "./consumables/ConsumablesEditor.vue"
+import { procedureDisplayName } from "../../shared/procedure_label.js"
+import { nameDialogControls } from "../../shared/dialog_a11y.js"
+import { runDialogAction } from "../../shared/dialog_progress.js"
+import { htmlToPlainText, serverErrorText } from "../../shared/error_text.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -420,16 +499,19 @@ const props = defineProps({
   priceLists: { type: Array, default: () => [] },
   defaultPriceList: { type: String, default: "" },
   syncDisabled: { type: Boolean, default: false },
-  completeDisabled: { type: Boolean, default: false },
   anesthesiaRecorded: { type: Boolean, default: false },
   readOnly: { type: Boolean, default: false },
+  previousMarkCount: { type: Number, default: 0 },
+  enableLabCases: { type: Boolean, default: false },
+  enableBillingSync: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
   "refresh",
   "sync-billables",
-  "complete-session",
-  "activate-procedure",
+  "annotate-procedure",
+  "new-procedure",
+  "copy-marks",
   "edit-surfaces",
   "create-lab-case",
   "open-lab-case",
@@ -759,10 +841,11 @@ const emptyStateTitle = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value ? __("No matching procedures") : __("No procedures added yet")
 )
 
+// The list holds this visit only; earlier visits live on the Review timeline.
 const emptyStateMessage = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value
-    ? __("Adjust or clear the filters to bring procedure history back into view.")
-    : __("Procedures will appear here after they are recorded for this patient.")
+    ? __("Adjust or clear the filters to bring this visit's procedures back into view.")
+    : __("Procedures recorded on this visit appear here. Earlier visits are on the Review timeline.")
 )
 
 function setFilter(status) {
@@ -879,6 +962,115 @@ function displayPrice(row) {
   return ""
 }
 
+// Consumables belong to the mark, not to the procedure row that shows them. The server
+// decides what counts as a deviation from the template; nothing here recomputes it.
+const expandedConsumables = ref({})
+const consumablesByOwner = ref({})
+const consumableErrors = ref({})
+const savingConsumables = ref({})
+// Which procedure rows have a price, no-charge or note write in flight.
+const savingRows = ref({})
+
+watch(
+  () => props.groups,
+  () => {
+    consumablesByOwner.value = {}
+    consumableErrors.value = {}
+  }
+)
+
+function marksOf(row) {
+  return row?.derma_marks || []
+}
+
+function consumablesOf(owner) {
+  return (
+    consumablesByOwner.value[owner?.name] || {
+      consumables: owner?.consumables || [],
+      removed_consumables: owner?.removed_consumables || [],
+      default_consumables: owner?.default_consumables || [],
+    }
+  )
+}
+
+// A procedure records its materials on its annotations when it has any, and on itself when
+// it has none, so exactly one owner is ever on screen for a row.
+function consumableOwners(row) {
+  const marks = marksOf(row)
+  if (marks.length) {
+    return marks.map((mark) => ({
+      doctype: "Derma Chart Mark",
+      name: mark.name,
+      label: markConsumablesLabel(mark),
+      source: mark,
+      editable: true,
+    }))
+  }
+  if (!isPersistedRow(row)) return []
+  return [
+    {
+      doctype: "Clinical Procedure",
+      name: row.name,
+      label: procedureDisplayName(row),
+      source: row,
+      editable: isEditable(row),
+    },
+  ]
+}
+
+function consumableCount(row) {
+  return consumableOwners(row).reduce(
+    (total, owner) => total + consumablesOf(owner.source).consumables.length,
+    0
+  )
+}
+
+function isConsumablesOpen(row) {
+  return !!expandedConsumables.value[row.name]
+}
+
+function toggleConsumables(row) {
+  expandedConsumables.value = {
+    ...expandedConsumables.value,
+    [row.name]: !expandedConsumables.value[row.name],
+  }
+}
+
+/** Names the mark the way the rest of the chart does - "#3 Botox - Forehead", never its autoname. */
+function markConsumablesLabel(mark) {
+  const detail = [mark.procedure_template || mark.category, mark.region_label || mark.body_region]
+    .filter(Boolean)
+    .join(" — ")
+  const number = mark.sequence ? `#${mark.sequence}` : ""
+  return [number, detail].filter(Boolean).join(" ") || __("Mark")
+}
+
+async function saveConsumables(owner, rows) {
+  const name = owner.name
+  savingConsumables.value = { ...savingConsumables.value, [name]: true }
+  consumableErrors.value = { ...consumableErrors.value, [name]: "" }
+  try {
+    // Silent: a refused save already reports itself on the line it came from, and the
+    // modal on top of it only buries the row the clinician is fixing.
+    const resp = await frappe.call({
+      method: "do_derma.api.save_consumables",
+      args: { owner_doctype: owner.doctype, owner_name: name, rows },
+      silent: true,
+    })
+    if (resp?.message) {
+      consumablesByOwner.value = { ...consumablesByOwner.value, [name]: resp.message }
+    }
+  } catch (err) {
+    consumableErrors.value = { ...consumableErrors.value, [name]: consumableErrorText(err) }
+  } finally {
+    savingConsumables.value = { ...savingConsumables.value, [name]: false }
+  }
+}
+
+function consumableErrorText(err) {
+  return serverErrorText(err, __("The materials could not be saved."))
+}
+
 function updateLocal(row, key, value) {
   edits.value = {
     ...edits.value,
@@ -887,22 +1079,6 @@ function updateLocal(row, key, value) {
       [key]: value,
     },
   }
-}
-
-function htmlToPlainText(value) {
-  const raw = String(value || "")
-  if (!raw) return ""
-  if (!/[<>]/.test(raw)) return raw
-  const html = raw
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "- ")
-  const el = document.createElement("div")
-  el.innerHTML = html
-  return (el.textContent || el.innerText || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
 }
 
 function resolveRowPatient(row) {
@@ -980,14 +1156,14 @@ function toEditorHtml(value) {
   return paragraphs.length ? `<p>${paragraphs.join("</p><p>")}</p>` : ""
 }
 
-async function fetchDentalNoteTemplate(templateName) {
-  if (!templateName) return ""
+async function fetchNoteTemplate(templateName) {
+  if (!templateName) return { raw_html: "", plain_text: "" }
   try {
     const resp = await frappe.call("frappe.client.get", {
-      doctype: "Dental Note Template",
+      doctype: "Derma Note Template",
       name: templateName,
     })
-    const raw = String(resp?.message?.default_text || "")
+    const raw = String(resp?.message?.note || "")
     return {
       raw_html: toEditorHtml(raw),
       plain_text: htmlToPlainText(raw),
@@ -995,10 +1171,11 @@ async function fetchDentalNoteTemplate(templateName) {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn("Failed to fetch note template", err)
-    return {
-      raw_html: "",
-      plain_text: "",
-    }
+    frappe.show_alert({
+      message: __("Could not load note template {0}.").replace("{0}", templateName),
+      indicator: "red",
+    })
+    return null
   }
 }
 
@@ -1050,25 +1227,42 @@ async function openProcedureNoteDialog(row) {
     `)
   }
 
+  // The procedure template's own note sentence is the default when nothing is
+  // picked from the library.
+  const noteSentence = String(row.note_sentence_template || "").trim()
+
+  const setTemplateMessage = (text) => {
+    const $wrapper = dialog?.fields_dict?.template_preview?.$wrapper
+    if ($wrapper?.length) $wrapper.html(`<div class="procedure-note-dialog__loading">${escapeHtml(text)}</div>`)
+  }
+
   const updateTemplatePreview = async () => {
     if (!dialog) return
     const templateName = dialog.get_value("note_template")
     if (!templateName) {
-      setTemplatePreview("", "")
+      setTemplatePreview(toEditorHtml(noteSentence), htmlToPlainText(noteSentence))
       return
     }
-    const templateData = await fetchDentalNoteTemplate(templateName)
+    setTemplateMessage(__("Loading the template..."))
+    const templateData = await fetchNoteTemplate(templateName)
+    if (!templateData) {
+      setTemplatePreview()
+      return
+    }
     setTemplatePreview(templateData.raw_html, templateData.plain_text)
   }
 
   const applyTemplateToNote = async () => {
     if (!dialog) return
     const templateName = dialog.get_value("note_template")
-    if (!templateName) {
+    if (!templateName && !noteSentence) {
       frappe.show_alert({ message: __("Select a note template first."), indicator: "orange" })
       return
     }
-    const templateData = await fetchDentalNoteTemplate(templateName)
+    const templateData = templateName
+      ? await fetchNoteTemplate(templateName)
+      : { raw_html: toEditorHtml(noteSentence), plain_text: htmlToPlainText(noteSentence) }
+    if (!templateData) return
     if (!templateData.raw_html && !templateData.plain_text) {
       frappe.show_alert({ message: __("Selected template has no text."), indicator: "orange" })
       return
@@ -1112,7 +1306,7 @@ async function openProcedureNoteDialog(row) {
         fieldname: "note_template",
         fieldtype: "Link",
         label: __("Apply Note Template"),
-        options: "Dental Note Template",
+        options: "Derma Note Template",
         hidden: editable ? 0 : 1,
         get_query: () => ({ filters: { disabled: 0 } }),
         onchange: updateTemplatePreview,
@@ -1143,16 +1337,21 @@ async function openProcedureNoteDialog(row) {
       },
     ],
     primary_action_label: editable ? __("Save Note") : __("Close"),
-    primary_action: async (values) => {
+    primary_action: (values) => {
       if (!editable) {
         dialog.hide()
-        return
+        return undefined
       }
-      const nextValue = values?.note ?? ""
-      updateLocal(row, "notes", nextValue)
-      saveRow(row, { silent: true })
-      dialog.hide()
-      frappe.show_alert({ message: __("Procedure note saved."), indicator: "green" })
+      return runDialogAction(dialog, __("Saving the note..."), async () => {
+        updateLocal(row, "notes", values?.note ?? "")
+        const saved = await saveRow(row, { silent: true })
+        if (!saved) {
+          frappe.show_alert({ message: __("Could not save the note."), indicator: "red" })
+          return false
+        }
+        frappe.show_alert({ message: __("Procedure note saved."), indicator: "green" })
+        return true
+      })
     },
   })
 
@@ -1162,12 +1361,20 @@ async function openProcedureNoteDialog(row) {
   )
   if (editable) {
     dialog.set_secondary_action_label(__("Apply Template"))
-    dialog.set_secondary_action(() => {
-      void applyTemplateToNote()
+    dialog.set_secondary_action(async (event) => {
+      const button = event?.currentTarget
+      if (button) button.disabled = true
+      try {
+        await applyTemplateToNote()
+      } finally {
+        if (button) button.disabled = false
+      }
     })
   }
   dialog.show()
+  nameDialogControls(dialog)
   void renderRelatedHistory()
+  if (editable && noteSentence) void updateTemplatePreview()
 }
 
 function normalizePriceListName(value) {
@@ -1307,24 +1514,26 @@ function closeOverrideList() {
 
 async function setOverrideFromPriceList(row, priceList) {
   const normalized = normalizePriceListName(priceList)
-  if (!normalized) return
-  try {
-    const resp = await frappe.call("do_derma.api.get_procedure_price", {
-      procedure_name: row.name,
-      price_list: normalized,
-    })
-    const rate = resp?.message?.rate
-    updateLocal(row, "price", rate)
-    updateLocal(row, "no_charge", false)
-    updateLocal(row, "price_override_reason", "")
-    saveRow(row, { silent: true })
-  } catch (err) {
-    frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
-    // eslint-disable-next-line no-console
-    console.warn("Failed to fetch override price", err)
-  } finally {
-    closeOverrideList()
-  }
+  if (!normalized || isRowSaving(row)) return
+  await withRowSaving(row.name, async () => {
+    try {
+      const resp = await frappe.call("do_derma.api.get_procedure_price", {
+        procedure_name: row.name,
+        price_list: normalized,
+      })
+      const rate = resp?.message?.rate
+      updateLocal(row, "price", rate)
+      updateLocal(row, "no_charge", false)
+      updateLocal(row, "price_override_reason", "")
+      await saveRow(row, { silent: true })
+    } catch (err) {
+      frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
+      // eslint-disable-next-line no-console
+      console.warn("Failed to fetch override price", err)
+    } finally {
+      closeOverrideList()
+    }
+  })
 }
 
 onBeforeUnmount(() => {
@@ -1339,27 +1548,66 @@ async function repriceRow(row, priceList) {
     updateLocal(row, "price_list", normalizePriceListName(priceList) || CUSTOM_PRICE_LIST)
     return
   }
+  if (isRowSaving(row)) return
+  await withRowSaving(row.name, async () => {
+    try {
+      const resp = await frappe.call("do_derma.api.get_procedure_price", {
+        procedure_name: row.name,
+        price_list: normalizePriceListName(priceList),
+      })
+      const rate = resp?.message?.rate
+      updateLocal(row, "price", rate)
+      updateLocal(row, "price_list", normalizePriceListName(priceList))
+      updateLocal(row, "no_charge", false)
+      updateLocal(row, "price_override_reason", "")
+      row.base_rate = rate
+      await saveRow(row)
+    } catch (err) {
+      frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
+      // eslint-disable-next-line no-console
+      console.warn("Failed to fetch price", err)
+    }
+  })
+}
+
+// Client row keys -> Clinical Procedure fieldnames (do_derma custom fields,
+// created by schema.py). The note rides on the core `notes` field, which do_derma's
+// property setter unlocks so an edit after insert lands instead of throwing.
+const PROCEDURE_UPDATE_FIELD_MAP = {
+  price_override: "custom_derma_price_override",
+  price_list: "custom_derma_price_list",
+  no_charge: "custom_derma_no_charge",
+  price_override_reason: "custom_derma_price_override_reason",
+  notes: "notes",
+}
+
+/** Resolves true when the row is persisted (or there was nothing to save), false on failure. */
+function saveRow(row, opts = {}) {
+  if (!isPersistedRow(row)) return Promise.resolve(false)
+  return withRowSaving(row.name, () => writeRow(row, opts))
+}
+
+function isRowSaving(row) {
+  return Boolean(savingRows.value[row?.name])
+}
+
+/**
+ * Counted, because a reprice wraps this around the save that wraps it again. Both ends read
+ * the live count: two saves of one row can overlap - a price edit still in flight when Reset
+ * is clicked - and writing back a depth captured on the way in left the count above zero for
+ * good, so the row span forever and refused every later reprice.
+ */
+async function withRowSaving(name, action) {
+  savingRows.value = { ...savingRows.value, [name]: (savingRows.value[name] || 0) + 1 }
   try {
-    const resp = await frappe.call("do_derma.api.get_procedure_price", {
-      procedure_name: row.name,
-      price_list: normalizePriceListName(priceList),
-    })
-    const rate = resp?.message?.rate
-    updateLocal(row, "price", rate)
-    updateLocal(row, "price_list", normalizePriceListName(priceList))
-    updateLocal(row, "no_charge", false)
-    updateLocal(row, "price_override_reason", "")
-    row.base_rate = rate
-    saveRow(row)
-  } catch (err) {
-    frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
-    // eslint-disable-next-line no-console
-    console.warn("Failed to fetch price", err)
+    return await action()
+  } finally {
+    const remaining = Math.max((savingRows.value[name] || 1) - 1, 0)
+    savingRows.value = { ...savingRows.value, [name]: remaining }
   }
 }
 
-function saveRow(row, opts = {}) {
-  if (!isPersistedRow(row)) return
+function writeRow(row, opts) {
   const payload = edits.value[row.name] || {}
   const updates = {}
   if (payload.price !== undefined) {
@@ -1389,12 +1637,15 @@ function saveRow(row, opts = {}) {
     updates.price_override_reason = String(payload.price_override_reason || "")
   }
   if (payload.notes !== undefined) updates.notes = String(payload.notes || "")
-  if (!Object.keys(updates).length) return
+  if (!Object.keys(updates).length) return Promise.resolve(true)
 
-  frappe
+  const serverUpdates = Object.fromEntries(
+    Object.entries(updates).map(([key, value]) => [PROCEDURE_UPDATE_FIELD_MAP[key] || key, value])
+  )
+  return frappe
     .call("do_derma.api.update_clinical_procedure_fields", {
       procedure_name: row.name,
-      updates,
+      updates: serverUpdates,
     })
     .then((resp) => {
       Object.assign(row, {
@@ -1437,6 +1688,7 @@ function saveRow(row, opts = {}) {
       if (!opts.silent) {
         frappe.show_alert({ message: __("Updated."), indicator: "green" })
       }
+      return true
     })
     .catch((err) => {
       if (!opts.silent) {
@@ -1444,6 +1696,7 @@ function saveRow(row, opts = {}) {
       }
       // eslint-disable-next-line no-console
       console.warn("Failed to update procedure row", err)
+      return false
     })
 }
 
@@ -1504,7 +1757,7 @@ function rowAllowsSurfaces(row) {
 function deleteRow(row) {
   if (!row?.name) return
   const procedure = row.clinical_procedure || row.name
-  const label = __("Delete the procedure?")
+  const label = __("Delete the procedure with its marks and drawings?")
   frappe.confirm(label, () => {
     const doctype = "Clinical Procedure"
     const name = procedure
@@ -1526,6 +1779,11 @@ function getProcedureName(row) {
   const name = row?.clinical_procedure || row?.name
   if (!name || String(name).startsWith("local-")) return ""
   return name
+}
+
+function annotateLabel(row) {
+  const count = Number(row?.annotation_count || 0)
+  return count ? `${__("Annotate")} (${count})` : __("Annotate")
 }
 
 function openProcedure(row) {
@@ -1872,18 +2130,21 @@ function handleRowDoubleClick(row, event) {
   cursor: pointer;
 }
 
+/* Below this the eight columns cannot all hold their content, so the wrapper
+   scrolls the whole table rather than clipping the Actions column off the end. */
 .dental-chart-page .procedure-table {
   width: 100%;
+  min-width: 860px;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
 .dental-chart-page .procedure-table .col-status {
-  width: 9%;
+  width: 8%;
 }
 
 .dental-chart-page .procedure-table .col-procedure {
-  width: 22%;
+  width: 21%;
 }
 
 .dental-chart-page .procedure-table .col-tooth {
@@ -1891,11 +2152,11 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-details {
-  width: 24%;
+  width: 22%;
 }
 
 .dental-chart-page .procedure-table .col-price {
-  width: 9%;
+  width: 8%;
 }
 
 .dental-chart-page .procedure-table .col-notes {
@@ -1906,8 +2167,9 @@ function handleRowDoubleClick(row, event) {
   width: 12%;
 }
 
+/* Two icon buttons plus their count badge: never less than ~86px. */
 .dental-chart-page .procedure-table .col-actions {
-  width: 5%;
+  width: 10%;
 }
 
 .dental-chart-page .procedure-table th {
@@ -2121,6 +2383,54 @@ function handleRowDoubleClick(row, event) {
   border-color: #fecaca;
   background: #fff1f2;
   color: #b91c1c;
+}
+
+.dental-chart-page .procedure-table td.row-actions {
+  white-space: nowrap;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.dental-chart-page .procedure-table .icon-btn {
+  position: relative;
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 5px 7px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.dental-chart-page .procedure-table .icon-btn + .icon-btn {
+  margin-left: 4px;
+}
+
+.dental-chart-page .procedure-table .icon-btn:hover {
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.dental-chart-page .procedure-table .icon-btn.danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+}
+
+.dental-chart-page .procedure-table .icon-btn .icon-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #087b75;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
 }
 
 .dental-chart-page .procedure-table td {
