@@ -7,6 +7,7 @@ import { MARKER_SIZE_DEFAULT, MARKER_SIZE_STEP, markerSizeOf, steppedMarkerSize 
 import MarkerSizeControl from "./MarkerSizeControl.jsx"
 import { usePhotoCapture } from "./use_photo_capture.js"
 import { describeError } from "../../shared/error_text.js"
+import { openCopyPreviousMarksDialog } from "./copy_previous_marks.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
@@ -459,10 +460,15 @@ function badgeElements(items) {
   })
 }
 
-function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, annotation, marks, onClose, onSaved }) {
+function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, annotation, marks, previousMarks, onClose, onSaved }) {
   ensureProcessEnv()
   const embeddedRef = useRef(null)
   const [drawer, setDrawer] = useState("")
+  // The marks the canvas draws. Starts as the drawing's own and grows when marks are copied
+  // from the previous drawing, so the canvas can be told without the host reloading.
+  const [canvasMarks, setCanvasMarks] = useState(() => marks || [])
+  // Dismissed for this session: the offer is made once and does not nag.
+  const [copyOfferDismissed, setCopyOfferDismissed] = useState(false)
   const [annotationName, setAnnotationName] = useState(annotation?.name || "")
   const [selectedTemplateName, setSelectedTemplateName] = useState(() => resumedTemplateName(annotation))
   const [selectedProcedures, setSelectedProcedures] = useState([])
@@ -1046,6 +1052,31 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     }
   }
 
+  // Offered on a fresh drawing only, and only while nothing has been drawn on it: once the
+  // practitioner has started, the previous drawing is no longer what they are working from.
+  const canOfferMarkCopy =
+    isProcedureAnchor &&
+    !annotation?.name &&
+    !copyOfferDismissed &&
+    !activeProcedure &&
+    !editingMark &&
+    (previousMarks || []).length > 0 &&
+    canvasMarks.length === 0
+
+  /** Copies belong to this session, so a discard takes them with it, exactly like a placed mark. */
+  function offerMarkCopy() {
+    openCopyPreviousMarksDialog({
+      marks: previousMarks || [],
+      context,
+      onCopied: (created) => {
+        sessionMarks.current = new Set([...sessionMarks.current, ...created.map((mark) => mark.name)])
+        setCanvasMarks((current) => [...current, ...created])
+        setCopyOfferDismissed(true)
+        setSceneRevision((revision) => revision + 1)
+      },
+    })
+  }
+
   /**
    * Clicking a mark reopens the variable editor bound to it, so a stroke or stamp can be
    * corrected after the fact instead of being redrawn. It edits only: placement mode is
@@ -1263,7 +1294,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     <div className="derma-annotation-modal" role="dialog" aria-modal="true">
       <div className="derma-annotation-backdrop" />
       <section
-        className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure || editingMark ? "tagging" : ""} ${isProcedureAnchor ? "" : "no-right"}`}
+        className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure || editingMark ? "tagging" : ""} ${activeProcedure || editingMark || canOfferMarkCopy ? "banner-open" : ""} ${isProcedureAnchor ? "" : "no-right"}`}
       >
         <header className="derma-annotation-header">
           <div>
@@ -1328,6 +1359,28 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
               }}
             >
               {editingMark ? __("Done") : __("Stop Tagging")}
+            </button>
+          </div>
+        ) : null}
+
+        {canOfferMarkCopy ? (
+          <div className="derma-annotation-copy-banner" data-test="annotation-copy-previous-marks">
+            <span>
+              {__("The previous drawing on this procedure has {0} mark(s).").replace(
+                "{0}",
+                previousMarks.length
+              )}
+            </span>
+            <button type="button" className="ghost small" onClick={offerMarkCopy}>
+              {__("Copy marks...")}
+            </button>
+            <button
+              type="button"
+              className="ghost small"
+              data-test="annotation-copy-previous-dismiss"
+              onClick={() => setCopyOfferDismissed(true)}
+            >
+              {__("Dismiss")}
             </button>
           </div>
         ) : null}
@@ -1446,7 +1499,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             bodyTemplate={selectedTemplate}
             procedureVariables={procedureValues[activeProcedure] || {}}
             initialAnnotation={annotation}
-            marks={marks || []}
+            marks={canvasMarks}
             onMarkPlaced={handleMarkPlaced}
             onMarkSelected={handleMarkSelected}
             onRegionSelected={handleRegionSelected}
@@ -1619,6 +1672,7 @@ export function openDermaAnnotationStudio(options = {}) {
       procedureTemplates={options.procedureTemplates || []}
       annotation={options.annotation || null}
       marks={options.marks || []}
+      previousMarks={options.previousMarks || []}
       onSaved={options.onSaved}
       onClose={close}
     />

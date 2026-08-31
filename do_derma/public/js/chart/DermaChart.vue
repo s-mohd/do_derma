@@ -1590,6 +1590,10 @@ function openAnnotationStudio(anchor = {}) {
     return
   }
   const clinicalProcedure = anchor.clinicalProcedure || ""
+  // `annotation: null` is an explicit "start a fresh drawing" - only an absent key falls
+  // back to resuming the anchor's newest one.
+  const opened =
+    anchor.annotation !== undefined ? anchor.annotation : latestAnnotationForAnchor(clinicalProcedure)
   openDermaAnnotationStudio({
     context: {
       patient: patient.value.name,
@@ -1605,11 +1609,9 @@ function openAnnotationStudio(anchor = {}) {
     },
     bodyTemplates: bodyTemplates.value,
     procedureTemplates: procedureTemplates.value,
-    // `annotation: null` is an explicit "start a fresh drawing" - only an
-    // absent key falls back to resuming the anchor's newest one.
-    annotation:
-      anchor.annotation !== undefined ? anchor.annotation : latestAnnotationForAnchor(clinicalProcedure),
-    marks: marksForAnchor(clinicalProcedure),
+    annotation: opened,
+    marks: marksForAnnotation(clinicalProcedure, opened),
+    previousMarks: previousDrawingMarks(clinicalProcedure, opened),
     onSaved: async (saved) => {
       await refresh()
       openAnnotationReviewDialog(saved)
@@ -1648,6 +1650,33 @@ function isResumableAnnotation(annotation) {
 function marksForAnchor(clinicalProcedure) {
   if (!clinicalProcedure) return marks.value.filter((mark) => !mark.clinical_procedure)
   return marks.value.filter((mark) => mark.clinical_procedure === clinicalProcedure)
+}
+
+/**
+ * A drawing renders its own marks and nobody else's. Handing it the anchor's whole history
+ * put the previous drawing's marks on a fresh canvas, and saving would have re-pointed their
+ * `annotation` link at the new drawing (api.py _sync_chart_marks_for_annotation).
+ */
+function marksForAnnotation(clinicalProcedure, annotation) {
+  const annotationName = annotation?.name || ""
+  if (!annotationName) return []
+  return marksForAnchor(clinicalProcedure).filter((mark) => mark.annotation === annotationName)
+}
+
+/** The marks the studio may offer to copy: the drawing this one follows, and only that one. */
+function previousDrawingMarks(clinicalProcedure, annotation) {
+  const previous = previousAnnotationForAnchor(clinicalProcedure, annotation)
+  if (!previous?.name) return []
+  return marksForAnchor(clinicalProcedure).filter((mark) => mark.annotation === previous.name)
+}
+
+/** The newest drawing on the anchor that is not the one being opened. */
+function previousAnnotationForAnchor(clinicalProcedure, annotation) {
+  const openedName = annotation?.name || ""
+  const drawings = clinicalProcedure
+    ? procedureAnnotations.value[clinicalProcedure] || []
+    : encounterAnnotations.value.filter((row) => row.source_name === encounter.value.name)
+  return drawings.find((row) => row.name && row.name !== openedName) || null
 }
 
 function annotateProcedure(row) {

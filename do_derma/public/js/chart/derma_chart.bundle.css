@@ -3995,7 +3995,7 @@ body.derma-annotation-open .modal-backdrop {
     "left   main   right";
 }
 
-.derma-annotation-shell.tagging {
+.derma-annotation-shell.banner-open {
   grid-template-rows: auto auto minmax(0, 1fr);
   grid-template-areas:
     "header header"
@@ -4003,7 +4003,7 @@ body.derma-annotation-open .modal-backdrop {
     "main   right";
 }
 
-.derma-annotation-shell.tagging.drawer-open {
+.derma-annotation-shell.banner-open.drawer-open {
   grid-template-areas:
     "header header header"
     "banner banner banner"
@@ -4133,6 +4133,23 @@ body.derma-annotation-open .modal-backdrop {
   color: var(--derma-brand);
   font-size: 13px;
   font-weight: 700;
+}
+
+/* Shares the banner row with the tagging banner; only one is ever on screen. */
+.derma-annotation-copy-banner {
+  grid-area: banner;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--derma-bg-subtle);
+  border-bottom: 1px solid var(--derma-border);
+  color: var(--derma-text-secondary-alt);
+  font-size: 13px;
+}
+
+.derma-annotation-copy-banner span {
+  margin-right: auto;
 }
 
 .derma-annotation-tagging-banner .derma-marker-size {
@@ -4546,7 +4563,7 @@ body.derma-annotation-open .modal-backdrop {
       "right";
   }
 
-  .derma-annotation-shell.tagging {
+  .derma-annotation-shell.banner-open {
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     grid-template-areas:
       "header"
@@ -4563,7 +4580,7 @@ body.derma-annotation-open .modal-backdrop {
       "right  right";
   }
 
-  .derma-annotation-shell.tagging.drawer-open {
+  .derma-annotation-shell.banner-open.drawer-open {
     grid-template-areas:
       "header header"
       "banner banner"
