@@ -91,6 +91,25 @@ class TestDermaPrescriptions(DermaTestHelpers, IntegrationTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			api.get_derma_prescriptions(encounter="does-not-matter")
 
+	def test_the_chart_counts_prescriptions_without_loading_them(self):
+		"""The Prescription tab's badge reads this; the rows themselves load on demand."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		chart = api.get_patient_derma_chart(patient_id=patient, encounter=encounter.name)
+		self.assertEqual(chart["prescription_count"], 0)
+
+		api.set_derma_prescriptions(
+			payload=json.dumps([self._row(drug_name="First"), self._row(drug_name="Second")]),
+			encounter=encounter.name,
+		)
+		chart = api.get_patient_derma_chart(patient_id=patient, encounter=encounter.name)
+		self.assertEqual(chart["prescription_count"], 2)
+
+	def test_the_count_is_zero_without_an_encounter(self):
+		patient = self._make_patient()
+		chart = api.get_patient_derma_chart(patient_id=patient)
+		self.assertEqual(chart["prescription_count"], 0)
+
 
 class TestConsentPreview(DermaTestHelpers, IntegrationTestCase):
 	"""A template the health app cannot render must name itself, not explode."""

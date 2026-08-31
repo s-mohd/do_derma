@@ -2006,6 +2006,16 @@ def _drug_prescription_rows(encounter_doc) -> list[dict[str, Any]]:
 	return [_drug_prescription_row(row, allowed) for row in encounter_doc.get("drug_prescription") or []]
 
 
+def _get_derma_prescription_count(encounter: str | None) -> int:
+	"""How many drugs this visit prescribed. The chart badges the Prescription tab with this;
+	the rows themselves stay behind `get_derma_prescriptions`, which the tab loads on demand."""
+	if not encounter or not _has_field("Patient Encounter", "drug_prescription"):
+		return 0
+	return frappe.db.count(
+		"Drug Prescription", {"parent": encounter, "parenttype": "Patient Encounter"}
+	)
+
+
 def _clinical_procedure_context_filters(
 	encounter: str | None = None, appointment: str | None = None, patient: str | None = None
 ) -> dict[str, Any]:
@@ -2275,6 +2285,9 @@ def get_patient_derma_chart(
 			"previous photo sets",
 			[],
 			lambda: _get_previous_photo_sets(patient, current_encounter=encounter_id),
+		),
+		"prescription_count": section(
+			"prescription count", 0, lambda: _get_derma_prescription_count(encounter_id)
 		),
 		"marks": section(
 			"marks",

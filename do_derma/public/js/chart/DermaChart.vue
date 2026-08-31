@@ -70,6 +70,18 @@
               data-test="procedures-tab-count"
               :title="__('{0} procedure(s) this visit').replace('{0}', procedureCount)"
             >{{ procedureCount }}</i>
+            <i
+              v-if="section.key === 'photos' && photoCount"
+              class="tab-count"
+              data-test="photos-tab-count"
+              :title="__('{0} photo(s) this visit').replace('{0}', photoCount)"
+            >{{ photoCount }}</i>
+            <i
+              v-if="section.key === 'prescriptions' && prescriptionCount"
+              class="tab-count"
+              data-test="prescriptions-tab-count"
+              :title="__('{0} prescription(s) this visit').replace('{0}', prescriptionCount)"
+            >{{ prescriptionCount }}</i>
             <small v-if="section.key !== 'assessment' || !assessmentModeToggleVisible">{{ section.hint }}</small>
             <small
               v-else
@@ -745,6 +757,17 @@ const currentPractitionerName = computed(() => encounter.value.practitioner_name
 const priceLists = computed(() => selectedPriceList.value ? [selectedPriceList.value] : [])
 const anesthesiaRecorded = computed(() => anesthesiaPanel.rows.length > 0)
 const procedureCount = computed(() => procedures.value.length)
+const photoCount = computed(() =>
+  photoSets.value.reduce((total, set) => total + (set.photos?.length || 0), 0)
+)
+// Seeded by the chart payload, because the Rx rows load only once that tab is opened and a
+// badge that appears on the first visit to a tab is worse than none. Once they are loaded the
+// panel is the truth: saving a prescription updates its rows without reloading the chart.
+const prescriptionCount = computed(() =>
+  loadedTabs.prescriptions
+    ? prescriptionPanel.rows.length
+    : Number(data.value.prescription_count || 0)
+)
 const followupBlockers = computed(() => readinessBlockers.value.filter((item) => item.source === READINESS_FOLLOWUP))
 const inventoryBlockers = computed(() => readinessBlockers.value.filter((item) => item.source === READINESS_INVENTORY))
 const followupStats = computed(() => ({
