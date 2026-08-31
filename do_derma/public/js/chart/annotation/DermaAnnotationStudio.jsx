@@ -581,15 +581,18 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   })
 
   // Opening from a procedure row already claims "Procedure: X" in the header, so the
-  // canvas has to agree: arm that procedure once, exactly as a click on it would.
+  // canvas has to agree: list that procedure once, exactly as a click on it would.
+  // Only a fresh drawing is armed. Resuming a saved annotation is here to be adjusted,
+  // and an armed procedure holds the canvas in mark-placement, so the first click on an
+  // existing mark would stamp a new one instead of selecting it.
   const hasArmedAnchor = useRef(false)
   useEffect(() => {
     if (hasArmedAnchor.current || !isProcedureAnchor || !anchorProcedureDoc) return
     hasArmedAnchor.current = true
     const name = procedureLabel(anchorProcedureDoc)
     setSelectedProcedures((current) => (current.includes(name) ? current : [...current, name]))
-    setActiveProcedure(name)
-  }, [isProcedureAnchor, anchorProcedureDoc])
+    if (!annotation?.name) setActiveProcedure(name)
+  }, [isProcedureAnchor, anchorProcedureDoc, annotation])
 
   useEffect(() => {
     if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
