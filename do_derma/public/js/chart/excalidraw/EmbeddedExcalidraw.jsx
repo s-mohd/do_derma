@@ -134,6 +134,23 @@ function parseAnnotation(annotation) {
 	      applyDermaTool(nextTemplate)
 	    },
 		    setBodyTemplate: setChartTemplate,
+	    // Empties the sheet: drops the template image and its area outlines, and keeps whatever
+	    // the practitioner drew. Everything downstream already copes with no template - the
+	    // image effect no-ops without one, and placing a tagged mark is refused.
+	    clearBodyTemplate: (blankTemplate) => {
+	      if (!api) return
+	      const kept = api
+	        .getSceneElements()
+	        .filter(
+	          (element) =>
+	            element.customData?.kind !== "derma_template" &&
+	            element.customData?.kind !== TEMPLATE_PART_KIND
+	        )
+	      api.updateScene({ elements: kept })
+	      // Recorded, not forgotten: the saved scene's `derma_template.name` is what reopening
+	      // reads, so a drawing made on the blank sheet has to come back on it.
+	      setChartTemplate(blankTemplate || null)
+	    },
 	    setProcedureVariables: (variables) => {
 	      procedureVariablesRef.current = variables || {}
 	    },
@@ -348,7 +365,10 @@ function parseAnnotation(annotation) {
 	          if (dermaToolRef.current !== "mark" || !isStampBehavior(template)) return
 	          if (pointerDownState?.scrollbars?.isOverEither) return
 	          if (!getTemplateElement(api)) {
-	            globalThis.frappe?.show_alert?.({ message: "Load a chart image before placing marks", indicator: "orange" })
+	            globalThis.frappe?.show_alert?.({
+	              message: "Choose a body template before placing marks - the blank sheet has nothing to position them on",
+	              indicator: "orange",
+	            })
 	            return
 	          }
 	          if (!origin) return
@@ -441,6 +461,7 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
     loadAnnotation: (annotation) => bridgeRef.current?.loadAnnotation?.(annotation),
     setSelectedTemplate: (template) => bridgeRef.current?.setSelectedTemplate?.(template),
     setBodyTemplate: (template) => bridgeRef.current?.setBodyTemplate?.(template),
+    clearBodyTemplate: (blankTemplate) => bridgeRef.current?.clearBodyTemplate?.(blankTemplate),
     setProcedureVariables: (variables) => bridgeRef.current?.setProcedureVariables?.(variables),
     setMarks: (marks) => bridgeRef.current?.setMarks?.(marks),
     setMarkerSize: (size) => bridgeRef.current?.setMarkerSize?.(size),

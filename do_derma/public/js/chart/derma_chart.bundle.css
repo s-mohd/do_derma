@@ -4303,6 +4303,15 @@ body.derma-annotation-open .modal-backdrop {
   grid-template-columns: 14px minmax(0, 1fr);
 }
 
+/* Stands in for the thumbnail the other cards have: the blank sheet has no image. */
+.derma-template-blank-swatch {
+  width: 58px;
+  height: 44px;
+  border: 1px dashed var(--derma-border);
+  border-radius: 6px;
+  background: var(--derma-white);
+}
+
 .derma-template-list button.active,
 .derma-treatment-list button.active,
 .derma-treatment-list button.selected {

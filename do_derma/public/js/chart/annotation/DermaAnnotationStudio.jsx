@@ -12,6 +12,26 @@ import { openCopyPreviousMarksDialog } from "./copy_previous_marks.js"
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
 
+/**
+ * An empty sheet to draw on, offered beside the body templates. Not a Derma Body Template:
+ * it carries no image, no areas and no allowed-list membership, so it exists only in the
+ * picker and in the saved scene's `derma_template.name`. Tagged marks need a template's
+ * bounds to position against, so the canvas refuses them here - freehand, shapes, text and
+ * photos are the point.
+ */
+const BLANK_TEMPLATE_NAME = "__derma_blank__"
+
+const BLANK_TEMPLATE = {
+  name: BLANK_TEMPLATE_NAME,
+  template_type: "Blank",
+  image: "",
+  parts: [],
+}
+
+function isBlankTemplate(template) {
+  return (typeof template === "string" ? template : template?.name) === BLANK_TEMPLATE_NAME
+}
+
 const BADGE_DIAMETER = 22
 const BADGE_FONT_SIZE = 13
 const BADGE_MIN_DIAMETER = 18
@@ -470,7 +490,12 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // Dismissed for this session: the offer is made once and does not nag.
   const [copyOfferDismissed, setCopyOfferDismissed] = useState(false)
   const [annotationName, setAnnotationName] = useState(annotation?.name || "")
-  const [selectedTemplateName, setSelectedTemplateName] = useState(() => resumedTemplateName(annotation))
+  // Resolved before the first render, not corrected after it: the initial selection is what
+  // the canvas is handed, and a body map switched away from on mount still finishes loading
+  // its image over the blank sheet.
+  const [selectedTemplateName, setSelectedTemplateName] = useState(
+    () => resumedTemplateName(annotation) || (context.clinicalProcedure ? "" : BLANK_TEMPLATE_NAME)
+  )
   const [selectedProcedures, setSelectedProcedures] = useState([])
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
@@ -522,14 +547,21 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const isProcedureAnchor = Boolean(context.clinicalProcedure)
   const anchorDoctype = isProcedureAnchor ? "Clinical Procedure" : "Patient Encounter"
   const anchorName = context.clinicalProcedure || context.encounter || ""
-  const allTemplates = useMemo(() => (bodyTemplates || []).filter((template) => template.image), [bodyTemplates])
+  const bodyTemplateCards = useMemo(
+    () => (bodyTemplates || []).filter((template) => template.image),
+    [bodyTemplates]
+  )
+  // The blank sheet is always offered: it has no image to filter on, no sex to match and no
+  // procedure that allows or forbids it.
+  const blankTemplate = useMemo(() => ({ ...BLANK_TEMPLATE, title: __("Blank sheet") }), [])
+  const allTemplates = useMemo(() => [blankTemplate, ...bodyTemplateCards], [blankTemplate, bodyTemplateCards])
   // Default to the patient's sex; never an empty picker (unknown sex or zero matches shows all).
   const sexMatchedTemplates = useMemo(() => {
     const sex = context.patientSex
     if (!sex) return allTemplates
-    const matched = allTemplates.filter((template) => !template.gender || template.gender === sex)
-    return matched.length ? matched : allTemplates
-  }, [allTemplates, context.patientSex])
+    const matched = bodyTemplateCards.filter((template) => !template.gender || template.gender === sex)
+    return [blankTemplate, ...(matched.length ? matched : bodyTemplateCards)]
+  }, [allTemplates, blankTemplate, bodyTemplateCards, context.patientSex])
   const templates = showAllTemplates ? allTemplates : sexMatchedTemplates
   const isSexFiltered = sexMatchedTemplates.length < allTemplates.length
   const procedures = useMemo(() => (procedureTemplates || []).filter((procedure) => procedure.name), [procedureTemplates])
@@ -555,7 +587,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // refuses a map outside its allowed list, so opening on one would lose the first mark placed.
   // Same rule the pickers use for sex and category - narrow to the scope, never to nothing.
   const scopedTemplates = useMemo(() => {
-    const matched = templates.filter((template) => isBodyTemplateAllowed(anchorProcedureDoc, template.name))
+    const matched = templates.filter(
+      (template) => !isBlankTemplate(template) && isBodyTemplateAllowed(anchorProcedureDoc, template.name)
+    )
     return matched.length ? matched : templates
   }, [templates, anchorProcedureDoc])
   const templateGroups = useMemo(() => groupedTemplates(templates), [templates])
@@ -599,12 +633,23 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     setSelectedProcedures((current) => (current.includes(name) ? current : [...current, name]))
   }, [isProcedureAnchor, anchorProcedureDoc])
 
+  // Only the procedure anchor arrives here without a selection: it opens on a body map it is
+  // allowed to mark, because tagging is what it is for. The sketchpad starts on the blank sheet.
   useEffect(() => {
     if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
   }, [selectedTemplateName, scopedTemplates])
 
   useEffect(() => {
-    if (!selectedTemplate?.image) return
+    if (!selectedTemplate) return
+    // Switching to the blank sheet has to take the previous map off the canvas; skipping the
+    // call, as this once did for anything imageless, left the old image behind it.
+    if (isBlankTemplate(selectedTemplate)) {
+      embeddedRef.current?.clearBodyTemplate?.(selectedTemplate)
+      // The areas toggle is offered only when outlines are drawn; the blank sheet has none.
+      setRenderedPartCount(0)
+      return
+    }
+    if (!selectedTemplate.image) return
     embeddedRef.current?.setBodyTemplate?.(selectedTemplate)
   }, [selectedTemplate?.name])
 
@@ -1400,6 +1445,19 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                   : __("Show all (matching {0} only)").replace("{0}", __(context.patientSex || ""))}
               </label>
             ) : null}
+            <div className="derma-template-group">
+              <div className="derma-template-list">
+                <button
+                  type="button"
+                  data-test="annotation-blank-template"
+                  className={selectedTemplate?.name === BLANK_TEMPLATE_NAME ? "active" : ""}
+                  onClick={() => setSelectedTemplateName(BLANK_TEMPLATE_NAME)}
+                >
+                  <span className="derma-template-blank-swatch" aria-hidden="true" />
+                  <small>{__("Blank sheet")}</small>
+                </button>
+              </div>
+            </div>
             {templateGroups.map((group) => (
               <div className="derma-template-group" key={group.label}>
                 <h4>{group.label}</h4>
