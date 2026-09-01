@@ -51,6 +51,24 @@ class TestEnsureDermaSchema(IntegrationTestCase):
 			msg="ensure_derma_schema clobbered a clinic-set label",
 		)
 
+	def test_restores_a_deleted_procedure_template_field(self):
+		"""The patch that first created this field can never run again, so the spine is the
+		only thing that puts it back."""
+		ensure_derma_schema()
+		fieldname = "custom_derma_variables_json"
+		name = frappe.db.get_value(
+			"Custom Field", {"dt": "Clinical Procedure Template", "fieldname": fieldname}
+		)
+		self.assertTrue(name, msg="expected the derma variables field after ensure_derma_schema")
+		frappe.delete_doc("Custom Field", name, ignore_permissions=True, force=True)
+		frappe.clear_cache(doctype="Clinical Procedure Template")
+		self.assertFalse(has_field("Clinical Procedure Template", fieldname))
+
+		created = ensure_derma_schema()
+
+		self.assertIn(fieldname, created.get("Clinical Procedure Template", []))
+		self.assertTrue(has_field("Clinical Procedure Template", fieldname))
+
 	def test_survives_a_missing_doctype(self):
 		"""A site without Healthcare Practitioner must not break the migrate."""
 		created = ensure_derma_schema()
