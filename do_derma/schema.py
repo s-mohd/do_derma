@@ -12,8 +12,27 @@ from typing import Any
 import frappe
 from frappe import _
 
+from do_derma.config.marker_size import MARKER_SIZE_FIELD
+
 DERMA_MODULE = "Do Derma"
 ASSESSMENT_MODE_OPTIONS = "\nStructured\nSOAP"
+# `freehand` is last because add_derma_freehand_marker_behavior appended it there.
+MARKER_BEHAVIOR_OPTIONS = "\n".join(
+	[
+		"numbered_dot",
+		"blue_dot",
+		"three_dots",
+		"triangle",
+		"triangle_cluster",
+		"hatch",
+		"five_lines",
+		"x_mark",
+		"target",
+		"area",
+		"finding_dot",
+		"freehand",
+	]
+)
 SOAP_ONLY = "eval:doc.custom_derma_assessment_mode=='SOAP'"
 # Written when a clinic set to Block completes a session past its readiness blockers.
 COMPLETION_OVERRIDE_FIELD = "custom_derma_completion_override_reason"
@@ -134,6 +153,106 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"options": "Health Annotation Table",
 			"insert_after": "custom_derma_price_override_reason",
 			"hidden": 1,
+		},
+	],
+	# Every derma behaviour a procedure template carries. These were created by
+	# seed_derma_v2_defaults and its successors, which `install_app` marks complete
+	# without running on a fresh site, so a clinic that installed do_derma after those
+	# patches shipped had none of these fields and could not save a template at all.
+	"Clinical Procedure Template": [
+		{
+			"fieldname": "custom_derma_section",
+			"fieldtype": "Section Break",
+			"label": "Dermatology Chart Behavior",
+			"insert_after": "description",
+		},
+		{
+			"fieldname": "custom_derma_category",
+			"fieldtype": "Link",
+			"label": "Derma Category",
+			"options": "Derma Procedure Category",
+			"insert_after": "custom_derma_section",
+		},
+		{
+			"fieldname": "custom_derma_allowed_body_templates",
+			"fieldtype": "Small Text",
+			"label": "Allowed Body Templates",
+			"description": "Comma-separated Derma Body Template names.",
+			"insert_after": "custom_derma_category",
+		},
+		{
+			"fieldname": "custom_derma_variables_json",
+			"fieldtype": "Code",
+			"label": "Derma Variables JSON",
+			"options": "JSON",
+			"description": "Procedure variables shown in the derma annotation studio. Use fieldname, label, fieldtype, options, and required.",
+			"insert_after": "custom_derma_allowed_body_templates",
+		},
+		{
+			"fieldname": "custom_derma_marker_behavior",
+			"fieldtype": "Select",
+			"label": "Marker Behavior",
+			"options": MARKER_BEHAVIOR_OPTIONS,
+			"insert_after": "custom_derma_variables_json",
+		},
+		{
+			"fieldname": "custom_derma_marker_color",
+			"fieldtype": "Data",
+			"label": "Marker Color",
+			"insert_after": "custom_derma_marker_behavior",
+		},
+		{
+			"fieldname": MARKER_SIZE_FIELD,
+			"fieldtype": "Float",
+			"label": "Marker Size",
+			"precision": "2",
+			"description": "Multiplier the chart stamps this marker at. Empty means 1.0.",
+			"insert_after": "custom_derma_marker_color",
+		},
+		{
+			"fieldname": "custom_derma_marker_preset_json",
+			"fieldtype": "Code",
+			"label": "Marker Preset JSON",
+			"options": "JSON",
+			"description": "Optional future-ready Excalidraw element preset for click-to-stamp charting.",
+			"insert_after": MARKER_SIZE_FIELD,
+		},
+		{
+			"fieldname": "custom_derma_required_fields",
+			"fieldtype": "Code",
+			"label": "Required Fields JSON",
+			"options": "JSON",
+			"insert_after": "custom_derma_marker_preset_json",
+		},
+		{
+			"fieldname": "custom_derma_consent_required",
+			"fieldtype": "Check",
+			"label": "Consent Required",
+			"insert_after": "custom_derma_required_fields",
+		},
+		{
+			"fieldname": "custom_derma_before_after_photo_required",
+			"fieldtype": "Check",
+			"label": "Before / After Photo Required",
+			"insert_after": "custom_derma_consent_required",
+		},
+		{
+			"fieldname": "custom_derma_product_tracking_required",
+			"fieldtype": "Check",
+			"label": "Product / Lot Required",
+			"insert_after": "custom_derma_before_after_photo_required",
+		},
+		{
+			"fieldname": "custom_derma_device_settings_required",
+			"fieldtype": "Check",
+			"label": "Device Settings Required",
+			"insert_after": "custom_derma_product_tracking_required",
+		},
+		{
+			"fieldname": "custom_derma_note_template",
+			"fieldtype": "Small Text",
+			"label": "Note Sentence Template",
+			"insert_after": "custom_derma_device_settings_required",
 		},
 	],
 	"Healthcare Practitioner": [
