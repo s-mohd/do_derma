@@ -565,6 +565,7 @@ import MarkResponseChips from "./components/MarkResponseChips.vue"
 import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
+import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
 import { runDialogAction } from "../shared/dialog_progress.js"
@@ -1369,15 +1370,45 @@ async function createProcedure() {
     frappe.msgprint(__("This visit needs a Patient Encounter before a procedure can be created."))
     return
   }
-  const options = procedureTemplates.value.map((row) => ({ label: row.template || row.name, value: row.name }))
-  if (!options.length) {
+  const groups = groupTemplatesByCategory(procedureTemplates.value, categories.value)
+  if (!groups.length) {
     frappe.msgprint(__("No derma procedure templates are configured."))
     return
   }
+  // A frappe Select settles on its first option, so both fields lead with a blank one
+  // and let `reqd` insist on a deliberate pick.
+  const categoryOptions = [
+    { label: __("Select a category"), value: "" },
+    ...groups.map((group) => ({ label: group.label, value: group.value })),
+  ]
+  const templateOptions = (category) => [
+    { label: __("Select a procedure"), value: "" },
+    ...(groups.find((group) => group.value === category)?.templates || []).map((row) => ({
+      label: row.template || row.name,
+      value: row.name,
+    })),
+  ]
   const dialog = new frappe.ui.Dialog({
     title: __("New Procedure"),
     fields: [
-      { fieldname: "procedure_template", fieldtype: "Select", label: __("Procedure Template"), options, reqd: 1 },
+      {
+        fieldname: "derma_category",
+        fieldtype: "Select",
+        label: __("Category"),
+        options: categoryOptions,
+        reqd: 1,
+        onchange: () => {
+          dialog.set_df_property("procedure_template", "options", templateOptions(dialog.get_value("derma_category")))
+          dialog.set_value("procedure_template", "")
+        },
+      },
+      {
+        fieldname: "procedure_template",
+        fieldtype: "Select",
+        label: __("Procedure Template"),
+        options: templateOptions(""),
+        reqd: 1,
+      },
       { fieldname: "notes", fieldtype: "Small Text", label: __("Notes") },
     ],
     primary_action_label: __("Create"),
