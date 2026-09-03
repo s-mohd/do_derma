@@ -558,13 +558,16 @@ function buildPlacementPayload(api, template, chartTemplate, origin, stamp, proc
 }
 
 /**
- * A stroke's true geometry lives in the scene; the mark carries its centroid, because
- * x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged areas
- * already make.
+ * A stroke's or line's true geometry lives in the scene; the mark carries its centroid,
+ * because x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged
+ * areas already make.
  */
-function drawnElementCentre(element, shape) {
+function drawnElementCentre(element) {
   const points = element.points || []
-  if (shape !== "freehand" || !points.length) {
+  // Anything with points is a linear element, whose x,y is its first point rather than its
+  // bounding-box corner: a line drawn leftward or upward carries negative points, so the box
+  // formula would put the centre off the stroke entirely.
+  if (!points.length) {
     return { x: element.x + (element.width || 0) / 2, y: element.y + (element.height || 0) / 2 }
   }
   return {
@@ -611,7 +614,7 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
 function buildDrawnPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}, tool = "area") {
   const shape = DRAWN_SHAPES[tool] || "area"
   const bounds = getTemplateBounds(api)
-  const centre = drawnElementCentre(element, shape)
+  const centre = drawnElementCentre(element)
   const centerX = centre.x
   const centerY = centre.y
   const xPercent = bounds ? clamp(((centerX - bounds.x) / bounds.width) * 100, 0, 100) : 50
