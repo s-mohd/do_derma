@@ -409,7 +409,7 @@ function parseAnnotation(annotation) {
 	            }
 	          }
 	          const drawingTool = dermaToolRef.current
-	          if (drawingTool === "area" || drawingTool === "draw") {
+	          if (DRAWN_SHAPES[drawingTool]) {
 	            const finished = findCommittedElement(elements, appState, previousDraggingIdRef)
 	            if (finished) {
 	              tagDrawnElement(api, finished, template, procedureVariablesRef.current, drawingTool)
@@ -424,30 +424,57 @@ function parseAnnotation(annotation) {
 
 export default EmbeddedExcalidraw
 
+/** The drawing tools whose finished element becomes a mark, and the shape each one records. */
+const DRAWN_SHAPES = { area: "area", draw: "freehand", line: "line" }
+
 function isStampBehavior(template) {
   // createStampElements() already has a complete fallback chain ending in createNumberedDot,
   // so any configured marker_behavior is stampable - no need to keep an allowlist in sync with it.
   return Boolean(String(template?.custom_derma_marker_behavior || "").trim())
 }
 
+function behaviorOf(template) {
+  return String(template?.custom_derma_marker_behavior || "").toLowerCase()
+}
+
+function isAreaKeyword(behavior) {
+  return behavior.includes("area") || behavior.includes("hatch") || behavior.includes("five_lines")
+}
+
+/**
+ * How a dragged region is filled. The three area behaviours share one gesture and one element,
+ * so the fill is the only thing that tells them apart - and it is what marker_preview.js draws.
+ */
+function areaFillStyle(behavior) {
+  if (behavior.includes("five_lines")) return "cross-hatch"
+  if (behavior.includes("hatch")) return "hachure"
+  return "solid"
+}
+
 export function isAreaBehavior(template) {
   // Coverage-style procedures (a laser pass, a scarred/pigmented patch) are drawn as a
   // drag-to-size rectangle over the actual treated region instead of a fixed-size point stamp.
-  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
-  return behavior.includes("area") || behavior.includes("hatch") || behavior.includes("five_lines")
+  return isAreaKeyword(behaviorOf(template))
 }
 
 export function isFreehandBehavior(template) {
   // Irregular regions - a graft, a scar, a patch of melasma - that a rectangle misrepresents.
   // The pen takes the procedure's colour and the finished stroke becomes one Derma Chart Mark.
-  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
+  const behavior = behaviorOf(template)
   return behavior.includes("freehand") || behavior.includes("stroke") || behavior.includes("paint")
+}
+
+export function isLineBehavior(template) {
+  // Findings with a length and no width - an incision, a scar, an injection track. Callers ask
+  // isAreaBehavior first, which claims five_lines, so plain `includes` is enough here.
+  return !isAreaBehavior(template) && behaviorOf(template).includes("line")
 }
 
 /** Which drawing tool a procedure's marker behaviour asks for. */
 function placementToolFor(template) {
   if (isAreaBehavior(template)) return "area"
   if (isFreehandBehavior(template)) return "draw"
+  if (isLineBehavior(template)) return "line"
   return "mark"
 }
 
@@ -480,11 +507,13 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
 function setDermaTool(api, tool, template) {
   if (!api) return
   const color = template?.custom_derma_marker_color || "#0f766e"
+  const areaFill = areaFillStyle(behaviorOf(template))
   const typeMap = {
     select: "selection",
     mark: "selection",
     draw: "freedraw",
     area: "rectangle",
+    line: "line",
     text: "text",
   }
   api.updateScene({
@@ -492,7 +521,9 @@ function setDermaTool(api, tool, template) {
       ...api.getAppState(),
       currentItemStrokeColor: color,
       currentItemBackgroundColor: tool === "area" ? color : "transparent",
-      currentItemOpacity: tool === "area" ? 18 : 100,
+      // A hachured region reads as texture rather than wash, so it needs the fuller opacity.
+      currentItemOpacity: tool === "area" && areaFill === "solid" ? 18 : 100,
+      currentItemFillStyle: areaFill,
       activeTool: { type: typeMap[tool] || "selection" },
       // Entering select mode drops whatever placement left selected, so the first click
       // on a mark binds the editor to that mark and not to the last stamp placed.
@@ -546,13 +577,16 @@ function buildPlacementPayload(api, template, chartTemplate, origin, stamp, proc
 }
 
 /**
- * A stroke's true geometry lives in the scene; the mark carries its centroid, because
- * x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged areas
- * already make.
+ * A stroke's or line's true geometry lives in the scene; the mark carries its centroid,
+ * because x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged
+ * areas already make.
  */
-function drawnElementCentre(element, shape) {
+function drawnElementCentre(element) {
   const points = element.points || []
-  if (shape !== "freehand" || !points.length) {
+  // Anything with points is a linear element, whose x,y is its first point rather than its
+  // bounding-box corner: a line drawn leftward or upward carries negative points, so the box
+  // formula would put the centre off the stroke entirely.
+  if (!points.length) {
     return { x: element.x + (element.width || 0) / 2, y: element.y + (element.height || 0) / 2 }
   }
   return {
@@ -589,7 +623,7 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
         marker_behavior: template?.custom_derma_marker_behavior,
         marker_color: template?.custom_derma_marker_color,
         procedure_variables: sanitizeVariables(procedureVariables),
-        shape: tool === "draw" ? "freehand" : "area",
+        shape: DRAWN_SHAPES[tool] || "area",
       },
     }
   })
@@ -597,9 +631,9 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
 }
 
 function buildDrawnPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}, tool = "area") {
-  const shape = tool === "draw" ? "freehand" : "area"
+  const shape = DRAWN_SHAPES[tool] || "area"
   const bounds = getTemplateBounds(api)
-  const centre = drawnElementCentre(element, shape)
+  const centre = drawnElementCentre(element)
   const centerX = centre.x
   const centerY = centre.y
   const xPercent = bounds ? clamp(((centerX - bounds.x) / bounds.width) * 100, 0, 100) : 50
@@ -1010,11 +1044,16 @@ function stampShapeElements({ behavior, color, origin, sequence, groupId, templa
   if (preset.length) return preset
   if (behavior.includes("x")) return createXMark(origin, color, groupId, template, procedureVariables, scale)
   if (behavior.includes("target")) return createTargetMark(origin, color, groupId, template, procedureVariables, scale)
-  // Dragged behaviours take their geometry from the gesture, so their shape stays unscaled.
-  if (behavior.includes("hatch") || behavior.includes("five_lines")) return createHatchMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("area")) return createAreaMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("triangle")) return createTriangleCluster(origin, color, groupId, template, procedureVariables, scale)
-  if (behavior.includes("finding_dot") || behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables, scale)
+  // Dragged behaviours take their geometry from the gesture, so their shape stays unscaled. They
+  // differ only in fill, and they come before `line` because five_lines contains that substring.
+  if (isAreaKeyword(behavior)) return createAreaMark(origin, color, groupId, template, procedureVariables, areaFillStyle(behavior))
+  if (behavior.includes("line")) return createLineMark(origin, color, groupId, template, procedureVariables, scale)
+  // The cluster is checked first: triangle_cluster contains "triangle".
+  if (behavior.includes("triangle_cluster")) return createTriangleCluster(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("triangle")) return createTriangleMark(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("finding_dot")) return createRingedDot(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("blue_dot")) return createHollowDot(origin, color, groupId, template, procedureVariables, scale)
   return createNumberedDot(origin, color, groupId, template, sequence, procedureVariables, scale)
 }
 
@@ -1069,6 +1108,34 @@ function createNumberedDot(origin, color, groupId, template, sequence, procedure
   ]
 }
 
+/** An outline dot. The plain counterpart to the filled `numbered_dot`. */
+function createHollowDot(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const radius = 8 * scale
+  return [
+    ellipseElement(origin.x - radius, origin.y - radius, radius * 2, radius * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: "transparent",
+      strokeWidth: scaledStrokeWidth(2, scale),
+    }),
+  ]
+}
+
+/** A filled dot inside a ring, so a finding stands out from the procedure dots around it. */
+function createRingedDot(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const core = 5 * scale
+  const ring = 11 * scale
+  const stroke = scaledStrokeWidth(2, scale)
+  return [
+    ellipseElement(origin.x - ring, origin.y - ring, ring * 2, ring * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: "transparent",
+      strokeWidth: stroke,
+    }),
+    ellipseElement(origin.x - core, origin.y - core, core * 2, core * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: color,
+      strokeWidth: stroke,
+    }),
+  ]
+}
+
 function createDotCluster(origin, color, groupId, template, procedureVariables, scale = 1) {
   const offsets = [[0, -12], [-12, 8], [12, 8]]
   const radius = 5 * scale
@@ -1080,16 +1147,15 @@ function createDotCluster(origin, color, groupId, template, procedureVariables, 
   )
 }
 
+/** One triangle. `triangle_cluster` is the three-up version. */
+function createTriangleMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  return triangleElements(origin.x, origin.y, 22 * scale, color, groupId, template, procedureVariables, scale)
+}
+
 function createTriangleCluster(origin, color, groupId, template, procedureVariables, scale = 1) {
   const offsets = [[0, -14], [-14, 10], [14, 10]]
   return offsets.flatMap(([x, y]) =>
     triangleElements(origin.x + x * scale, origin.y + y * scale, 16 * scale, color, groupId, template, procedureVariables, scale)
-  )
-}
-
-function createHatchMark(origin, color, groupId, template, procedureVariables) {
-  return [-20, -10, 0, 10, 20].map((offset) =>
-    lineElement(origin.x - 36, origin.y + offset + 18, origin.x + 36, origin.y + offset - 18, color, groupId, template, procedureVariables, 3)
   )
 }
 
@@ -1099,6 +1165,17 @@ function createXMark(origin, color, groupId, template, procedureVariables, scale
   return [
     lineElement(origin.x - arm, origin.y - arm, origin.x + arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
     lineElement(origin.x + arm, origin.y - arm, origin.x - arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
+  ]
+}
+
+/** A line procedure is normally drawn with the line tool; this is what a mark saved without its
+ * own geometry - a copied mark, a legacy row - falls back to. */
+function createLineMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const reach = 30 * scale
+  const rise = 12 * scale
+  const stroke = scaledStrokeWidth(3, scale)
+  return [
+    lineElement(origin.x - reach, origin.y + rise, origin.x + reach, origin.y - rise, color, groupId, template, procedureVariables, stroke),
   ]
 }
 
@@ -1118,11 +1195,12 @@ function createTargetMark(origin, color, groupId, template, procedureVariables, 
   ]
 }
 
-function createAreaMark(origin, color, groupId, template, procedureVariables) {
+function createAreaMark(origin, color, groupId, template, procedureVariables, fillStyle = "solid") {
   return [
     rectangleElement(origin.x - 40, origin.y - 28, 80, 56, color, groupId, template, procedureVariables, {
       backgroundColor: color,
-      opacity: 18,
+      fillStyle,
+      opacity: fillStyle === "solid" ? 18 : 100,
     }),
   ]
 }
@@ -1194,7 +1272,7 @@ function baseElement(type, x, y, width, height, color, groupId, template, proced
     angle: 0,
     strokeColor: overrides.strokeColor || color,
     backgroundColor: overrides.backgroundColor || "transparent",
-    fillStyle: "solid",
+    fillStyle: overrides.fillStyle || "solid",
     strokeWidth: overrides.strokeWidth || 2,
     strokeStyle: "solid",
     roughness: 0,

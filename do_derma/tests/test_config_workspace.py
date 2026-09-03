@@ -7,7 +7,11 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
-from do_derma.config.marker_preview import marker_preview_behaviors
+from do_derma.config.marker_preview import (
+	marker_preview_behaviors,
+	marker_preview_shape,
+	marker_stamp_factory,
+)
 from do_derma.patches.ensure_derma_body_template_editor_page import (
 	execute as ensure_body_template_editor_page,
 )
@@ -552,11 +556,43 @@ class TestMarkerPreviewCoverage(IntegrationTestCase):
 	shapes are Excalidraw element factories in the React bundle. Nothing but this test
 	notices when a behaviour is added to the field and not to the preview."""
 
-	def test_every_configured_behaviour_has_a_preview_shape(self):
+	def _configured_behaviours(self):
 		field = frappe.get_meta("Clinical Procedure Template").get_field("custom_derma_marker_behavior")
-		options = {option.strip() for option in (field.options or "").split("\n") if option.strip()}
+		return [option.strip() for option in (field.options or "").split("\n") if option.strip()]
 
-		self.assertTrue(options <= set(marker_preview_behaviors()))
+	def test_every_configured_behaviour_has_a_preview_shape(self):
+		self.assertTrue(set(self._configured_behaviours()) <= set(marker_preview_behaviors()))
+
+	def test_no_two_behaviours_preview_the_same_shape(self):
+		"""A picker tile the clinic cannot tell apart from its neighbour cannot be chosen
+		deliberately. The substring chain makes this easy to get wrong: a missing branch silently
+		aliases two behaviours onto one shape.
+		"""
+		shapes = {}
+		for behavior in self._configured_behaviours():
+			shapes.setdefault(marker_preview_shape(behavior), []).append(behavior)
+
+		duplicates = {shape: names for shape, names in shapes.items() if len(names) > 1}
+		self.assertEqual(duplicates, {}, f"behaviours sharing one preview shape: {duplicates}")
+
+	def test_a_longer_behaviour_is_not_stolen_by_a_shorter_branch(self):
+		"""The chain matches substrings, so a branch in the wrong order silently claims another
+		behaviour's mark: `five_lines` contains `line`, `triangle_cluster` contains `triangle`.
+		Asserted on the chart chain, which is what actually draws.
+		"""
+		self.assertEqual(marker_stamp_factory("five_lines"), "createAreaMark")
+		self.assertEqual(marker_stamp_factory("line"), "createLineMark")
+		self.assertEqual(marker_stamp_factory("triangle_cluster"), "createTriangleCluster")
+		self.assertEqual(marker_stamp_factory("triangle"), "createTriangleMark")
+
+	def test_each_dot_behaviour_stamps_its_own_factory(self):
+		"""These three used to collapse onto two factories, so the picker offered dots that drew
+		the same mark. Only `numbered_dot` may reach the fallback.
+		"""
+		self.assertEqual(marker_stamp_factory("blue_dot"), "createHollowDot")
+		self.assertEqual(marker_stamp_factory("finding_dot"), "createRingedDot")
+		self.assertEqual(marker_stamp_factory("three_dots"), "createDotCluster")
+		self.assertEqual(marker_stamp_factory("numbered_dot"), "createNumberedDot")
 
 
 class TestConfigCategories(ConfigTemplateHelpers, IntegrationTestCase):
