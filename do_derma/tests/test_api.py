@@ -778,6 +778,41 @@ class TestAnnotationAnchoring(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(marks, [mark["name"]])
 		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "annotation"), first["name"])
 
+	def test_a_line_mark_saves_and_survives_a_resave(self):
+		"""A line is drawn with Excalidraw's line tool, so it takes the drawn-mark path: stamped on
+		commit, re-linked on save. `line` must also be a Select option on Derma Chart Mark, or the
+		first save throws before any of that runs."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		element_id = "line-element-1"
+		mark = api.save_chart_mark(
+			{
+				"patient": patient,
+				"encounter": encounter.name,
+				"x_percent": 30,
+				"y_percent": 60,
+				"marker_behavior": "line",
+				"annotation_json": json.dumps({"element_id": element_id, "shape": "line"}),
+			}
+		)
+		line = {
+			"id": element_id,
+			"type": "line",
+			"customData": {"kind": "derma_mark", "derma_chart_mark": mark["name"], "shape": "line"},
+		}
+		payload = self._annotation_payload(
+			patient=patient,
+			encounter=encounter.name,
+			json_text=json.dumps({"elements": [TEMPLATE_ELEMENT, line]}),
+		)
+
+		first = api.save_derma_annotation(payload)
+		api.save_derma_annotation({**payload, "annotation_name": first["name"]})
+
+		marks = frappe.get_all("Derma Chart Mark", filters={"encounter": encounter.name}, pluck="name")
+		self.assertEqual(marks, [mark["name"]])
+		self.assertEqual(frappe.db.get_value("Derma Chart Mark", mark["name"], "marker_behavior"), "line")
+
 	def _make_orphan_mark(self, patient, annotation, clinical_procedure=None):
 		"""A mark whose element_id is absent from the scene, so the sync's deletion loop
 		considers it - the promoted one must still survive."""

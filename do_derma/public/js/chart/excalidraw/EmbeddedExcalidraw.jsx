@@ -409,7 +409,7 @@ function parseAnnotation(annotation) {
 	            }
 	          }
 	          const drawingTool = dermaToolRef.current
-	          if (drawingTool === "area" || drawingTool === "draw") {
+	          if (DRAWN_SHAPES[drawingTool]) {
 	            const finished = findCommittedElement(elements, appState, previousDraggingIdRef)
 	            if (finished) {
 	              tagDrawnElement(api, finished, template, procedureVariablesRef.current, drawingTool)
@@ -423,6 +423,9 @@ function parseAnnotation(annotation) {
 	})
 
 export default EmbeddedExcalidraw
+
+/** The drawing tools whose finished element becomes a mark, and the shape each one records. */
+const DRAWN_SHAPES = { area: "area", draw: "freehand", line: "line" }
 
 function isStampBehavior(template) {
   // createStampElements() already has a complete fallback chain ending in createNumberedDot,
@@ -444,10 +447,18 @@ export function isFreehandBehavior(template) {
   return behavior.includes("freehand") || behavior.includes("stroke") || behavior.includes("paint")
 }
 
+export function isLineBehavior(template) {
+  // Findings with a length and no width - an incision, a scar, an injection track. Callers ask
+  // isAreaBehavior first, which claims five_lines, so plain `includes` is enough here.
+  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
+  return !isAreaBehavior(template) && behavior.includes("line")
+}
+
 /** Which drawing tool a procedure's marker behaviour asks for. */
 function placementToolFor(template) {
   if (isAreaBehavior(template)) return "area"
   if (isFreehandBehavior(template)) return "draw"
+  if (isLineBehavior(template)) return "line"
   return "mark"
 }
 
@@ -485,6 +496,7 @@ function setDermaTool(api, tool, template) {
     mark: "selection",
     draw: "freedraw",
     area: "rectangle",
+    line: "line",
     text: "text",
   }
   api.updateScene({
@@ -589,7 +601,7 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
         marker_behavior: template?.custom_derma_marker_behavior,
         marker_color: template?.custom_derma_marker_color,
         procedure_variables: sanitizeVariables(procedureVariables),
-        shape: tool === "draw" ? "freehand" : "area",
+        shape: DRAWN_SHAPES[tool] || "area",
       },
     }
   })
@@ -597,7 +609,7 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
 }
 
 function buildDrawnPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}, tool = "area") {
-  const shape = tool === "draw" ? "freehand" : "area"
+  const shape = DRAWN_SHAPES[tool] || "area"
   const bounds = getTemplateBounds(api)
   const centre = drawnElementCentre(element, shape)
   const centerX = centre.x
@@ -1012,6 +1024,8 @@ function stampShapeElements({ behavior, color, origin, sequence, groupId, templa
   if (behavior.includes("target")) return createTargetMark(origin, color, groupId, template, procedureVariables, scale)
   // Dragged behaviours take their geometry from the gesture, so their shape stays unscaled.
   if (behavior.includes("hatch") || behavior.includes("five_lines")) return createHatchMark(origin, color, groupId, template, procedureVariables)
+  // After five_lines, which contains "line" and draws the hatch instead.
+  if (behavior.includes("line")) return createLineMark(origin, color, groupId, template, procedureVariables, scale)
   if (behavior.includes("area")) return createAreaMark(origin, color, groupId, template, procedureVariables)
   if (behavior.includes("triangle")) return createTriangleCluster(origin, color, groupId, template, procedureVariables, scale)
   if (behavior.includes("finding_dot") || behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables, scale)
@@ -1099,6 +1113,17 @@ function createXMark(origin, color, groupId, template, procedureVariables, scale
   return [
     lineElement(origin.x - arm, origin.y - arm, origin.x + arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
     lineElement(origin.x + arm, origin.y - arm, origin.x - arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
+  ]
+}
+
+/** A line procedure is normally drawn with the line tool; this is what a mark saved without its
+ * own geometry - a copied mark, a legacy row - falls back to. */
+function createLineMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const reach = 30 * scale
+  const rise = 12 * scale
+  const stroke = scaledStrokeWidth(3, scale)
+  return [
+    lineElement(origin.x - reach, origin.y + rise, origin.x + reach, origin.y - rise, color, groupId, template, procedureVariables, stroke),
   ]
 }
 

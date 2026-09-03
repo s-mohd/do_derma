@@ -16,7 +16,7 @@ from do_derma.config.marker_size import MARKER_SIZE_FIELD
 
 DERMA_MODULE = "Do Derma"
 ASSESSMENT_MODE_OPTIONS = "\nStructured\nSOAP"
-# `freehand` is last because add_derma_freehand_marker_behavior appended it there.
+# `freehand` and `line` are last because their patches appended them there.
 MARKER_BEHAVIOR_OPTIONS = "\n".join(
 	[
 		"numbered_dot",
@@ -31,6 +31,7 @@ MARKER_BEHAVIOR_OPTIONS = "\n".join(
 		"area",
 		"finding_dot",
 		"freehand",
+		"line",
 	]
 )
 SOAP_ONLY = "eval:doc.custom_derma_assessment_mode=='SOAP'"

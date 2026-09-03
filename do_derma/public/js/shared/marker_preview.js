@@ -19,6 +19,7 @@ export const PREVIEW_BEHAVIORS = [
   "area",
   "finding_dot",
   "freehand",
+  "line",
 ]
 
 const DEFAULT_COLOR = "#0f766e"
@@ -65,6 +66,8 @@ const SHAPES = {
     `<line x1="0" y1="-26" x2="0" y2="26" stroke="${color}" stroke-width="2"/>`,
   area: (color) =>
     `<rect x="-40" y="-28" width="80" height="56" fill="${color}" fill-opacity="0.18" stroke="${color}" stroke-width="2"/>`,
+  line: (color) =>
+    `<line x1="-34" y1="14" x2="34" y2="-14" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`,
   stroke: (color) =>
     `<path d="M-34 10 C -26 -22, -6 -26, 2 -8 C 10 8, 26 12, 34 -6" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>`,
 }
@@ -77,6 +80,8 @@ export function markerShapeFor(behavior) {
   if (key.includes("x")) return SHAPES.cross
   if (key.includes("target")) return SHAPES.target
   if (key.includes("hatch") || key.includes("five_lines")) return SHAPES.hatch
+  // After five_lines, which contains "line" and draws the hatch instead.
+  if (key.includes("line")) return SHAPES.line
   if (key.includes("area")) return SHAPES.area
   if (key.includes("triangle")) return SHAPES.triangleCluster
   if (key.includes("finding_dot") || key.includes("three_dots")) return SHAPES.dotCluster

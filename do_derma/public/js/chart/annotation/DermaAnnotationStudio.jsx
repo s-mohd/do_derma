@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior, isLineBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 import { variableFieldname } from "../../shared/variable_fieldname.js"
 import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
 import { MARKER_SIZE_DEFAULT, MARKER_SIZE_STEP, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
@@ -150,6 +150,9 @@ function taggingHint(procedure, label) {
   }
   if (isFreehandBehavior(procedure)) {
     return __("Tagging as: {0} - draw over the affected skin.").replace("{0}", label)
+  }
+  if (isLineBehavior(procedure)) {
+    return __("Tagging as: {0} - drag on the canvas to draw the line.").replace("{0}", label)
   }
   return __("Tagging as: {0} - click the canvas to place a mark.").replace("{0}", label)
 }
@@ -605,13 +608,16 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // The editor binds to the mark being edited first, the armed procedure second.
   const editorProcedureName = editingMark?.procedure || activeProcedure
   const editorProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === editorProcedureName)
-  // Areas and freehand strokes take their size from the gesture that drew them, so there is
-  // nothing for the control to act on.
+  // Areas, freehand strokes and lines take their size from the gesture that drew them, so there
+  // is nothing for the control to act on.
   const sizedBehavior = editingMark
     ? { custom_derma_marker_behavior: editingMark.behavior }
     : activeProcedureDoc
   const isSizeableMark = Boolean(
-    sizedBehavior && !isAreaBehavior(sizedBehavior) && !isFreehandBehavior(sizedBehavior)
+    sizedBehavior &&
+      !isAreaBehavior(sizedBehavior) &&
+      !isFreehandBehavior(sizedBehavior) &&
+      !isLineBehavior(sizedBehavior)
   )
   const photoCapture = usePhotoCapture({
     context,
