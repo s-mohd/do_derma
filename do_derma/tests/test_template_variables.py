@@ -343,6 +343,26 @@ class TestTemplateVariableBuilder(ConfigTemplateHelpers, IntegrationTestCase):
 
 		self.assertEqual(self._variable(payload, "dose")["label"], "Dose / Quantity")
 
+	def test_capture_once_per_procedure_round_trips(self):
+		"""The flag rides EDITOR_CHECK_FIELDS, so the builder reads and writes it like any
+		other checkbox. The chart needs it too - see DERMA_TEMPLATE_FIELDS."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		payload = api.save_derma_procedure_template(template, {"variables_per_procedure": 1})
+
+		self.assertEqual(payload["variables_per_procedure"], 1)
+		self.assertEqual(
+			frappe.db.get_value(
+				"Clinical Procedure Template", template, "custom_derma_variables_per_procedure"
+			),
+			1,
+		)
+
+	def test_capture_once_per_procedure_defaults_off(self):
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		self.assertFalse(api.get_derma_procedure_template(template)["variables_per_procedure"])
+
 
 class TestRequiredFieldMaterialisation(ConfigTemplateHelpers, IntegrationTestCase):
 	"""The patch that makes the template the one owner: whatever the category-name table

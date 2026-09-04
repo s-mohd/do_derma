@@ -421,3 +421,104 @@ class TestMarksReadyForProcedure(IntegrationTestCase):
 		template = frappe._dict(custom_derma_required_fields=json.dumps(["product"]))
 
 		procedure.validate_marks_ready([self._mark(product_name="Botox 100")], template)
+
+	def test_a_clinic_named_variable_is_read_from_the_row_that_stores_it(self):
+		"""Only a fieldname the mark happens to own is a DocField; save_chart_mark files the
+		rest as child rows. Reading DocFields alone refused a value already filled in."""
+		template = frappe._dict(custom_derma_required_fields=json.dumps(["spot_size"]))
+		mark = self._mark(
+			area_variables=[frappe._dict(fieldname="spot_size", value="7mm", source="Procedure")]
+		)
+
+		procedure.validate_marks_ready([mark], template)
+
+
+class TestMarksReadyForPerProcedureVariables(ConfigTemplateHelpers, DermaTestHelpers, IntegrationTestCase):
+	"""A template that captures once per procedure is exempt from per-mark completeness,
+	never from completeness."""
+
+	def _template(self, **values):
+		"""Its own template every time: these tests set required fields on it, and the shared
+		site fixture would carry one test's requirement into the next."""
+		return frappe.get_doc("Clinical Procedure Template", self._make_derma_template(**values))
+
+	def test_the_shared_value_answers_for_every_mark(self):
+		patient = self._make_patient()
+		clinical_procedure = self._make_clinical_procedure(patient)
+		template = self._template(
+			custom_derma_variables_per_procedure=1, custom_derma_required_fields=json.dumps(["dose"])
+		)
+		api.save_procedure_variables(clinical_procedure.name, template.name, {"dose": "2"})
+
+		procedure.validate_marks_ready(
+			[frappe._dict(), frappe._dict()], template, clinical_procedure=clinical_procedure.name
+		)
+
+	def test_an_unfilled_mark_still_throws_without_the_flag(self):
+		"""The per-mark rule is untouched for every template that has not asked to opt out."""
+		patient = self._make_patient()
+		clinical_procedure = self._make_clinical_procedure(patient)
+		template = self._template(
+			custom_derma_variables_per_procedure=0, custom_derma_required_fields=json.dumps(["dose"])
+		)
+		api.save_procedure_variables(clinical_procedure.name, template.name, {"dose": "2"})
+
+		with self.assertRaises(frappe.ValidationError):
+			procedure.validate_marks_ready(
+				[frappe._dict(dose=2), frappe._dict()], template, clinical_procedure=clinical_procedure.name
+			)
+
+	def test_a_markless_procedure_with_nothing_filled_is_refused(self):
+		"""`all()` over no marks is vacuously true, so without an explicit check a freehand
+		procedure would pass the gate having recorded nothing at all."""
+		patient = self._make_patient()
+		clinical_procedure = self._make_clinical_procedure(patient)
+		template = self._template(
+			custom_derma_variables_per_procedure=1, custom_derma_required_fields=json.dumps(["dose"])
+		)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			procedure.validate_marks_ready([], template, clinical_procedure=clinical_procedure.name)
+
+		self.assertIn("Dose", str(caught.exception))
+
+	def test_a_mark_still_answers_when_the_procedure_has_not(self):
+		patient = self._make_patient()
+		clinical_procedure = self._make_clinical_procedure(patient)
+		template = self._template(
+			custom_derma_variables_per_procedure=1, custom_derma_required_fields=json.dumps(["dose"])
+		)
+
+		procedure.validate_marks_ready(
+			[frappe._dict(dose=2)], template, clinical_procedure=clinical_procedure.name
+		)
+
+	def test_product_tracking_is_answered_once_for_the_procedure(self):
+		patient = self._make_patient()
+		clinical_procedure = self._make_clinical_procedure(patient)
+		template = self._template(
+			custom_derma_variables_per_procedure=1, custom_derma_product_tracking_required=1
+		)
+		# The flag requires expiry_date too, so the shared set has to answer all three.
+		api.save_procedure_variables(
+			clinical_procedure.name,
+			template.name,
+			{"product_name": "Botox 100", "lot_no": "L1", "expiry_date": "2030-01-01"},
+		)
+
+		procedure.validate_marks_ready([frappe._dict()], template, clinical_procedure=clinical_procedure.name)
+
+	def test_photo_evidence_is_never_exempted(self):
+		"""A photo is evidence, not a variable, and it already only asks for one mark."""
+		patient = self._make_patient()
+		clinical_procedure = self._make_clinical_procedure(patient)
+		template = self._template(
+			custom_derma_variables_per_procedure=1, custom_derma_before_after_photo_required=1
+		)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			procedure.validate_marks_ready(
+				[frappe._dict()], template, clinical_procedure=clinical_procedure.name
+			)
+
+		self.assertIn("Photo", str(caught.exception))

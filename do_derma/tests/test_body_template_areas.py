@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
+from frappe.utils import nowdate, nowtime
 
 import do_derma.api as api
 from do_derma.patches.backfill_derma_mark_template_part import execute as backfill_template_part
@@ -245,6 +246,138 @@ class TestMarkProcedureVariables(DermaTestHelpers, IntegrationTestCase):
 
 		self.assertEqual(mark["procedure_variables"], {"units": "20"})
 		self.assertEqual([row["source"] for row in mark["area_variables"]], ["Area"])
+
+
+class TestProcedureLevelVariables(DermaTestHelpers, IntegrationTestCase):
+	"""Some templates ask for one set of values for the whole procedure. The mark still wins
+	where it has an answer of its own, and what it borrowed stays labelled as borrowed."""
+
+	def _flagged_template(self):
+		template = self._get_or_create_procedure_template()
+		frappe.db.set_value(
+			"Clinical Procedure Template", template, "custom_derma_variables_per_procedure", 1
+		)
+		return template
+
+	def _procedure_mark(self, patient, procedure, template, **extra):
+		return self._save_mark(patient, clinical_procedure=procedure, procedure_template=template, **extra)
+
+	def test_stores_one_set_against_the_procedure(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+
+		stored = api.save_procedure_variables(procedure.name, template, {"fluence": 12, "passes": 2})
+
+		self.assertEqual(stored, {"fluence": "12", "passes": "2"})
+
+	def test_another_templates_answers_are_left_alone(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		first = self._flagged_template()
+		second = self._make_procedure_template_with_category(f"Derma Cat {frappe.generate_hash(length=6)}")
+		api.save_procedure_variables(procedure.name, first, {"fluence": "12"})
+
+		api.save_procedure_variables(procedure.name, second, {"fluence": "99"})
+
+		self.assertEqual(api._procedure_level_variables(procedure.name, first), {"fluence": "12"})
+		self.assertEqual(api._procedure_level_variables(procedure.name, second), {"fluence": "99"})
+
+	def test_a_mark_borrows_what_it_does_not_carry(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+		self._procedure_mark(patient, procedure.name, template)
+
+		mark = api._get_marks(patient)[0]
+
+		self.assertEqual(mark["procedure_variables"], {"fluence": "12"})
+		self.assertEqual(mark["inherited_variables"], {"fluence": "12"})
+
+	def test_the_marks_own_answer_wins(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+		self._procedure_mark(patient, procedure.name, template, fluence="30")
+
+		mark = api._get_marks(patient)[0]
+
+		self.assertEqual(mark["procedure_variables"]["fluence"], "30")
+		# Nothing was borrowed, so nothing may be labelled as borrowed - the copy-forward path
+		# strips what is listed here, and stripping a typed value would lose it.
+		self.assertEqual(mark["inherited_variables"], {})
+
+	def test_an_unflagged_template_borrows_nothing(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._get_or_create_procedure_template()
+		frappe.db.set_value(
+			"Clinical Procedure Template", template, "custom_derma_variables_per_procedure", 0
+		)
+		api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+		self._procedure_mark(patient, procedure.name, template)
+
+		mark = api._get_marks(patient)[0]
+
+		self.assertEqual(mark["procedure_variables"], {})
+		self.assertEqual(mark["inherited_variables"], {})
+
+	def test_refuses_an_unreadable_payload_rather_than_clearing_the_set(self):
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+
+		with self.assertRaises(frappe.ValidationError):
+			api.save_procedure_variables(procedure.name, template, "{not json")
+
+		self.assertEqual(api._procedure_level_variables(procedure.name, template), {"fluence": "12"})
+
+	def test_promoting_a_mark_carries_the_shared_values_to_the_new_procedure(self):
+		"""create_procedure_from_mark re-anchors the mark onto a procedure it has just made.
+		Without the carry-across the mark lands on a procedure holding none of the answers the
+		practitioner typed, and the studio reopens showing blanks."""
+		patient = self._make_patient()
+		# Promotion refuses an encounter with no appointment, so the fixture needs both.
+		appointment = frappe.get_doc(
+			{
+				"doctype": "Patient Appointment",
+				"patient": patient,
+				"appointment_type": self._get_or_create_appointment_type(),
+				"practitioner": self._get_or_create_practitioner(),
+				"appointment_date": nowdate(),
+				"appointment_time": nowtime(),
+				"company": frappe.db.get_value("Company", {}, "name"),
+			}
+		).insert(ignore_permissions=True)
+		encounter = self._make_encounter(patient)
+		encounter.db_set("appointment", appointment.name)
+		anchor = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		api.save_procedure_variables(anchor.name, template, {"fluence": "12"})
+		mark = self._procedure_mark(patient, anchor.name, template, encounter=encounter.name)
+
+		created = api.create_procedure_from_mark(mark["name"], template)
+
+		self.assertEqual(
+			api._procedure_level_variables(created["clinical_procedure"]["name"], template),
+			{"fluence": "12"},
+		)
+		# The anchor keeps its own copy: other marks may still be pointing at it.
+		self.assertEqual(api._procedure_level_variables(anchor.name, template), {"fluence": "12"})
+
+	def test_a_submitted_procedure_still_takes_them(self):
+		"""Same contract as a drawing: the procedure is submittable and the studio keeps working."""
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		frappe.db.set_value("Clinical Procedure", procedure.name, "docstatus", 1)
+
+		api.save_procedure_variables(procedure.name, template, {"fluence": "12"})
+
+		self.assertEqual(api._procedure_level_variables(procedure.name, template), {"fluence": "12"})
 
 
 class TestBodyTemplatePartSave(DermaTestHelpers, IntegrationTestCase):
