@@ -410,6 +410,64 @@ class TestProcedureLevelVariables(DermaTestHelpers, IntegrationTestCase):
 			{first: {"fluence": "12"}, second: {"passes": "3"}},
 		)
 
+	def test_the_procedure_row_carries_its_values_and_the_flag(self):
+		"""The chart row is where a procedure with no drawing is reached, so it has to know both
+		what was recorded and that this template records anything at all."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		frappe.db.set_value("Clinical Procedure", procedure.name, "procedure_template", template)
+		self._link_encounter(procedure.name, encounter.name)
+		api.save_procedure_variables(procedure.name, template, {"fluence": "8 J"})
+
+		row = self._procedure_row(patient, encounter.name, procedure.name)
+
+		self.assertEqual(row["derma_captures_variables_per_procedure"], 1)
+		self.assertEqual(row["derma_procedure_variables_text"], "Fluence: 8 J")
+		self.assertEqual([value["fieldname"] for value in row["derma_procedure_variables"]], ["fluence"])
+
+	def test_a_flagged_procedure_with_nothing_recorded_still_offers_the_editor(self):
+		"""Without the flag reaching the row there is no way in: the studio only persists these
+		alongside a drawing, so a procedure that needs no drawing could never record them."""
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		frappe.db.set_value("Clinical Procedure", procedure.name, "procedure_template", template)
+		self._link_encounter(procedure.name, encounter.name)
+
+		row = self._procedure_row(patient, encounter.name, procedure.name)
+
+		self.assertEqual(row["derma_captures_variables_per_procedure"], 1)
+		self.assertEqual(row["derma_procedure_variables_text"], "")
+
+	def test_an_unflagged_procedure_row_offers_nothing(self):
+		patient = self._make_patient()
+		encounter = self._make_encounter(patient)
+		procedure = self._make_clinical_procedure(patient)
+		template = self._get_or_create_procedure_template()
+		frappe.db.set_value(
+			"Clinical Procedure Template", template, "custom_derma_variables_per_procedure", 0
+		)
+		frappe.db.set_value("Clinical Procedure", procedure.name, "procedure_template", template)
+		self._link_encounter(procedure.name, encounter.name)
+
+		row = self._procedure_row(patient, encounter.name, procedure.name)
+
+		self.assertEqual(row["derma_captures_variables_per_procedure"], 0)
+		self.assertEqual(row["derma_procedure_variables_text"], "")
+
+	def _link_encounter(self, procedure, encounter):
+		"""Through the app's own resolver: which field holds the encounter differs by site."""
+		field = api._get_clinical_procedure_encounter_field()
+		if field:
+			frappe.db.set_value("Clinical Procedure", procedure, field, encounter)
+
+	def _procedure_row(self, patient, encounter, procedure):
+		rows = api._get_derma_procedures(patient, encounter=encounter)
+		return next(row for row in rows if row["name"] == procedure)
+
 	def test_a_submitted_procedure_still_takes_them(self):
 		"""Same contract as a drawing: the procedure is submittable and the studio keeps working."""
 		patient = self._make_patient()

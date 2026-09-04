@@ -1830,7 +1830,59 @@ def _enrich_derma_procedure_rows(rows: list[dict[str, Any]], procedure_names: li
 			row["annotation_count"] = max(cint(row.get("annotation_count") or 0), annotation_count)
 			row["derma_artifact_text"] = _procedure_artifact_text(row)
 
+	_hydrate_procedure_variables(rows, procedure_names)
 	consumable_procedures.hydrate(rows)
+
+
+def _hydrate_procedure_variables(rows: list[dict[str, Any]], procedure_names: list[str]) -> None:
+	"""The shared values each procedure holds for its own template, ready for the row to show.
+
+	Read in one query rather than per row: a visit's procedure list is capped at 200, and asking
+	`_procedure_level_variables` for each would be that many round trips for a chart the
+	clinician is waiting on.
+	"""
+	for row in rows:
+		row.setdefault("derma_procedure_variables", [])
+		row.setdefault("derma_procedure_variables_text", "")
+		row.setdefault("derma_captures_variables_per_procedure", 0)
+	if not procedure_names or not _has_procedure_variables():
+		return
+	# The flag decides whether the row offers the editor at all, and it is what makes the
+	# offer appear on a procedure that has recorded nothing yet.
+	templates = {row.get("procedure_template") for row in rows if row.get("procedure_template")}
+	flagged = set()
+	if templates and _has_field("Clinical Procedure Template", "custom_derma_variables_per_procedure"):
+		flagged = {
+			entry.name
+			for entry in frappe.get_all(
+				"Clinical Procedure Template",
+				filters={"name": ["in", list(templates)], "custom_derma_variables_per_procedure": 1},
+				fields=["name"],
+				limit=0,
+			)
+		}
+	for row in rows:
+		row["derma_captures_variables_per_procedure"] = int(row.get("procedure_template") in flagged)
+	stored = frappe.get_all(
+		"Derma Procedure Variable",
+		filters={"parent": ["in", procedure_names], "parenttype": "Clinical Procedure"},
+		fields=["parent", "procedure_template", "fieldname", "label", "value"],
+		order_by="parent asc, idx asc",
+		limit=0,
+	)
+	by_procedure: dict[tuple[str, str], list[dict[str, Any]]] = {}
+	for entry in stored:
+		by_procedure.setdefault((entry.parent, entry.procedure_template), []).append(
+			{"fieldname": entry.fieldname, "label": entry.label, "value": entry.value}
+		)
+	for row in rows:
+		values = by_procedure.get((row.get("name"), row.get("procedure_template")), [])
+		if not values:
+			continue
+		row["derma_procedure_variables"] = values
+		row["derma_procedure_variables_text"] = " · ".join(
+			f"{value['label'] or value['fieldname']}: {value['value']}" for value in values if value["value"]
+		)
 
 
 def _procedure_history_detail(

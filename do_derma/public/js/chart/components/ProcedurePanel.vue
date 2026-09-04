@@ -294,6 +294,20 @@
                     <i class="fa-solid fa-box-open"></i>
                     <span>{{ __("Materials") }} ({{ consumableCount(row) }})</span>
                   </button>
+                  <!-- Offered even when empty: the studio only records these alongside a
+                       drawing, so a procedure that needs no drawing has no other way in. -->
+                  <button
+                    v-if="row.derma_captures_variables_per_procedure"
+                    type="button"
+                    class="detail-chip detail-chip-button"
+                    data-test="procedure-edit-variables"
+                    :title="__('Recorded once for the whole procedure')"
+                    :disabled="readOnly"
+                    @click.stop="$emit('edit-procedure-variables', row)"
+                  >
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>{{ row.derma_procedure_variables_text || __("Add details") }}</span>
+                  </button>
                   <span v-if="row.derma_artifact_text" class="detail-chip derma-artifact-chip">
                     <i class="fa-regular fa-images"></i>
                     <span>{{ row.derma_artifact_text }}</span>
@@ -510,6 +524,7 @@ const emit = defineEmits([
   "refresh",
   "sync-billables",
   "annotate-procedure",
+  "edit-procedure-variables",
   "new-procedure",
   "copy-marks",
   "edit-surfaces",
