@@ -160,6 +160,7 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_before_after_photo_required",
 	"custom_derma_product_tracking_required",
 	"custom_derma_device_settings_required",
+	"custom_derma_variables_per_procedure",
 	"custom_derma_note_template",
 ]
 
@@ -182,6 +183,7 @@ EDITOR_CHECK_FIELDS = {
 	"before_after_photo_required": "custom_derma_before_after_photo_required",
 	"product_tracking_required": "custom_derma_product_tracking_required",
 	"device_settings_required": "custom_derma_device_settings_required",
+	"variables_per_procedure": "custom_derma_variables_per_procedure",
 }
 EDITOR_ROW_FIELDS = [
 	*EDITOR_TEXT_FIELDS.values(),
@@ -1424,6 +1426,145 @@ def _hydrate_mark_area_variables(mark_rows: list[dict[str, Any]]) -> None:
 		}
 
 
+PROCEDURE_VARIABLES_FIELD = "custom_derma_procedure_variables"
+
+
+def _has_procedure_variables() -> bool:
+	return _has_doctype("Derma Procedure Variable") and _has_field(
+		"Clinical Procedure", PROCEDURE_VARIABLES_FIELD
+	)
+
+
+def _procedure_level_variables(clinical_procedure: str, procedure_template: str) -> dict[str, str]:
+	"""What a template asked to capture once for the whole procedure, keyed by fieldname."""
+	if not clinical_procedure or not procedure_template or not _has_procedure_variables():
+		return {}
+	rows = frappe.get_all(
+		"Derma Procedure Variable",
+		filters={
+			"parent": clinical_procedure,
+			"parenttype": "Clinical Procedure",
+			"procedure_template": procedure_template,
+		},
+		fields=["fieldname", "value"],
+		order_by="idx asc",
+		limit=0,
+	)
+	return {row.fieldname: row.value for row in rows}
+
+
+def _captures_variables_per_procedure(procedure_template: str) -> bool:
+	if not procedure_template or not _has_field(
+		"Clinical Procedure Template", "custom_derma_variables_per_procedure"
+	):
+		return False
+	return bool(
+		frappe.db.get_value(
+			"Clinical Procedure Template", procedure_template, "custom_derma_variables_per_procedure"
+		)
+	)
+
+
+def _merge_procedure_level_variables(mark_rows: list[dict[str, Any]]) -> None:
+	"""Fill each mark's gaps from its procedure's shared values, for flagged templates only.
+
+	The mark's own value always wins; a blank is a gap, not an override. What came from the
+	procedure is listed separately in `inherited_variables` and must stay that way: the studio
+	renders those as placeholders rather than values, and the copy-forward path strips them so
+	last visit's shared dose is never pinned onto this visit's mark.
+	"""
+	if not mark_rows or not _has_procedure_variables():
+		return
+	flagged: dict[str, bool] = {}
+	shared: dict[tuple[str, str], dict[str, str]] = {}
+	for mark in mark_rows:
+		mark.setdefault("inherited_variables", {})
+		procedure = mark.get("clinical_procedure")
+		template = mark.get("procedure_template")
+		if not procedure or not template:
+			continue
+		if template not in flagged:
+			flagged[template] = _captures_variables_per_procedure(template)
+		if not flagged[template]:
+			continue
+		key = (procedure, template)
+		if key not in shared:
+			shared[key] = _procedure_level_variables(procedure, template)
+		own = mark.get("procedure_variables") or {}
+		inherited = {
+			fieldname: value for fieldname, value in shared[key].items() if own.get(fieldname) in (None, "")
+		}
+		if not inherited:
+			continue
+		mark["inherited_variables"] = inherited
+		mark["procedure_variables"] = {**own, **inherited}
+
+
+def _carry_procedure_variables(source: str, target: str, procedure_template: str) -> None:
+	"""Move a template's shared values onto the procedure a mark has just been re-anchored to.
+
+	Without this the mark ends up on a procedure that holds none of the answers the
+	practitioner already typed, and the studio reopens showing blanks.
+	"""
+	if not source or not target or source == target:
+		return
+	values = _procedure_level_variables(source, procedure_template)
+	if not values:
+		return
+	save_procedure_variables(target, procedure_template, values)
+
+
+@frappe.whitelist()
+def save_procedure_variables(
+	clinical_procedure: str, procedure_template: str, values: str | dict[str, Any] | None = None
+):
+	"""Store one set of variable values for a template against a Clinical Procedure.
+
+	Rows for other templates on the same procedure are left alone, so a drawing that tags
+	several templates keeps each one's answers.
+	"""
+	_ensure_clinical_access()
+	if not clinical_procedure or not frappe.db.exists("Clinical Procedure", clinical_procedure):
+		frappe.throw(_("Clinical Procedure not found."))
+	if not procedure_template or not frappe.db.exists("Clinical Procedure Template", procedure_template):
+		frappe.throw(_("Clinical Procedure Template not found."))
+	if not _has_procedure_variables():
+		frappe.throw(_("This site cannot store per-procedure variables yet. Run bench migrate."))
+
+	# No silent fallback: an unreadable payload here would wipe the procedure's answers.
+	parsed = values if isinstance(values, dict) else _parse_json(values, None)
+	if not isinstance(parsed, dict):
+		frappe.throw(_("Procedure variables must be a set of fieldname and value pairs."))
+
+	doc = frappe.get_doc("Clinical Procedure", clinical_procedure)
+	kept = [
+		row
+		for row in (doc.get(PROCEDURE_VARIABLES_FIELD) or [])
+		if row.procedure_template != procedure_template
+	]
+	doc.set(PROCEDURE_VARIABLES_FIELD, [])
+	for row in kept:
+		doc.append(PROCEDURE_VARIABLES_FIELD, row)
+	for fieldname, value in parsed.items():
+		resolved = _variable_fieldname(fieldname)
+		if not resolved:
+			continue
+		doc.append(
+			PROCEDURE_VARIABLES_FIELD,
+			{
+				"procedure_template": procedure_template,
+				"fieldname": resolved,
+				"label": frappe.unscrub(resolved),
+				"value": _stringify_variable_value(value),
+			},
+		)
+	# A submitted procedure still takes these, the same way it still takes a drawing.
+	doc.flags.ignore_mandatory = True
+	doc.flags.ignore_validate_update_after_submit = True
+	doc.save(ignore_permissions=True)
+	return _procedure_level_variables(clinical_procedure, procedure_template)
+
+
 def _default_derma_variable(fieldname: str) -> dict[str, Any] | None:
 	labels = {
 		"product_item": ("Product Item", "Data", ""),
@@ -2046,6 +2187,7 @@ def _get_marks(
 		limit=500,
 	)
 	_hydrate_mark_area_variables(marks)
+	_merge_procedure_level_variables(marks)
 	consumable_marks.hydrate(marks)
 	return marks
 
@@ -3676,7 +3818,10 @@ def create_procedure_from_mark(
 
 	template_doc = frappe.get_doc("Clinical Procedure Template", procedure_template)
 	_ensure_body_template_allowed(procedure_template, mark_doc.body_template, template_doc.as_dict())
-	procedure_readiness.validate_marks_ready([mark_doc], template_doc)
+	# Read before the mark is re-anchored below: per-procedure values were captured against the
+	# procedure the studio was open on, and the gate has to see them.
+	anchor_procedure = mark_doc.clinical_procedure
+	procedure_readiness.validate_marks_ready([mark_doc], template_doc, clinical_procedure=anchor_procedure)
 	procedure = frappe.new_doc("Clinical Procedure")
 	procedure.patient = mark_doc.patient
 	procedure.patient_name = mark_doc.patient_name
@@ -3700,6 +3845,7 @@ def create_procedure_from_mark(
 		)
 	consumable_marks.apply_to_procedure(procedure, mark_doc)
 	procedure.insert(ignore_permissions=True)
+	_carry_procedure_variables(anchor_procedure, procedure.name, procedure_template)
 
 	mark_doc.procedure_template = procedure_template
 	mark_doc.clinical_procedure = procedure.name

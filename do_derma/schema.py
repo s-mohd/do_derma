@@ -155,6 +155,17 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"insert_after": "custom_derma_price_override_reason",
 			"hidden": 1,
 		},
+		{
+			# Variables a template asks to capture once for the whole procedure instead of once
+			# per mark. Keyed by procedure template inside the row, because the studio can tag
+			# marks from several templates against one procedure.
+			"fieldname": "custom_derma_procedure_variables",
+			"fieldtype": "Table",
+			"label": "Derma Procedure Variables",
+			"options": "Derma Procedure Variable",
+			"insert_after": "custom_annotations",
+			"hidden": 1,
+		},
 	],
 	# Every derma behaviour a procedure template carries. These were created by
 	# seed_derma_v2_defaults and its successors, which `install_app` marks complete
@@ -250,10 +261,17 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"insert_after": "custom_derma_product_tracking_required",
 		},
 		{
+			"fieldname": "custom_derma_variables_per_procedure",
+			"fieldtype": "Check",
+			"label": "Capture Variables Once Per Procedure",
+			"insert_after": "custom_derma_device_settings_required",
+			"description": "One set of values for the whole procedure instead of one per mark. A mark can still override.",
+		},
+		{
 			"fieldname": "custom_derma_note_template",
 			"fieldtype": "Small Text",
 			"label": "Note Sentence Template",
-			"insert_after": "custom_derma_device_settings_required",
+			"insert_after": "custom_derma_variables_per_procedure",
 		},
 	],
 	"Healthcare Practitioner": [

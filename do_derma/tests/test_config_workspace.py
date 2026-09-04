@@ -407,6 +407,17 @@ class TestProcedureTemplateEditor(ConfigTemplateHelpers, IntegrationTestCase):
 		self.assertEqual(self._stored(template, "custom_derma_consent_required"), 1)
 		self.assertEqual(self._stored(template, "custom_derma_device_settings_required"), 1)
 
+	def test_the_capture_mode_is_not_a_safety_flag(self):
+		"""It rides EDITOR_CHECK_FIELDS like the flags, but it requires nothing of a procedure
+		and must not be rendered among them or appear in the required-field set."""
+		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
+
+		api.save_derma_procedure_template(template, {"variables_per_procedure": 1})
+
+		self.assertEqual(self._stored(template, "custom_derma_variables_per_procedure"), 1)
+		row = frappe.get_doc("Clinical Procedure Template", template).as_dict()
+		self.assertEqual(api._required_field_owners(row), [])
+
 	def test_writes_the_marker_size(self):
 		template = self._make_derma_template(custom_derma_marker_behavior="numbered_dot")
 
