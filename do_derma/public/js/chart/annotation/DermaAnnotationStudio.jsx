@@ -365,8 +365,13 @@ function generateAnnotationDataHTML(items) {
       .map(([key, value]) => `<b>${escapeHtml(key)}</b>: ${escapeHtml(value)}`)
       .join(", ")
     const contrast = getContrastText(item.color)
+    // A row with no badge marks nothing on the image - it is the procedure itself. Numbering
+    // it would point the reader at a badge that is not there to find.
+    const badge = item.badgeNum
+      ? `<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:${item.color};color:${contrast};text-align:center;line-height:22px;font-weight:bold;font-size:11px;">${item.badgeNum}</span>`
+      : `<span style="display:inline-block;width:22px;height:22px;border-radius:50%;border:2px solid ${item.color};"></span>`
     return `<tr style="border-bottom:1px solid #e5e7eb;">
-      <td style="padding:6px 10px;"><span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:${item.color};color:${contrast};text-align:center;line-height:22px;font-weight:bold;font-size:11px;">${item.badgeNum}</span></td>
+      <td style="padding:6px 10px;">${badge}</td>
       <td style="padding:6px 10px;">${escapeHtml(item.type)}</td>
       <td style="padding:6px 10px;font-weight:600;">${escapeHtml(item.name)}</td>
       <td style="padding:6px 10px;">${params || "\u2014"}</td>
@@ -767,6 +772,24 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneRevision, partValues, selectedParts, procedures, selectedAreas, procedureShared])
   const badgeItems = includeBadges ? legendItems : []
+  /**
+   * A procedure that keeps one shared set but placed no mark has nothing on the image to
+   * carry its values, so the legend beside the image would not mention it at all. Kept out
+   * of badgeItems: there is no element to pin a badge to.
+   */
+  const procedureLegendRows = useMemo(() => {
+    const alreadyListed = new Set(legendItems.map((item) => item.name))
+    return procedures
+      .filter((procedure) => sharedLabels.has(procedureLabel(procedure)))
+      .filter((procedure) => !alreadyListed.has(procedureLabel(procedure)))
+      .map((procedure) => ({
+        type: __("Procedure"),
+        name: procedureLabel(procedure),
+        color: procedureColor(procedure),
+        params: stripBlanks(procedureShared[procedureLabel(procedure)] || {}),
+      }))
+      .filter((row) => Object.keys(row.params).length)
+  }, [legendItems, procedures, sharedLabels, procedureShared])
 
   useEffect(() => {
     embeddedRef.current?.setBadgeElements?.(badgeElements(badgeItems))
@@ -1418,7 +1441,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             // Left blank for a procedure anchor so the server owns the one rule that
             // procedure-anchored rows are typed "Treatment".
             encounter_type: context.clinicalProcedure ? "" : "Derma Annotation",
-            annotation_data: generateAnnotationDataHTML(badgeItems),
+            annotation_data: generateAnnotationDataHTML([...badgeItems, ...procedureLegendRows]),
             // The durable owner of area values: a mark carries them only where one was placed.
             area_values: partValues,
             // What the exported image shows, so a reopen comes back looking like the file.
