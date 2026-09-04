@@ -424,8 +424,12 @@ function parseAnnotation(annotation) {
 
 export default EmbeddedExcalidraw
 
-/** The drawing tools whose finished element becomes a mark, and the shape each one records. */
-const DRAWN_SHAPES = { area: "area", draw: "freehand", line: "line" }
+/**
+ * The drawing tools whose finished element becomes a mark, and the shape each one records.
+ * The pen is deliberately absent: a freehand stroke shades or outlines a region for the eye,
+ * so it stays ink. Marks drawn with it before that decision are still marks and still load.
+ */
+const DRAWN_SHAPES = { area: "area", line: "line" }
 
 function isStampBehavior(template) {
   // createStampElements() already has a complete fallback chain ending in createNumberedDot,
@@ -459,7 +463,7 @@ export function isAreaBehavior(template) {
 
 export function isFreehandBehavior(template) {
   // Irregular regions - a graft, a scar, a patch of melasma - that a rectangle misrepresents.
-  // The pen takes the procedure's colour and the finished stroke becomes one Derma Chart Mark.
+  // The pen takes the procedure's colour; the stroke it leaves is ink, not a Derma Chart Mark.
   const behavior = behaviorOf(template)
   return behavior.includes("freehand") || behavior.includes("stroke") || behavior.includes("paint")
 }

@@ -149,7 +149,7 @@ function taggingHint(procedure, label) {
     return __("Tagging as: {0} - drag on the canvas to outline the treated area.").replace("{0}", label)
   }
   if (isFreehandBehavior(procedure)) {
-    return __("Tagging as: {0} - draw over the affected skin.").replace("{0}", label)
+    return __("Drawing as: {0} - the pen takes its colour. Strokes are ink, not marks.").replace("{0}", label)
   }
   if (isLineBehavior(procedure)) {
     return __("Tagging as: {0} - drag on the canvas to draw the line.").replace("{0}", label)
@@ -619,6 +619,10 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       !isFreehandBehavior(sizedBehavior) &&
       !isLineBehavior(sizedBehavior)
   )
+  // A freehand procedure places no mark, so there is nothing for its variables to be written
+  // onto. The editor is withheld rather than shown accepting values it would discard. Editing
+  // a mark drawn before the pen stopped making them still opens normally.
+  const hasNoMarkToCarryVariables = Boolean(!editingMark && isFreehandBehavior(editorProcedureDoc))
   const photoCapture = usePhotoCapture({
     context,
     bodyTemplate: selectedTemplate,
@@ -1576,7 +1580,11 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         {isProcedureAnchor ? <aside className="derma-annotation-right">
           <div className="derma-annotation-panel">
             <h3>{editingMark ? __("Editing Mark") : __("Procedure Variables")}</h3>
-            {editorProcedureDoc ? (
+            {editorProcedureDoc && hasNoMarkToCarryVariables ? (
+              <p className="derma-annotation-empty" data-test="annotation-variables-unavailable">
+                {__("{0} draws in ink and records no mark, so it has nowhere to keep variables yet.").replace("{0}", editorProcedureName)}
+              </p>
+            ) : editorProcedureDoc ? (
               <div data-test="annotation-variable-editor" data-editing-mark={editingMark?.name || ""}>
                 <VariableEditor
                   title={editorProcedureName}

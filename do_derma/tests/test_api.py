@@ -745,9 +745,14 @@ class TestAnnotationAnchoring(DermaTestHelpers, IntegrationTestCase):
 		self.assertFalse(frappe.db.exists("Derma Chart Mark", unpromoted))
 
 	def test_resave_does_not_duplicate_a_drawn_mark(self):
-		"""A drawn mark (area or freehand) is saved the moment it is committed, so the annotation
-		save must only re-link it. The element carries the same id both times, which is the key
-		the fan-out matches on."""
+		"""A drawn mark is saved the moment it is committed, so the annotation save must only
+		re-link it. The element carries the same id both times, which is the key the fan-out
+		matches on.
+
+		Written with a freehand stroke, which the pen no longer creates. That is the point: a
+		clinic's charts still hold strokes drawn while it did, and the server must keep loading
+		and re-linking them rather than duplicating or orphaning them.
+		"""
 		patient = self._make_patient()
 		encounter = self._make_encounter(patient)
 		element_id = "freehand-element-1"
