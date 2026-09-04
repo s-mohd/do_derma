@@ -55,12 +55,24 @@ export function markCopyValues(source, context) {
     body_template_part: source.body_template_part || null,
     x_percent: source.x_percent,
     y_percent: source.y_percent,
-    procedure_variables: { ...(source.procedure_variables || {}) },
+    procedure_variables: ownVariables(source),
   }
   for (const field of MARK_VARIABLE_FIELDS) {
     if (source[field] !== undefined && source[field] !== null) values[field] = source[field]
   }
   return values
+}
+
+/**
+ * Only what the source mark answered for itself. A value it merely borrowed belongs to *that*
+ * visit's procedure, and copying it forward would pin last visit's dose or lot number onto this
+ * visit as this mark's own - past the new procedure's own answer, and invisibly.
+ */
+function ownVariables(source) {
+  const inherited = source.inherited_variables || {}
+  return Object.fromEntries(
+    Object.entries(source.procedure_variables || {}).filter(([fieldname]) => !(fieldname in inherited))
+  )
 }
 
 /**

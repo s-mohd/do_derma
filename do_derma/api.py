@@ -1453,6 +1453,29 @@ def _procedure_level_variables(clinical_procedure: str, procedure_template: str)
 	return {row.fieldname: row.value for row in rows}
 
 
+@frappe.whitelist()
+def get_procedure_variables(clinical_procedure: str) -> dict[str, dict[str, str]]:
+	"""Every template's shared values on one procedure, keyed by template then fieldname.
+
+	One read for the studio to seed from: a procedure that captures once has values to show
+	before any mark exists, so they cannot be reached through the marks.
+	"""
+	_ensure_clinical_access()
+	if not clinical_procedure or not _has_procedure_variables():
+		return {}
+	rows = frappe.get_all(
+		"Derma Procedure Variable",
+		filters={"parent": clinical_procedure, "parenttype": "Clinical Procedure"},
+		fields=["procedure_template", "fieldname", "value"],
+		order_by="idx asc",
+		limit=0,
+	)
+	grouped: dict[str, dict[str, str]] = {}
+	for row in rows:
+		grouped.setdefault(row.procedure_template, {})[row.fieldname] = row.value
+	return grouped
+
+
 def _captures_variables_per_procedure(procedure_template: str) -> bool:
 	if not procedure_template or not _has_field(
 		"Clinical Procedure Template", "custom_derma_variables_per_procedure"
@@ -1463,6 +1486,22 @@ def _captures_variables_per_procedure(procedure_template: str) -> bool:
 			"Clinical Procedure Template", procedure_template, "custom_derma_variables_per_procedure"
 		)
 	)
+
+
+def _mark_answers_itself(mark: dict[str, Any], own: dict[str, Any], fieldname: str) -> bool:
+	"""Has this mark given its own answer for a variable, wherever that answer is kept?
+
+	A fieldname Derma Chart Mark owns as a field of its own is stored there rather than as a
+	child row - `_apply_mark_procedure_variables` skips those on purpose. Reading only the rows
+	would let a shared value mask an override the practitioner typed. A numeric field reads 0
+	when nothing was entered, so that counts as unanswered.
+	"""
+	if own.get(fieldname) not in (None, ""):
+		return True
+	value = mark.get(fieldname)
+	if isinstance(value, (int, float)) and not isinstance(value, bool):
+		return bool(value)
+	return value not in (None, "")
 
 
 def _merge_procedure_level_variables(mark_rows: list[dict[str, Any]]) -> None:
@@ -1492,7 +1531,9 @@ def _merge_procedure_level_variables(mark_rows: list[dict[str, Any]]) -> None:
 			shared[key] = _procedure_level_variables(procedure, template)
 		own = mark.get("procedure_variables") or {}
 		inherited = {
-			fieldname: value for fieldname, value in shared[key].items() if own.get(fieldname) in (None, "")
+			fieldname: value
+			for fieldname, value in shared[key].items()
+			if not _mark_answers_itself(mark, own, fieldname)
 		}
 		if not inherited:
 			continue

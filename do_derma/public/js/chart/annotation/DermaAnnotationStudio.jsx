@@ -8,6 +8,13 @@ import MarkerSizeControl from "./MarkerSizeControl.jsx"
 import { usePhotoCapture } from "./use_photo_capture.js"
 import { describeError } from "../../shared/error_text.js"
 import { openCopyPreviousMarksDialog } from "./copy_previous_marks.js"
+import {
+  fetchSharedValues,
+  perProcedureLabels,
+  persistSharedValues,
+  sharedRequiredGaps,
+  templateNamesByLabel,
+} from "./procedure_variables.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
@@ -103,6 +110,13 @@ function missingRequiredVariables(variables, values = {}) {
   })
 }
 
+/** Blanks are gaps, not answers, so they must not mask a value the procedure supplies. */
+function stripBlanks(values = {}) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  )
+}
+
 function groupedTemplates(templates = []) {
   const groups = new Map()
   for (const template of templates.filter((row) => row.image)) {
@@ -190,7 +204,7 @@ function hasAreaValues(values) {
   return Boolean(values) && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined)
 }
 
-function collectBadgeItems(elements, partValues, parts, procedures, selectedAreas) {
+function collectBadgeItems(elements, partValues, parts, procedures, selectedAreas, sharedValues = {}) {
   const selected = new Set(selectedAreas || [])
   const markItems = []
   const areaItems = []
@@ -202,7 +216,7 @@ function collectBadgeItems(elements, partValues, parts, procedures, selectedArea
     // A tagged mark is legend-worthy on its template alone - unfilled variables must not drop it
     // from the numbering, or the sheet prints a mark with no row. Areas below differ: an untouched
     // outline came from the template, the practitioner never placed it.
-    const params = element.customData?.procedure_variables || element.customData?.variables || {}
+    const own = element.customData?.procedure_variables || element.customData?.variables || {}
     // A stamp is several elements sharing one group - a dot, its ring, its number - and they
     // are one clinical mark, so they get one badge between them.
     const markKey = markIdentity(element)
@@ -210,6 +224,9 @@ function collectBadgeItems(elements, partValues, parts, procedures, selectedArea
     seenMarks.add(markKey)
     const centroid = elementCentroid(element)
     const procedure = procedures.find((row) => row.name === procedureTemplateName)
+    // A mark of a procedure that keeps one shared set caches nothing of its own, so the legend
+    // reads that set behind it. Reading, not copying: what is drawn here is never written back.
+    const params = { ...(sharedValues[procedureLabel(procedure)] || {}), ...stripBlanks(own) }
     markItems.push({
       type: "Procedure",
       name: procedureLabel(procedure) || procedureTemplateName,
@@ -502,6 +519,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const [selectedProcedures, setSelectedProcedures] = useState([])
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
+  // One shared set per procedure that asked for it, kept apart from procedureValues on purpose:
+  // these are the procedure's answers, and a mark must never be written with a copy of them.
+  const [procedureShared, setProcedureShared] = useState({})
   const [partValues, setPartValues] = useState(() => seedPartValues(marks, annotation))
   // The areas the drawing is about: styled bold, exported, and saved with the annotation.
   const [selectedAreas, setSelectedAreas] = useState(() => seedSelectedAreas(annotation, seedPartValues(marks, annotation)))
@@ -537,6 +557,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // and which areas were edited this session - the untouched ones are already stored.
   const areaMarks = useRef(seedAreaMarks(marks))
   const touchedAreas = useRef(new Set())
+  const touchedProcedures = useRef(new Set())
   // Every write to a Derma Chart Mark queues here. Two saves of one mark in flight together
   // make the second one fail on the timestamp the first has already moved.
   const markWrites = useRef(Promise.resolve())
@@ -619,10 +640,23 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       !isFreehandBehavior(sizedBehavior) &&
       !isLineBehavior(sizedBehavior)
   )
-  // A freehand procedure places no mark, so there is nothing for its variables to be written
-  // onto. The editor is withheld rather than shown accepting values it would discard. Editing
-  // a mark drawn before the pen stopped making them still opens normally.
-  const hasNoMarkToCarryVariables = Boolean(!editingMark && isFreehandBehavior(editorProcedureDoc))
+  const sharedLabels = useMemo(() => perProcedureLabels(procedures, procedureLabel), [procedures])
+  const sharedTemplateNames = useMemo(() => templateNamesByLabel(procedures, procedureLabel), [procedures])
+  // The editor is bound to one shared set when the armed procedure keeps one and no mark is
+  // selected. With a mark selected it edits that mark, and the shared set becomes the
+  // placeholder behind it - what the mark inherits until it answers for itself.
+  const editsSharedSet = Boolean(!editingMark && sharedLabels.has(editorProcedureName))
+  const inheritedValues =
+    sharedLabels.has(editorProcedureName) && editingMark ? procedureShared[editorProcedureName] || {} : {}
+  const editorValues = editsSharedSet
+    ? procedureShared[editorProcedureName] || {}
+    : procedureValues[editorProcedureName] || {}
+  // A freehand procedure places no mark, so unless it keeps a shared set there is nothing for
+  // its variables to be written onto. The editor is withheld rather than shown accepting values
+  // it would discard. Editing a mark drawn before the pen stopped making them still opens.
+  const hasNoMarkToCarryVariables = Boolean(
+    !editingMark && isFreehandBehavior(editorProcedureDoc) && !sharedLabels.has(editorProcedureName)
+  )
   const photoCapture = usePhotoCapture({
     context,
     bodyTemplate: selectedTemplate,
@@ -698,15 +732,40 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   }, [markerSize])
 
   useEffect(() => {
-    embeddedRef.current?.setProcedureVariables?.(procedureValues[activeProcedure] || {})
-  }, [activeProcedure, procedureValues])
+    // A procedure that keeps one shared set caches nothing on the canvas: the cache is what a
+    // new mark is stamped with, and stamping the shared answers onto a mark would turn every
+    // placement into an override of values the procedure already owns.
+    const cached = sharedLabels.has(activeProcedure) ? {} : procedureValues[activeProcedure] || {}
+    embeddedRef.current?.setProcedureVariables?.(cached)
+  }, [activeProcedure, procedureValues, sharedLabels])
+
+  // What the procedure already holds. Read once on open rather than derived from the marks,
+  // because a procedure that captures once may have placed no marks to derive from.
+  useEffect(() => {
+    if (!context.clinicalProcedure || !procedures.length) return
+    let cancelled = false
+    fetchSharedValues(context.clinicalProcedure, procedures, procedureLabel)
+      .then((values) => {
+        if (!cancelled) setProcedureShared((current) => ({ ...values, ...current }))
+      })
+      .catch((error) => {
+        window.frappe?.msgprint?.({
+          title: __("Unable to read procedure variables"),
+          message: describeError(error),
+          indicator: "red",
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [context.clinicalProcedure, procedures])
 
   // Numbered whether or not the badges are drawn: the marks panel lists them either way.
   const legendItems = useMemo(() => {
     const elements = (embeddedRef.current?.getElements?.() || []).filter((element) => !element.isDeleted)
-    return collectBadgeItems(elements, partValues, selectedParts, procedures, selectedAreas)
+    return collectBadgeItems(elements, partValues, selectedParts, procedures, selectedAreas, procedureShared)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRevision, partValues, selectedParts, procedures, selectedAreas])
+  }, [sceneRevision, partValues, selectedParts, procedures, selectedAreas, procedureShared])
   const badgeItems = includeBadges ? legendItems : []
 
   useEffect(() => {
@@ -912,13 +971,30 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   function updateProcedureValue(procedureName, field, value) {
     const key = variableKey(field)
-    // The write stays out of the state updater: React runs an updater twice for one change
-    // - once eagerly, once while rendering - and each run would be its own save.
+    // A mark is selected, so this is that mark's answer whatever the procedure keeps: an
+    // override. Checked first for that reason.
+    if (editingMark?.procedure === procedureName) {
+      // The write stays out of the state updater: React runs an updater twice for one change
+      // - once eagerly, once while rendering - and each run would be its own save.
+      const next = { ...(procedureValues[procedureName] || {}), [key]: value }
+      setProcedureValues((current) => ({ ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }))
+      persistMarkVariables(editingMark.name, next)
+      return
+    }
+    // Nothing selected and the procedure keeps one set, so this belongs to the procedure.
+    // Ahead of lastPlacedMark, which would otherwise turn each answer into an override of the
+    // mark that happened to land last.
+    if (sharedLabels.has(procedureName)) {
+      touchedProcedures.current = new Set(touchedProcedures.current).add(procedureName)
+      setProcedureShared((current) => ({
+        ...current,
+        [procedureName]: { ...(current[procedureName] || {}), [key]: value },
+      }))
+      return
+    }
     const next = { ...(procedureValues[procedureName] || {}), [key]: value }
     setProcedureValues((current) => ({ ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }))
-    if (editingMark?.procedure === procedureName) {
-      persistMarkVariables(editingMark.name, next)
-    } else if (lastPlacedMark.current?.procedure === procedureName) {
+    if (lastPlacedMark.current?.procedure === procedureName) {
       // Typing right after a stamp lands means "that mark": write behind so the value
       // reaches the record instead of only the next placement.
       persistMarkVariables(lastPlacedMark.current.name, next)
@@ -1005,6 +1081,27 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     const next = new Map(areaMarks.current)
     next.set(partName, new Set(next.get(partName) || []).add(markName))
     areaMarks.current = next
+  }
+
+  /**
+   * The shared sets belong to the Clinical Procedure, not to any mark, so they are written
+   * where the area values are: once, as the drawing is saved.
+   */
+  async function persistProcedureVariables() {
+    for (const label of touchedProcedures.current) {
+      const template = sharedTemplateNames[label]
+      if (!template) continue
+      try {
+        await persistSharedValues(context.clinicalProcedure, template, procedureShared[label] || {})
+      } catch (error) {
+        window.frappe?.msgprint?.({
+          title: __("Unable to save procedure variables"),
+          message: describeError(error),
+          indicator: "red",
+        })
+      }
+    }
+    touchedProcedures.current = new Set()
   }
 
   /**
@@ -1215,6 +1312,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       counted.add(markKey)
       const procedure = procedures.find((row) => row.name === element.customData?.procedure_template)
       if (!procedure) continue
+      // A mark of a procedure that keeps one shared set caches nothing of its own, so scanning
+      // it here would report every required variable as missing. The shared set answers below.
+      if (sharedLabels.has(procedureLabel(procedure))) continue
       const missing = missingRequiredVariables(
         procedureVariables(procedure),
         element.customData?.procedure_variables || {}
@@ -1223,7 +1323,11 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         gaps.push({ procedure: procedureLabel(procedure), missing: missing.map(variableLabel) })
       }
     }
-    return gaps
+    return gaps.concat(
+      sharedRequiredGaps(procedures, new Set(selectedProcedures), procedureShared, procedureLabel, (procedure, values) =>
+        missingRequiredVariables(procedureVariables(procedure), values).map(variableLabel)
+      )
+    )
   }
 
   /** Saving with blanks stays allowed - mid-procedure is no time for a locked form - but not unannounced. */
@@ -1293,6 +1397,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         window.frappe?.msgprint?.(__("The drawing surface is still loading."))
         return
       }
+      await persistProcedureVariables()
       await persistAreaVariables()
       const response = await window.frappe.call({
         method: "do_derma.api.save_derma_annotation",
@@ -1585,11 +1690,23 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 {__("{0} draws in ink and records no mark, so it has nowhere to keep variables yet.").replace("{0}", editorProcedureName)}
               </p>
             ) : editorProcedureDoc ? (
-              <div data-test="annotation-variable-editor" data-editing-mark={editingMark?.name || ""}>
+              <div
+                data-test="annotation-variable-editor"
+                data-editing-mark={editingMark?.name || ""}
+                data-shared-set={editsSharedSet ? "1" : "0"}
+              >
+                {sharedLabels.has(editorProcedureName) ? (
+                  <p className="derma-annotation-empty" data-test="annotation-variable-scope">
+                    {editsSharedSet
+                      ? __("Applies to the whole procedure.")
+                      : __("Overrides the procedure's value for this mark. Clear a field to go back to it.")}
+                  </p>
+                ) : null}
                 <VariableEditor
                   title={editorProcedureName}
                   fields={procedureVariables(editorProcedureDoc)}
-                  values={procedureValues[editorProcedureName] || {}}
+                  values={editorValues}
+                  inherited={inheritedValues}
                   onChange={(field, value) => updateProcedureValue(editorProcedureName, field, value)}
                 />
               </div>
@@ -1682,8 +1799,10 @@ function TemplateThumbnail({ template, broken, onBroken }) {
 }
 
 /** Required is shown, never enforced: placing a mark mid-procedure must not be refused. */
-function VariableEditor({ title, fields, values, onChange }) {
-  const missing = missingRequiredVariables(fields, values)
+function VariableEditor({ title, fields, values, onChange, inherited = {} }) {
+  // A value the procedure supplies counts as answered, so it must not be reported missing
+  // just because this mark has not typed one of its own.
+  const missing = missingRequiredVariables(fields, { ...inherited, ...stripBlanks(values) })
   return (
     <div className="derma-variable-editor">
       <strong>{title}</strong>
@@ -1700,23 +1819,52 @@ function VariableEditor({ title, fields, values, onChange }) {
         const key = variableKey(field)
         const options = normalizeOptions(field.options)
         const type = field.type || field.fieldtype || "Data"
+        // What the procedure would supply if this mark said nothing. Shown, never stored: only
+        // a value the clinician typed here is this mark's own.
+        const fallback = inherited[key]
+        const isOverridden = fallback !== undefined && String(values[key] ?? "") !== ""
         return (
-          <label key={key} data-test="annotation-variable-row" data-fieldname={key} data-required={field.required ? "1" : "0"}>
+          <label
+            key={key}
+            data-test="annotation-variable-row"
+            data-fieldname={key}
+            data-required={field.required ? "1" : "0"}
+            data-inherited={fallback !== undefined && !isOverridden ? "1" : "0"}
+          >
             <span>
               {variableLabel(field)}
               {field.required ? (
                 <abbr className="derma-variable-required" title={__("Required")} data-test="annotation-variable-required">*</abbr>
               ) : null}
+              {isOverridden ? (
+                <button
+                  type="button"
+                  className="ghost"
+                  data-test="annotation-variable-reset"
+                  title={__("Use the procedure's value")}
+                  onClick={() => onChange(field, "")}
+                >
+                  {__("reset")}
+                </button>
+              ) : null}
             </span>
             {type === "Select" ? (
               <select value={values[key] || ""} onChange={(event) => onChange(field, event.target.value)}>
-                <option value="">{__("Select")}</option>
+                <option value="">{fallback ? __("From procedure: {0}", [fallback]) : __("Select")}</option>
                 {options.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             ) : type === "Check" ? (
-              <input type="checkbox" checked={Boolean(values[key])} onChange={(event) => onChange(field, event.target.checked ? 1 : 0)} />
+              <input
+                type="checkbox"
+                checked={Boolean(values[key] ?? fallback)}
+                onChange={(event) => onChange(field, event.target.checked ? 1 : 0)}
+              />
             ) : (
-              <input value={values[key] || ""} onChange={(event) => onChange(field, event.target.value)} />
+              <input
+                value={values[key] || ""}
+                placeholder={fallback === undefined ? "" : String(fallback)}
+                onChange={(event) => onChange(field, event.target.value)}
+              />
             )}
           </label>
         )
