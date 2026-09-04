@@ -161,6 +161,7 @@ DERMA_TEMPLATE_FIELDS = [
 	"custom_derma_product_tracking_required",
 	"custom_derma_device_settings_required",
 	"custom_derma_variables_per_procedure",
+	"custom_derma_print_procedure_variables",
 	"custom_derma_note_template",
 ]
 
@@ -184,6 +185,7 @@ EDITOR_CHECK_FIELDS = {
 	"product_tracking_required": "custom_derma_product_tracking_required",
 	"device_settings_required": "custom_derma_device_settings_required",
 	"variables_per_procedure": "custom_derma_variables_per_procedure",
+	"print_procedure_variables": "custom_derma_print_procedure_variables",
 }
 EDITOR_ROW_FIELDS = [
 	*EDITOR_TEXT_FIELDS.values(),

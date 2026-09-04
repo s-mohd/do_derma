@@ -14,6 +14,7 @@ from markupsafe import Markup, escape
 
 from do_derma import assessment
 from do_derma.consumables import encounter as encounter_consumables
+from do_derma.printing import procedure_variables
 
 # Fieldtypes whose stored value is already HTML, written through the desk form that owns
 # them. None of the shipped assessment fields use one; a clinic that configures one into
@@ -48,6 +49,46 @@ def derma_consumables_html(doc) -> Markup:
 		# the assessment block. Degrade to nothing printed, loudly logged.
 		frappe.log_error(title="Derma consumables print block", message=frappe.get_traceback())
 		return Markup("")
+
+
+def derma_procedure_variables_html(doc) -> Markup:
+	"""Jinja global. What each procedure on one encounter recorded once for itself, or empty.
+
+	Only templates that opted in reach this: the block prints on a patient-facing document.
+	"""
+	try:
+		encounter = doc if hasattr(doc, "get") else frappe.get_doc("Patient Encounter", doc)
+		return render_procedure_variables(
+			procedure_variables.get_encounter_procedure_variables(encounter.get("name"))
+		)
+	except Exception:
+		# A raise here 500s the printview for every encounter, the same way it would for
+		# the assessment block. Degrade to nothing printed, loudly logged.
+		frappe.log_error(title="Derma procedure variables print block", message=frappe.get_traceback())
+		return Markup("")
+
+
+def render_procedure_variables(groups: list[dict[str, Any]]) -> Markup:
+	"""One paragraph per procedure, or empty when nothing was recorded or opted in."""
+	if not groups:
+		return Markup("")
+	paragraphs = [
+		Markup("<p><b>{procedure}:</b> {lines}</p>").format(
+			procedure=group["procedure"],
+			lines=Markup(", ").join(
+				Markup("{label}: {value}").format(label=row["label"], value=row["value"])
+				for row in group["rows"]
+			),
+		)
+		for group in groups
+	]
+	return (
+		Markup('<div class="derma-procedure-variables"><h5>{heading}</h5>').format(
+			heading=_("Procedure Details")
+		)
+		+ Markup("").join(paragraphs)
+		+ Markup("</div>")
+	)
 
 
 def render_consumables(groups: list[dict[str, Any]]) -> Markup:

@@ -39,7 +39,8 @@ class PrintBlock:
 
 ASSESSMENT = PrintBlock("assessment", "derma_assessment_html")
 CONSUMABLES = PrintBlock("consumables", "derma_consumables_html")
-BLOCKS = [ASSESSMENT, CONSUMABLES]
+PROCEDURE_VARIABLES = PrintBlock("procedure_variables", "derma_procedure_variables_html")
+BLOCKS = [ASSESSMENT, CONSUMABLES, PROCEDURE_VARIABLES]
 
 
 def ensure_derma_blocks_in_print_formats() -> dict[str, list[str]]:

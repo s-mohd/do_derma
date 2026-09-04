@@ -32,6 +32,7 @@ const EDITABLE_KEYS = [
   ...SAFETY_FLAGS.map((flag) => flag.key),
   // Not a safety flag: it changes where variables are captured, not what a procedure requires.
   "variables_per_procedure",
+  "print_procedure_variables",
   "is_billable",
   "disabled",
   "rate",
@@ -53,6 +54,7 @@ export function blankTemplateDraft() {
     product_tracking_required: 0,
     device_settings_required: 0,
     variables_per_procedure: 0,
+    print_procedure_variables: 0,
     is_billable: 1,
     disabled: 0,
     rate: 0,
