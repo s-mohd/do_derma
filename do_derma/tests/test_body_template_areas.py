@@ -309,6 +309,33 @@ class TestProcedureLevelVariables(DermaTestHelpers, IntegrationTestCase):
 		# strips what is listed here, and stripping a typed value would lose it.
 		self.assertEqual(mark["inherited_variables"], {})
 
+	def test_an_override_kept_on_the_marks_own_field_still_wins(self):
+		"""save_chart_mark files a fieldname the mark owns on the field itself, not as a row.
+		Reading only the rows would let the shared value mask what the practitioner typed."""
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		api.save_procedure_variables(procedure.name, template, {"dose": "2"})
+		self._procedure_mark(patient, procedure.name, template, dose=7)
+
+		mark = api._get_marks(patient)[0]
+
+		self.assertEqual(mark["dose"], 7)
+		self.assertEqual(mark["inherited_variables"], {})
+		self.assertNotIn("dose", mark["procedure_variables"])
+
+	def test_an_untouched_numeric_field_still_borrows(self):
+		"""A Float reads 0 when nothing was entered, which is not an answer."""
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		template = self._flagged_template()
+		api.save_procedure_variables(procedure.name, template, {"dose": "2"})
+		self._procedure_mark(patient, procedure.name, template)
+
+		mark = api._get_marks(patient)[0]
+
+		self.assertEqual(mark["inherited_variables"], {"dose": "2"})
+
 	def test_an_unflagged_template_borrows_nothing(self):
 		patient = self._make_patient()
 		procedure = self._make_clinical_procedure(patient)
@@ -367,6 +394,21 @@ class TestProcedureLevelVariables(DermaTestHelpers, IntegrationTestCase):
 		)
 		# The anchor keeps its own copy: other marks may still be pointing at it.
 		self.assertEqual(api._procedure_level_variables(anchor.name, template), {"fluence": "12"})
+
+	def test_the_studio_reads_every_templates_set_in_one_call(self):
+		"""The studio seeds from this rather than from the marks, because a procedure that
+		captures once may have placed none."""
+		patient = self._make_patient()
+		procedure = self._make_clinical_procedure(patient)
+		first = self._flagged_template()
+		second = self._make_procedure_template_with_category(f"Derma Cat {frappe.generate_hash(length=6)}")
+		api.save_procedure_variables(procedure.name, first, {"fluence": "12"})
+		api.save_procedure_variables(procedure.name, second, {"passes": "3"})
+
+		self.assertEqual(
+			api.get_procedure_variables(procedure.name),
+			{first: {"fluence": "12"}, second: {"passes": "3"}},
+		)
 
 	def test_a_submitted_procedure_still_takes_them(self):
 		"""Same contract as a drawing: the procedure is submittable and the studio keeps working."""
