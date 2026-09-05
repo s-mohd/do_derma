@@ -210,6 +210,7 @@
                 :enable-billing-sync="!!featureToggles.enable_billing_sync"
                 @refresh="refresh"
                 @annotate-procedure="annotateProcedure"
+                @edit-procedure-variables="editProcedureVariables"
                 @sync-billables="syncBillablesForSession"
                 @new-procedure="createProcedure"
                 @copy-marks="copyMarksFromLastVisit"
@@ -1731,6 +1732,68 @@ function previousAnnotationForAnchor(clinicalProcedure, annotation) {
     ? procedureAnnotations.value[clinicalProcedure] || []
     : encounterAnnotations.value.filter((row) => row.source_name === encounter.value.name)
   return drawings.find((row) => row.name && row.name !== openedName) || null
+}
+
+/**
+ * The variables a procedure records once for itself, edited from its row.
+ *
+ * Deliberately not behind the annotation studio: that only writes them alongside a saved
+ * drawing, so a procedure that warrants no drawing could never record them, and a value it
+ * already holds could never be corrected without opening one.
+ */
+function editProcedureVariables(row) {
+  const clinicalProcedure = row?.clinical_procedure || row?.name || ""
+  if (!clinicalProcedure || String(clinicalProcedure).startsWith("local-")) {
+    frappe.msgprint(__("Save the procedure before recording its details."))
+    return
+  }
+  const template = procedureTemplates.value.find((item) => item.name === row.procedure_template)
+  const fields = template?.derma_variables || []
+  if (!fields.length) {
+    frappe.msgprint(__("This procedure template declares no variables yet."))
+    return
+  }
+  const stored = Object.fromEntries(
+    (row.derma_procedure_variables || []).map((value) => [value.fieldname, value.value])
+  )
+  const dialog = new frappe.ui.Dialog({
+    title: __("Procedure details"),
+    fields: fields.map((field) => ({
+      fieldname: field.fieldname,
+      label: field.label || field.fieldname,
+      // Stored as text either way, so a Select keeps its list and everything else stays typable.
+      fieldtype: field.fieldtype === "Select" ? "Select" : "Data",
+      options: field.fieldtype === "Select" ? field.options : undefined,
+      reqd: 0,
+      default: stored[field.fieldname] || "",
+      description: field.required ? __("Required before the procedure can be created.") : "",
+    })),
+    primary_action_label: __("Save"),
+    primary_action: async (values) => {
+      dialog.get_primary_btn().prop("disabled", true)
+      try {
+        await frappe.call({
+          method: "do_derma.api.save_procedure_variables",
+          args: {
+            clinical_procedure: clinicalProcedure,
+            procedure_template: row.procedure_template,
+            values,
+          },
+        })
+        dialog.hide()
+        await refresh()
+        frappe.show_alert?.({ message: __("Procedure details saved"), indicator: "green" })
+      } catch (error) {
+        frappe.show_alert({
+          message: serverErrorText(error, __("Unable to save procedure details")),
+          indicator: "red",
+        })
+      } finally {
+        dialog.get_primary_btn().prop("disabled", false)
+      }
+    },
+  })
+  dialog.show()
 }
 
 function annotateProcedure(row) {

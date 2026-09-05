@@ -268,10 +268,17 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"description": "One set of values for the whole procedure instead of one per mark. A mark can still override.",
 		},
 		{
+			"fieldname": "custom_derma_print_procedure_variables",
+			"fieldtype": "Check",
+			"label": "Print Procedure Variables",
+			"insert_after": "custom_derma_variables_per_procedure",
+			"description": "Off by default: these reach a patient-facing printout, and device settings are not always for the patient's copy.",
+		},
+		{
 			"fieldname": "custom_derma_note_template",
 			"fieldtype": "Small Text",
 			"label": "Note Sentence Template",
-			"insert_after": "custom_derma_variables_per_procedure",
+			"insert_after": "custom_derma_print_procedure_variables",
 		},
 	],
 	"Healthcare Practitioner": [
