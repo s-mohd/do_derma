@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import cint, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
-from do_derma import assessment
+from do_derma import assessment, voice
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.config.marker_size import (
 	MARK_SIZE_FIELD,
@@ -2134,6 +2134,7 @@ def get_chart_context(
 		"procedure_templates": _get_derma_procedure_templates(),
 		"timeline": get_patient_timeline(patient_id, current_encounter=encounter_id),
 		"narrative": build_visit_narrative(findings, treatments),
+		"voice_scribe_enabled": voice.is_enabled(),
 	}
 
 

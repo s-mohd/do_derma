@@ -17,6 +17,8 @@ ASSESSMENT_MODE_OPTIONS = "\nStructured\nSOAP"
 SOAP_ONLY = "eval:doc.custom_derma_assessment_mode=='SOAP'"
 # Written when a clinic set to Block completes a session past its readiness blockers.
 COMPLETION_OVERRIDE_FIELD = "custom_derma_completion_override_reason"
+# Raw transcript from the voice scribe, kept for audit next to the SOAP fields.
+VOICE_TRANSCRIPT_FIELD = "custom_derma_voice_transcript"
 
 DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 	"Patient Encounter": [
@@ -72,6 +74,16 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"read_only": 1,
 			"no_copy": 1,
 			"description": "Why this session was completed with readiness blockers unresolved.",
+		},
+		{
+			"fieldname": VOICE_TRANSCRIPT_FIELD,
+			"fieldtype": "Long Text",
+			"label": "Voice Transcript",
+			"insert_after": COMPLETION_OVERRIDE_FIELD,
+			"read_only": 1,
+			"no_copy": 1,
+			"hidden": 1,
+			"description": "Raw speech-to-text of the recorded consultation, kept for audit.",
 		},
 	],
 	# do_health owns this child table; do_derma adds the column that carries the badge legend

@@ -94,6 +94,11 @@
           <template v-if="activeSection === 'assessment'">
             <div class="clinical-notes-grid" data-test="assessment-section">
               <section class="clinical-soap-stack">
+                <VoiceScribe
+                  v-if="data.voice_scribe_enabled && assessmentPanel.encounter && !assessmentModeLocked"
+                  :context="contextArgs()"
+                  @fill="applyVoiceNote"
+                />
                 <AssessmentPanel
                   :mode="assessmentPanel.mode"
                   :available-modes="assessmentPanel.availableModes"
@@ -521,6 +526,7 @@
 import { computed, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
+import VoiceScribe from "./components/assessment/VoiceScribe.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
 import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
@@ -1682,6 +1688,16 @@ async function saveAssessment({ payload, mode }) {
   } finally {
     assessmentPanel.saving = false
   }
+}
+
+// The voice scribe drafts SOAP values; the doctor edits and saves them through the
+// normal panel. Unsaved typing in the panel is replaced by the draft on purpose.
+async function applyVoiceNote(note) {
+  if (!note?.values) return
+  if (assessmentPanel.mode !== "SOAP") await setAssessmentMode("SOAP")
+  assessmentPanel.soapValues = { ...assessmentPanel.soapValues, ...note.values }
+  assessmentPanel.editing = true
+  frappe.show_alert({ message: __("Voice note drafted. Review and save."), indicator: "blue" })
 }
 
 // Only the active tab offers the switch: an inactive Assessment tab keeps its
