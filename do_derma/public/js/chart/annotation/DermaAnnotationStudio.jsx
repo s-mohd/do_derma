@@ -1,13 +1,43 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
+import EmbeddedExcalidraw, { BADGE_KIND, TEMPLATE_PART_KIND, isAreaBehavior, isFreehandBehavior, isLineBehavior } from "../excalidraw/EmbeddedExcalidraw.jsx"
 import { variableFieldname } from "../../shared/variable_fieldname.js"
 import { isBodyTemplateAllowed } from "../../shared/allowed_body_templates.js"
 import { MARKER_SIZE_DEFAULT, MARKER_SIZE_STEP, markerSizeOf, steppedMarkerSize } from "../../shared/marker_size.js"
 import MarkerSizeControl from "./MarkerSizeControl.jsx"
+import { usePhotoCapture } from "./use_photo_capture.js"
+import { describeError } from "../../shared/error_text.js"
+import { openCopyPreviousMarksDialog } from "./copy_previous_marks.js"
+import {
+  fetchSharedValues,
+  perProcedureLabels,
+  persistSharedValues,
+  sharedRequiredGaps,
+  templateNamesByLabel,
+} from "./procedure_variables.js"
 
 /** Layers the studio derives and re-renders on every load, so none of them mean "unsaved work". */
 const DERIVED_KINDS = new Set([BADGE_KIND, TEMPLATE_PART_KIND, "derma_template"])
+
+/**
+ * An empty sheet to draw on, offered beside the body templates. Not a Derma Body Template:
+ * it carries no image, no areas and no allowed-list membership, so it exists only in the
+ * picker and in the saved scene's `derma_template.name`. Tagged marks need a template's
+ * bounds to position against, so the canvas refuses them here - freehand, shapes, text and
+ * photos are the point.
+ */
+const BLANK_TEMPLATE_NAME = "__derma_blank__"
+
+const BLANK_TEMPLATE = {
+  name: BLANK_TEMPLATE_NAME,
+  template_type: "Blank",
+  image: "",
+  parts: [],
+}
+
+function isBlankTemplate(template) {
+  return (typeof template === "string" ? template : template?.name) === BLANK_TEMPLATE_NAME
+}
 
 const BADGE_DIAMETER = 22
 const BADGE_FONT_SIZE = 13
@@ -59,6 +89,14 @@ function variableLabel(field = {}) {
   return field.variable_name || field.label || variableKey(field)
 }
 
+/** One line of what a mark records, for a list that has no room for a form. */
+function variableSummary(values = {}) {
+  return Object.entries(values)
+    .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join(" · ")
+}
+
 /**
  * Empty is what the creation gate calls empty: unset or blank. The count speaks for the values
  * typed here, so a variable named outside the mark's own fieldnames (`product` for `product_name`)
@@ -70,6 +108,13 @@ function missingRequiredVariables(variables, values = {}) {
     const value = values[variableKey(variable)]
     return value === undefined || value === null || value === ""
   })
+}
+
+/** Blanks are gaps, not answers, so they must not mask a value the procedure supplies. */
+function stripBlanks(values = {}) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== "")
+  )
 }
 
 function groupedTemplates(templates = []) {
@@ -118,7 +163,10 @@ function taggingHint(procedure, label) {
     return __("Tagging as: {0} - drag on the canvas to outline the treated area.").replace("{0}", label)
   }
   if (isFreehandBehavior(procedure)) {
-    return __("Tagging as: {0} - draw over the affected skin.").replace("{0}", label)
+    return __("Drawing as: {0} - the pen takes its colour. Strokes are ink, not marks.").replace("{0}", label)
+  }
+  if (isLineBehavior(procedure)) {
+    return __("Tagging as: {0} - drag on the canvas to draw the line.").replace("{0}", label)
   }
   return __("Tagging as: {0} - click the canvas to place a mark.").replace("{0}", label)
 }
@@ -139,17 +187,27 @@ function anchorDescription(context = {}) {
   return [patientName, anchor].filter(Boolean).join(" — ")
 }
 
-function resumedTemplateName(annotation) {
-  if (!annotation?.json) return ""
+function parseAnnotationScene(annotation) {
+  if (!annotation?.json) return null
   try {
-    return JSON.parse(annotation.json)?.derma_template?.name || ""
+    return JSON.parse(annotation.json)
   } catch {
-    return ""
+    return null
   }
 }
 
-function collectBadgeItems(elements, partValues, parts, procedures) {
-  const items = []
+function resumedTemplateName(annotation) {
+  return parseAnnotationScene(annotation)?.derma_template?.name || ""
+}
+
+function hasAreaValues(values) {
+  return Boolean(values) && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined)
+}
+
+function collectBadgeItems(elements, partValues, parts, procedures, selectedAreas, sharedValues = {}) {
+  const selected = new Set(selectedAreas || [])
+  const markItems = []
+  const areaItems = []
   const seenMarks = new Set()
   for (const element of elements || []) {
     if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
@@ -158,7 +216,7 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
     // A tagged mark is legend-worthy on its template alone - unfilled variables must not drop it
     // from the numbering, or the sheet prints a mark with no row. Areas below differ: an untouched
     // outline came from the template, the practitioner never placed it.
-    const params = element.customData?.procedure_variables || element.customData?.variables || {}
+    const own = element.customData?.procedure_variables || element.customData?.variables || {}
     // A stamp is several elements sharing one group - a dot, its ring, its number - and they
     // are one clinical mark, so they get one badge between them.
     const markKey = markIdentity(element)
@@ -166,21 +224,27 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
     seenMarks.add(markKey)
     const centroid = elementCentroid(element)
     const procedure = procedures.find((row) => row.name === procedureTemplateName)
-    items.push({
+    // A mark of a procedure that keeps one shared set caches nothing of its own, so the legend
+    // reads that set behind it. Reading, not copying: what is drawn here is never written back.
+    const params = { ...(sharedValues[procedureLabel(procedure)] || {}), ...stripBlanks(own) }
+    markItems.push({
       type: "Procedure",
       name: procedureLabel(procedure) || procedureTemplateName,
       color: element.customData?.marker_color || procedureColor(procedure),
       size: element.customData?.marker_size,
+      markName: markNameOf(element),
+      elementId: element.id,
       params,
       ...centroid,
     })
   }
+  // Only the selected areas reach the exported image, so numbering an unselected one would
+  // point the legend at an outline the image does not show.
   for (const [partName, values] of Object.entries(partValues || {})) {
-    const hasValues = values && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined)
-    if (!hasValues) continue
+    if (!selected.has(partName) || !hasAreaValues(values)) continue
     const part = parts.find((row) => row.part_name === partName)
     const partElement = elements.find((element) => element.customData?.kind === "derma_template_part" && element.customData?.partName === partName && !element.isDeleted)
-    items.push({
+    areaItems.push({
       type: "Area",
       name: partName,
       color: part?.color || "#38bdf8",
@@ -188,8 +252,13 @@ function collectBadgeItems(elements, partValues, parts, procedures) {
       ...elementCentroid(partElement),
     })
   }
-  items.sort((a, b) => a.centroidY - b.centroidY || a.centroidX - b.centroidX)
-  return items.map((item, index) => ({ ...item, badgeNum: index + 1 }))
+  // Numbered in the order the marks were made - Derma Chart Mark names are a zero-padded
+  // sequence, so sorting on them is creation order and survives both a canvas rebuild and
+  // any z-order change. Sorting by position instead renumbered marks the practitioner had
+  // already read off the legend every time a new mark or area landed above them. A mark
+  // whose save is still in flight has no name yet and sits last, ahead of the areas.
+  markItems.sort((a, b) => String(a.markName || "~").localeCompare(String(b.markName || "~")))
+  return [...markItems, ...areaItems].map((item, index) => ({ ...item, badgeNum: index + 1 }))
 }
 
 function findTemplatePart(parts, partName) {
@@ -211,9 +280,16 @@ function buildAreaVariableRows(part, values = {}) {
   }))
 }
 
-/** What the marks on this drawing already carry, so reopening shows what was typed. */
-function seedPartValues(marks) {
+/**
+ * What the drawing already carries, so reopening shows what was typed. The saved scene owns
+ * the areas nobody placed a mark on; the marks own the rest and win where both speak.
+ */
+function seedPartValues(marks, annotation) {
+  const stored = parseAnnotationScene(annotation)?.derma_area_values
   const seeded = {}
+  for (const [partName, values] of Object.entries(stored && typeof stored === "object" ? stored : {})) {
+    if (values && typeof values === "object") seeded[partName] = { ...values }
+  }
   for (const mark of marks || []) {
     if (!mark?.region_label || !mark.area_variables?.length) continue
     const values = { ...(seeded[mark.region_label] || {}) }
@@ -221,6 +297,17 @@ function seedPartValues(marks) {
     seeded[mark.region_label] = values
   }
   return seeded
+}
+
+/**
+ * The areas this drawing is about. A drawing saved before selection was stored says nothing,
+ * so its value-holding areas stand in - resaving it must not strip them out of its image. A
+ * stored empty list is a deliberate "none" and is honoured as such.
+ */
+function seedSelectedAreas(annotation, partValues) {
+  const stored = parseAnnotationScene(annotation)?.derma_selected_areas
+  if (Array.isArray(stored)) return stored.filter((partName) => typeof partName === "string" && partName)
+  return Object.entries(partValues).filter(([, values]) => hasAreaValues(values)).map(([partName]) => partName)
 }
 
 function seedAreaMarks(marks) {
@@ -236,9 +323,19 @@ function sanitizeMarkVariables(values = {}) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null && value !== ""))
 }
 
-function markIdentity(element = {}) {
+/** The Derma Chart Mark an element belongs to, empty for an element that stands for no record. */
+function markNameOf(element = {}) {
   const custom = element.customData || {}
-  return custom.derma_chart_mark || custom.mark_name || element.groupIds?.[0] || element.id
+  return custom.derma_chart_mark || custom.mark_name || ""
+}
+
+function markIdentity(element = {}) {
+  return markNameOf(element) || element.groupIds?.[0] || element.id
+}
+
+/** Marks carried over from an earlier visit, drawn as an overlay. They are nobody's to edit. */
+function isHistoryMark(name) {
+  return String(name || "").startsWith("history:")
 }
 
 function elementCentroid(element = {}) {
@@ -268,8 +365,13 @@ function generateAnnotationDataHTML(items) {
       .map(([key, value]) => `<b>${escapeHtml(key)}</b>: ${escapeHtml(value)}`)
       .join(", ")
     const contrast = getContrastText(item.color)
+    // A row with no badge marks nothing on the image - it is the procedure itself. Numbering
+    // it would point the reader at a badge that is not there to find.
+    const badge = item.badgeNum
+      ? `<span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:${item.color};color:${contrast};text-align:center;line-height:22px;font-weight:bold;font-size:11px;">${item.badgeNum}</span>`
+      : `<span style="display:inline-block;width:22px;height:22px;border-radius:50%;border:2px solid ${item.color};"></span>`
     return `<tr style="border-bottom:1px solid #e5e7eb;">
-      <td style="padding:6px 10px;"><span style="display:inline-block;width:22px;height:22px;border-radius:50%;background:${item.color};color:${contrast};text-align:center;line-height:22px;font-weight:bold;font-size:11px;">${item.badgeNum}</span></td>
+      <td style="padding:6px 10px;">${badge}</td>
       <td style="padding:6px 10px;">${escapeHtml(item.type)}</td>
       <td style="padding:6px 10px;font-weight:600;">${escapeHtml(item.name)}</td>
       <td style="padding:6px 10px;">${params || "\u2014"}</td>
@@ -403,18 +505,35 @@ function badgeElements(items) {
   })
 }
 
-function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, annotation, marks, onClose, onSaved }) {
+function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, annotation, marks, previousMarks, onClose, onSaved }) {
   ensureProcessEnv()
   const embeddedRef = useRef(null)
   const [drawer, setDrawer] = useState("")
+  // The marks the canvas draws. Starts as the drawing's own and grows when marks are copied
+  // from the previous drawing, so the canvas can be told without the host reloading.
+  const [canvasMarks, setCanvasMarks] = useState(() => marks || [])
+  // Dismissed for this session: the offer is made once and does not nag.
+  const [copyOfferDismissed, setCopyOfferDismissed] = useState(false)
   const [annotationName, setAnnotationName] = useState(annotation?.name || "")
-  const [selectedTemplateName, setSelectedTemplateName] = useState(() => resumedTemplateName(annotation))
+  // Resolved before the first render, not corrected after it: the initial selection is what
+  // the canvas is handed, and a body map switched away from on mount still finishes loading
+  // its image over the blank sheet.
+  const [selectedTemplateName, setSelectedTemplateName] = useState(
+    () => resumedTemplateName(annotation) || (context.clinicalProcedure ? "" : BLANK_TEMPLATE_NAME)
+  )
   const [selectedProcedures, setSelectedProcedures] = useState([])
   const [activeProcedure, setActiveProcedure] = useState("")
   const [procedureValues, setProcedureValues] = useState({})
-  const [partValues, setPartValues] = useState(() => seedPartValues(marks))
-  const [selectedPart, setSelectedPart] = useState(null)
+  // One shared set per procedure that asked for it, kept apart from procedureValues on purpose:
+  // these are the procedure's answers, and a mark must never be written with a copy of them.
+  const [procedureShared, setProcedureShared] = useState({})
+  const [partValues, setPartValues] = useState(() => seedPartValues(marks, annotation))
+  // The areas the drawing is about: styled bold, exported, and saved with the annotation.
+  const [selectedAreas, setSelectedAreas] = useState(() => seedSelectedAreas(annotation, seedPartValues(marks, annotation)))
+  // The one area the variable editor is bound to. Transient - never saved.
+  const [focusedArea, setFocusedArea] = useState("")
   const [saving, setSaving] = useState(false)
+  const [discarding, setDiscarding] = useState(false)
   const [includeBadges, setIncludeBadges] = useState(true)
   const [showAllTemplates, setShowAllTemplates] = useState(false)
   const [showAllProcedures, setShowAllProcedures] = useState(false)
@@ -433,10 +552,17 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // Marks this session wrote to the server before any annotation was saved. Discarding the
   // drawing has to take them with it, or the chart keeps a record nobody meant to make.
   const sessionMarks = useRef(new Set())
+  // Every mark name that has been on the canvas this session. One missing at save time was
+  // deleted by the practitioner, and its record has to go with it or it haunts the chart.
+  const seenMarks = useRef(new Set())
+  // The mark the last stamp created while its procedure is still armed. Values typed after
+  // the click belong to that mark, not only to the next one.
+  const lastPlacedMark = useRef(null)
   // Which marks sit on which area, so values typed after a mark was placed still reach it,
   // and which areas were edited this session - the untouched ones are already stored.
   const areaMarks = useRef(seedAreaMarks(marks))
   const touchedAreas = useRef(new Set())
+  const touchedProcedures = useRef(new Set())
   // Every write to a Derma Chart Mark queues here. Two saves of one mark in flight together
   // make the second one fail on the timestamp the first has already moved.
   const markWrites = useRef(Promise.resolve())
@@ -450,14 +576,21 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const isProcedureAnchor = Boolean(context.clinicalProcedure)
   const anchorDoctype = isProcedureAnchor ? "Clinical Procedure" : "Patient Encounter"
   const anchorName = context.clinicalProcedure || context.encounter || ""
-  const allTemplates = useMemo(() => (bodyTemplates || []).filter((template) => template.image), [bodyTemplates])
+  const bodyTemplateCards = useMemo(
+    () => (bodyTemplates || []).filter((template) => template.image),
+    [bodyTemplates]
+  )
+  // The blank sheet is always offered: it has no image to filter on, no sex to match and no
+  // procedure that allows or forbids it.
+  const blankTemplate = useMemo(() => ({ ...BLANK_TEMPLATE, title: __("Blank sheet") }), [])
+  const allTemplates = useMemo(() => [blankTemplate, ...bodyTemplateCards], [blankTemplate, bodyTemplateCards])
   // Default to the patient's sex; never an empty picker (unknown sex or zero matches shows all).
   const sexMatchedTemplates = useMemo(() => {
     const sex = context.patientSex
     if (!sex) return allTemplates
-    const matched = allTemplates.filter((template) => !template.gender || template.gender === sex)
-    return matched.length ? matched : allTemplates
-  }, [allTemplates, context.patientSex])
+    const matched = bodyTemplateCards.filter((template) => !template.gender || template.gender === sex)
+    return [blankTemplate, ...(matched.length ? matched : bodyTemplateCards)]
+  }, [allTemplates, blankTemplate, bodyTemplateCards, context.patientSex])
   const templates = showAllTemplates ? allTemplates : sexMatchedTemplates
   const isSexFiltered = sexMatchedTemplates.length < allTemplates.length
   const procedures = useMemo(() => (procedureTemplates || []).filter((procedure) => procedure.name), [procedureTemplates])
@@ -483,7 +616,9 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   // refuses a map outside its allowed list, so opening on one would lose the first mark placed.
   // Same rule the pickers use for sex and category - narrow to the scope, never to nothing.
   const scopedTemplates = useMemo(() => {
-    const matched = templates.filter((template) => isBodyTemplateAllowed(anchorProcedureDoc, template.name))
+    const matched = templates.filter(
+      (template) => !isBlankTemplate(template) && isBodyTemplateAllowed(anchorProcedureDoc, template.name)
+    )
     return matched.length ? matched : templates
   }, [templates, anchorProcedureDoc])
   const templateGroups = useMemo(() => groupedTemplates(templates), [templates])
@@ -492,25 +627,78 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   const selectedTemplate =
     allTemplates.find((template) => template.name === selectedTemplateName) || scopedTemplates[0] || null
   const selectedParts = selectedTemplate?.parts || []
+  // The area the variable editor is bound to, resolved against the template so the editor and
+  // the canvas always describe the same row.
+  const focusedPart = findTemplatePart(selectedParts, focusedArea)
   const activeProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === activeProcedure)
   // The editor binds to the mark being edited first, the armed procedure second.
   const editorProcedureName = editingMark?.procedure || activeProcedure
   const editorProcedureDoc = procedures.find((procedure) => procedureLabel(procedure) === editorProcedureName)
-  // Areas and freehand strokes take their size from the gesture that drew them, so there is
-  // nothing for the control to act on.
+  // Areas, freehand strokes and lines take their size from the gesture that drew them, so there
+  // is nothing for the control to act on.
   const sizedBehavior = editingMark
     ? { custom_derma_marker_behavior: editingMark.behavior }
     : activeProcedureDoc
   const isSizeableMark = Boolean(
-    sizedBehavior && !isAreaBehavior(sizedBehavior) && !isFreehandBehavior(sizedBehavior)
+    sizedBehavior &&
+      !isAreaBehavior(sizedBehavior) &&
+      !isFreehandBehavior(sizedBehavior) &&
+      !isLineBehavior(sizedBehavior)
   )
+  const sharedLabels = useMemo(() => perProcedureLabels(procedures, procedureLabel), [procedures])
+  const sharedTemplateNames = useMemo(() => templateNamesByLabel(procedures, procedureLabel), [procedures])
+  // The editor is bound to one shared set when the armed procedure keeps one and no mark is
+  // selected. With a mark selected it edits that mark, and the shared set becomes the
+  // placeholder behind it - what the mark inherits until it answers for itself.
+  const editsSharedSet = Boolean(!editingMark && sharedLabels.has(editorProcedureName))
+  const inheritedValues =
+    sharedLabels.has(editorProcedureName) && editingMark ? procedureShared[editorProcedureName] || {} : {}
+  const editorValues = editsSharedSet
+    ? procedureShared[editorProcedureName] || {}
+    : procedureValues[editorProcedureName] || {}
+  // A freehand procedure places no mark, so unless it keeps a shared set there is nothing for
+  // its variables to be written onto. The editor is withheld rather than shown accepting values
+  // it would discard. Editing a mark drawn before the pen stopped making them still opens.
+  const hasNoMarkToCarryVariables = Boolean(
+    !editingMark && isFreehandBehavior(editorProcedureDoc) && !sharedLabels.has(editorProcedureName)
+  )
+  const photoCapture = usePhotoCapture({
+    context,
+    bodyTemplate: selectedTemplate,
+    chartMarkName: editingMark?.name || "",
+    embeddedRef,
+  })
 
+  // Opening from a procedure row already claims "Procedure: X" in the header, so the
+  // canvas has to agree: list that procedure once, exactly as a click on it would.
+  // Listing only - never arming. An armed procedure holds the canvas in mark-placement,
+  // so the first click stamps a mark instead of selecting one, whether the drawing is
+  // new or resumed. Tagging starts when the practitioner picks the procedure.
+  const hasListedAnchor = useRef(false)
+  useEffect(() => {
+    if (hasListedAnchor.current || !isProcedureAnchor || !anchorProcedureDoc) return
+    hasListedAnchor.current = true
+    const name = procedureLabel(anchorProcedureDoc)
+    setSelectedProcedures((current) => (current.includes(name) ? current : [...current, name]))
+  }, [isProcedureAnchor, anchorProcedureDoc])
+
+  // Only the procedure anchor arrives here without a selection: it opens on a body map it is
+  // allowed to mark, because tagging is what it is for. The sketchpad starts on the blank sheet.
   useEffect(() => {
     if (!selectedTemplateName && scopedTemplates[0]?.name) setSelectedTemplateName(scopedTemplates[0].name)
   }, [selectedTemplateName, scopedTemplates])
 
   useEffect(() => {
-    if (!selectedTemplate?.image) return
+    if (!selectedTemplate) return
+    // Switching to the blank sheet has to take the previous map off the canvas; skipping the
+    // call, as this once did for anything imageless, left the old image behind it.
+    if (isBlankTemplate(selectedTemplate)) {
+      embeddedRef.current?.clearBodyTemplate?.(selectedTemplate)
+      // The areas toggle is offered only when outlines are drawn; the blank sheet has none.
+      setRenderedPartCount(0)
+      return
+    }
+    if (!selectedTemplate.image) return
     embeddedRef.current?.setBodyTemplate?.(selectedTemplate)
   }, [selectedTemplate?.name])
 
@@ -549,19 +737,84 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
   }, [markerSize])
 
   useEffect(() => {
-    embeddedRef.current?.setProcedureVariables?.(procedureValues[activeProcedure] || {})
-  }, [activeProcedure, procedureValues])
+    // A procedure that keeps one shared set caches nothing on the canvas: the cache is what a
+    // new mark is stamped with, and stamping the shared answers onto a mark would turn every
+    // placement into an override of values the procedure already owns.
+    const cached = sharedLabels.has(activeProcedure) ? {} : procedureValues[activeProcedure] || {}
+    embeddedRef.current?.setProcedureVariables?.(cached)
+  }, [activeProcedure, procedureValues, sharedLabels])
 
-  const badgeItems = useMemo(() => {
-    if (!includeBadges) return []
+  // What the procedure already holds. Read once on open rather than derived from the marks,
+  // because a procedure that captures once may have placed no marks to derive from.
+  useEffect(() => {
+    if (!context.clinicalProcedure || !procedures.length) return
+    let cancelled = false
+    fetchSharedValues(context.clinicalProcedure, procedures, procedureLabel)
+      .then((values) => {
+        if (!cancelled) setProcedureShared((current) => ({ ...values, ...current }))
+      })
+      .catch((error) => {
+        window.frappe?.msgprint?.({
+          title: __("Unable to read procedure variables"),
+          message: describeError(error),
+          indicator: "red",
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [context.clinicalProcedure, procedures])
+
+  // Numbered whether or not the badges are drawn: the marks panel lists them either way.
+  const legendItems = useMemo(() => {
     const elements = (embeddedRef.current?.getElements?.() || []).filter((element) => !element.isDeleted)
-    return collectBadgeItems(elements, partValues, selectedParts, procedures)
+    return collectBadgeItems(elements, partValues, selectedParts, procedures, selectedAreas, procedureShared)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRevision, includeBadges, partValues, selectedParts, procedures])
+  }, [sceneRevision, partValues, selectedParts, procedures, selectedAreas, procedureShared])
+  const badgeItems = includeBadges ? legendItems : []
+  /**
+   * A procedure that keeps one shared set but placed no mark has nothing on the image to
+   * carry its values, so the legend beside the image would not mention it at all. Kept out
+   * of badgeItems: there is no element to pin a badge to.
+   */
+  const procedureLegendRows = useMemo(() => {
+    const alreadyListed = new Set(legendItems.map((item) => item.name))
+    return procedures
+      .filter((procedure) => sharedLabels.has(procedureLabel(procedure)))
+      .filter((procedure) => !alreadyListed.has(procedureLabel(procedure)))
+      .map((procedure) => ({
+        type: __("Procedure"),
+        name: procedureLabel(procedure),
+        color: procedureColor(procedure),
+        params: stripBlanks(procedureShared[procedureLabel(procedure)] || {}),
+      }))
+      .filter((row) => Object.keys(row.params).length)
+  }, [legendItems, procedures, sharedLabels, procedureShared])
 
   useEffect(() => {
     embeddedRef.current?.setBadgeElements?.(badgeElements(badgeItems))
   }, [badgeItems])
+
+  /** The real record names currently drawn, history overlays excluded. */
+  function canvasMarkNames() {
+    const names = new Set()
+    for (const element of embeddedRef.current?.getElements?.() || []) {
+      if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
+      const name = markNameOf(element)
+      if (name && !isHistoryMark(name)) names.add(name)
+    }
+    return names
+  }
+
+  // A mark element deleted from the canvas takes its bindings with it: the variable editor
+  // must not keep writing to a record whose drawing is gone.
+  useEffect(() => {
+    const live = canvasMarkNames()
+    seenMarks.current = new Set([...seenMarks.current, ...live])
+    if (editingMark?.name && !live.has(editingMark.name)) setEditingMark(null)
+    if (lastPlacedMark.current?.name && !live.has(lastPlacedMark.current.name)) lastPlacedMark.current = null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneRevision, editingMark])
 
   // Counts what is actually on the canvas, not what this session placed.
   const markCount = useMemo(() => {
@@ -574,13 +827,28 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   useEffect(() => {
     const filled = Object.entries(partValues)
-      .filter(([, values]) => values && Object.values(values).some((value) => value !== "" && value !== null && value !== undefined))
+      .filter(([, values]) => hasAreaValues(values))
       .map(([partName]) => partName)
-    embeddedRef.current?.setPartStates?.({
-      selected: selectedPart?.part_name || selectedPart?.partName || "",
-      filled,
-    })
-  }, [selectedPart, partValues, selectedTemplate?.name])
+    embeddedRef.current?.setPartStates?.({ selected: selectedAreas, filled })
+  }, [selectedAreas, partValues, selectedTemplate?.name])
+
+  // A selection can only name areas that are on screen, so switching body template drops
+  // whatever the previous template's areas contributed. Opening a drawing on the template it
+  // was made with prunes nothing: an area disabled since then is still that drawing's, and
+  // rewriting the stored selection behind the practitioner's back is not this effect's job.
+  const seededTemplateName = useRef("")
+  useEffect(() => {
+    if (!selectedTemplate?.name) return
+    const previous = seededTemplateName.current
+    seededTemplateName.current = selectedTemplate.name
+    if (!previous) return
+    const declared = new Set(selectedParts.map((part) => part.part_name || part.partName))
+    setSelectedAreas((current) =>
+      current.every((partName) => declared.has(partName)) ? current : current.filter((partName) => declared.has(partName))
+    )
+    setFocusedArea((current) => (declared.has(current) ? current : ""))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplate?.name])
 
   useEffect(() => {
     embeddedRef.current?.setPartsHidden?.(areasHidden)
@@ -605,6 +873,11 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     // the template. Read here rather than off sceneRevision: the canvas only signals a change
     // when the *mark* layer moves, so a part-only render would never reach a memo.
     setRenderedPartCount(embeddedRef.current?.getRenderedPartCount?.() || 0)
+    photoCapture.rememberLoadedPhotos()
+    // The mark layer is rebuilt for the template now on screen, and it only renders marks
+    // belonging to it. Anything remembered from the previous template is absent by design,
+    // not deleted by the practitioner, and pruning would destroy those records on save.
+    seenMarks.current = canvasMarkNames()
     if (savedSignature.current === null) savedSignature.current = userSignature()
   }
 
@@ -625,21 +898,31 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
   /** The one way out. Closing is only unguarded when there is nothing to lose. */
   function requestClose() {
+    if (discarding) return
     const placedMarks = [...sessionMarks.current]
+    const capturedPhotos = photoCapture.sessionPhotoCount()
     const isDrawingDirty = savedSignature.current !== null && userSignature() !== savedSignature.current
-    if (!isDrawingDirty && !placedMarks.length) {
+    if (!isDrawingDirty && !placedMarks.length && !capturedPhotos) {
       onClose?.()
       return
     }
-    window.frappe.confirm(discardPrompt(placedMarks.length), () => discardDrawing(placedMarks))
+    window.frappe.confirm(discardPrompt(placedMarks.length, capturedPhotos), () =>
+      discardDrawing(placedMarks)
+    )
   }
 
-  function discardPrompt(markCount) {
-    if (!markCount) return __("Discard this drawing? Unsaved changes will be lost.")
-    return __("Discard this drawing? The {0} mark(s) placed here are removed from the chart too.").replace(
-      "{0}",
-      markCount
-    )
+  /** Discarding costs whatever this session already wrote to the chart, so it says how much. */
+  function discardPrompt(markCount, photoCount) {
+    if (markCount && photoCount) {
+      return __("Discard this drawing? The {0} mark(s) and {1} photo(s) added here are removed from the chart too.", [markCount, photoCount])
+    }
+    if (photoCount) {
+      return __("Discard this drawing? The {0} photo(s) taken here are removed from the chart too.", [photoCount])
+    }
+    if (markCount) {
+      return __("Discard this drawing? The {0} mark(s) placed here are removed from the chart too.", [markCount])
+    }
+    return __("Discard this drawing? Unsaved changes will be lost.")
   }
 
   /**
@@ -647,26 +930,31 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
    * any the rest of the record depends on - say so rather than closing on a half-kept promise.
    */
   async function discardDrawing(markNames) {
+    const hadPhotos = photoCapture.sessionPhotoCount() > 0
     let kept = []
-    if (markNames.length) {
-      try {
+    setDiscarding(true)
+    try {
+      if (markNames.length) {
         const response = await window.frappe.call({
           method: "do_derma.api.discard_chart_marks",
           args: { names: markNames },
         })
         kept = response.message?.kept || []
-      } catch (error) {
-        // Closing now would lose the drawing and keep the marks - the very thing being fixed.
-        window.frappe?.msgprint?.({
-          title: __("Unable to discard the marks"),
-          message: `${error.message || String(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
-          indicator: "red",
-        })
-        return
       }
+      await photoCapture.discardSessionPhotos()
+    } catch (error) {
+      // Closing now would lose the drawing and keep the marks - the very thing being fixed.
+      window.frappe?.msgprint?.({
+        title: __("Unable to discard the marks"),
+        message: `${describeError(error)}<br>${__("The drawing is still open, so nothing is lost.")}`,
+        indicator: "red",
+      })
+      return
+    } finally {
+      setDiscarding(false)
     }
     sessionMarks.current = new Set(kept)
-    onClose?.({ marksChanged: Boolean(markNames.length) })
+    onClose?.({ marksChanged: Boolean(markNames.length), photosChanged: hadPhotos })
     if (kept.length) {
       window.frappe?.msgprint?.({
         title: __("Some marks were kept"),
@@ -699,17 +987,41 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     const name = procedureLabel(procedure)
     // Arming a procedure means "the next mark", so it ends any edit of an existing one.
     setEditingMark(null)
+    lastPlacedMark.current = null
     setSelectedProcedures((current) => current.includes(name) ? current.filter((row) => row !== name) : [...current, name])
     setActiveProcedure((current) => (current === name ? "" : name))
   }
 
   function updateProcedureValue(procedureName, field, value) {
     const key = variableKey(field)
-    // The write stays out of the state updater: React runs an updater twice for one change
-    // - once eagerly, once while rendering - and each run would be its own save.
+    // A mark is selected, so this is that mark's answer whatever the procedure keeps: an
+    // override. Checked first for that reason.
+    if (editingMark?.procedure === procedureName) {
+      // The write stays out of the state updater: React runs an updater twice for one change
+      // - once eagerly, once while rendering - and each run would be its own save.
+      const next = { ...(procedureValues[procedureName] || {}), [key]: value }
+      setProcedureValues((current) => ({ ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }))
+      persistMarkVariables(editingMark.name, next)
+      return
+    }
+    // Nothing selected and the procedure keeps one set, so this belongs to the procedure.
+    // Ahead of lastPlacedMark, which would otherwise turn each answer into an override of the
+    // mark that happened to land last.
+    if (sharedLabels.has(procedureName)) {
+      touchedProcedures.current = new Set(touchedProcedures.current).add(procedureName)
+      setProcedureShared((current) => ({
+        ...current,
+        [procedureName]: { ...(current[procedureName] || {}), [key]: value },
+      }))
+      return
+    }
     const next = { ...(procedureValues[procedureName] || {}), [key]: value }
     setProcedureValues((current) => ({ ...current, [procedureName]: { ...(current[procedureName] || {}), [key]: value } }))
-    if (editingMark?.procedure === procedureName) persistMarkVariables(next)
+    if (lastPlacedMark.current?.procedure === procedureName) {
+      // Typing right after a stamp lands means "that mark": write behind so the value
+      // reaches the record instead of only the next placement.
+      persistMarkVariables(lastPlacedMark.current.name, next)
+    }
   }
 
   /** Marks are saved one at a time, in the order the clinician typed them. */
@@ -722,18 +1034,26 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
    * The Derma Chart Mark owns a mark's variables; the canvas element caches them so badges and
    * the legend can read them without a round trip. Written in that order, never one alone.
    */
-  function persistMarkVariables(values) {
-    const target = editingMark
-    if (!target?.name) return Promise.resolve()
+  function persistMarkVariables(markName, values) {
+    if (!markName) return Promise.resolve()
     return queueMarkWrite(async () => {
       try {
         await window.frappe.call({
           method: "do_derma.api.save_chart_mark",
-          args: { values: { name: target.name, patient: context.patient, ...sanitizeMarkVariables(values) } },
+          args: {
+            values: {
+              name: markName,
+              patient: context.patient,
+              ...sanitizeMarkVariables(values),
+              // The whole dict, blanks included - the splat above feeds the mark's own
+              // fields, this one owns the stored variable rows.
+              procedure_variables: values,
+            },
+          },
         })
-        embeddedRef.current?.updateMarkVariables?.({ markName: target.name, variables: values })
+        embeddedRef.current?.updateMarkVariables?.({ markName, variables: values })
       } catch (error) {
-        window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: error.message || String(error), indicator: "red" })
+        window.frappe?.msgprint?.({ title: __("Unable to update mark"), message: describeError(error), indicator: "red" })
       }
     })
   }
@@ -772,7 +1092,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       } catch (error) {
         window.frappe?.msgprint?.({
           title: __("Unable to resize mark"),
-          message: error.message || String(error),
+          message: describeError(error),
           indicator: "red",
         })
       }
@@ -784,6 +1104,27 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     const next = new Map(areaMarks.current)
     next.set(partName, new Set(next.get(partName) || []).add(markName))
     areaMarks.current = next
+  }
+
+  /**
+   * The shared sets belong to the Clinical Procedure, not to any mark, so they are written
+   * where the area values are: once, as the drawing is saved.
+   */
+  async function persistProcedureVariables() {
+    for (const label of touchedProcedures.current) {
+      const template = sharedTemplateNames[label]
+      if (!template) continue
+      try {
+        await persistSharedValues(context.clinicalProcedure, template, procedureShared[label] || {})
+      } catch (error) {
+        window.frappe?.msgprint?.({
+          title: __("Unable to save procedure variables"),
+          message: describeError(error),
+          indicator: "red",
+        })
+      }
+    }
+    touchedProcedures.current = new Set()
   }
 
   /**
@@ -807,7 +1148,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         // The drawing still saves below - losing it over an area value would cost more.
         window.frappe?.msgprint?.({
           title: __("Unable to save the area values for {0}").replace("{0}", partName),
-          message: error.message || String(error),
+          message: describeError(error),
           indicator: "orange",
         })
       }
@@ -861,6 +1202,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             // fan-out matches elements to marks by.
             annotation_json: payload.annotation_json || null,
             ...(payload.procedure_variables || {}),
+            // The splat above feeds the mark's own fields; this key owns the variable rows.
+            procedure_variables: payload.procedure_variables || {},
             // Omitted, not emptied, when the area declares nothing - an absent key leaves
             // whatever rows the mark already carries alone.
             ...(areaRows ? { area_variables: areaRows } : {}),
@@ -870,13 +1213,43 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       const mark = response.message
       if (mark?.name) {
         sessionMarks.current = new Set(sessionMarks.current).add(mark.name)
+        lastPlacedMark.current = { name: mark.name, procedure: activeProcedure }
         rememberAreaMark(payload.region_label, mark.name)
       }
       embeddedRef.current?.linkMarkElements?.({ mark, elementIds: payload.temp_element_ids })
+      // The link writes the mark's name onto elements the canvas already holds, which is
+      // not a scene change it announces. Without this the panel lists one mark fewer than
+      // the drawing shows until the next stroke.
+      setSceneRevision((revision) => revision + 1)
       window.frappe.show_alert?.({ message: __("Mark saved"), indicator: "green" })
     } catch (error) {
-      window.frappe?.msgprint?.({ title: __("Unable to save mark"), message: error.message || String(error), indicator: "red" })
+      window.frappe?.msgprint?.({ title: __("Unable to save mark"), message: describeError(error), indicator: "red" })
     }
+  }
+
+  // Offered on a fresh drawing only, and only while nothing has been drawn on it: once the
+  // practitioner has started, the previous drawing is no longer what they are working from.
+  const canOfferMarkCopy =
+    isProcedureAnchor &&
+    !annotation?.name &&
+    !copyOfferDismissed &&
+    !activeProcedure &&
+    !editingMark &&
+    (previousMarks || []).length > 0 &&
+    canvasMarks.length === 0
+
+  /** Copies belong to this session, so a discard takes them with it, exactly like a placed mark. */
+  function offerMarkCopy() {
+    openCopyPreviousMarksDialog({
+      marks: previousMarks || [],
+      context,
+      onCopied: (created) => {
+        sessionMarks.current = new Set([...sessionMarks.current, ...created.map((mark) => mark.name)])
+        setCanvasMarks((current) => [...current, ...created])
+        setCopyOfferDismissed(true)
+        setSceneRevision((revision) => revision + 1)
+      },
+    })
   }
 
   /**
@@ -901,8 +1274,134 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     setProcedureValues((current) => ({ ...current, [name]: { ...(custom.procedure_variables || {}) } }))
   }
 
-  function handleRegionSelected(region) {
-    setSelectedPart(region || null)
+  /**
+   * Clicking an area selects it and opens its editor; clicking the area already open closes
+   * it and unselects it. Reopening a selected area never costs the selection - correcting a
+   * typed value must not be a trap - and a click on bare canvas only closes the editor.
+   */
+  function handleRegionSelected(region, { isPlacingMark } = {}) {
+    const partName = region?.partName || region?.part_name || ""
+    if (!partName) {
+      setFocusedArea("")
+      return
+    }
+    if (!selectedAreas.includes(partName)) {
+      setSelectedAreas((current) => [...current, partName])
+      setFocusedArea(partName)
+      return
+    }
+    // The same click also places a mark while a procedure is armed. Unselecting there would
+    // drop the area from the image on the second stamp inside it.
+    if (focusedArea !== partName || isPlacingMark) {
+      setFocusedArea(partName)
+      return
+    }
+    unselectArea(partName)
+  }
+
+  /** Values typed into the area stay behind, so reselecting it shows them again. */
+  function unselectArea(partName) {
+    setSelectedAreas((current) => current.filter((name) => name !== partName))
+    setFocusedArea((current) => (current === partName ? "" : current))
+  }
+
+  /**
+   * The marks the badge layer numbers, in badge order. A mark under an area outline is hard
+   * to click - the part wins the hit-test - so the list is also the way to reach one.
+   */
+  const placedMarkItems = useMemo(
+    () =>
+      legendItems.filter(
+        (item) => item.type === "Procedure" && item.markName && !isHistoryMark(item.markName)
+      ),
+    [legendItems],
+  )
+
+  /** Picking a mark from the list is the same act as clicking it on the canvas. */
+  function focusMark(item) {
+    embeddedRef.current?.selectMark?.(item.markName)
+    const element = (embeddedRef.current?.getElements?.() || []).find((row) => row.id === item.elementId)
+    if (element) handleMarkSelected({ mark: item.markName, element })
+  }
+
+  /** Marks whose procedure declares required variables the canvas cache leaves blank. */
+  function requiredVariableGaps() {
+    const gaps = []
+    const counted = new Set()
+    for (const element of embeddedRef.current?.getElements?.() || []) {
+      if (element.isDeleted || element.customData?.kind !== "derma_mark") continue
+      const markKey = markIdentity(element)
+      if (counted.has(markKey) || isHistoryMark(markKey)) continue
+      counted.add(markKey)
+      const procedure = procedures.find((row) => row.name === element.customData?.procedure_template)
+      if (!procedure) continue
+      // A mark of a procedure that keeps one shared set caches nothing of its own, so scanning
+      // it here would report every required variable as missing. The shared set answers below.
+      if (sharedLabels.has(procedureLabel(procedure))) continue
+      const missing = missingRequiredVariables(
+        procedureVariables(procedure),
+        element.customData?.procedure_variables || {}
+      )
+      if (missing.length) {
+        gaps.push({ procedure: procedureLabel(procedure), missing: missing.map(variableLabel) })
+      }
+    }
+    return gaps.concat(
+      sharedRequiredGaps(procedures, new Set(selectedProcedures), procedureShared, procedureLabel, (procedure, values) =>
+        missingRequiredVariables(procedureVariables(procedure), values).map(variableLabel)
+      )
+    )
+  }
+
+  /** Saving with blanks stays allowed - mid-procedure is no time for a locked form - but not unannounced. */
+  function confirmRequiredGaps(gaps) {
+    const summary = gaps
+      .map((gap) => `${escapeHtml(gap.procedure)}: ${escapeHtml(gap.missing.join(", "))}`)
+      .join("<br>")
+    return new Promise((resolve) => {
+      window.frappe.confirm(
+        `${__("{0} mark(s) are missing required values:", [gaps.length])}<br>${summary}<br>${__("Save anyway?")}`,
+        () => resolve(true),
+        () => resolve(false)
+      )
+    })
+  }
+
+  /**
+   * A mark element deleted from the drawing means the record goes too - the same contract
+   * photos honour. The server still refuses marks an active procedure depends on.
+   */
+  async function reconcileDeletedMarks(savedAnnotationName) {
+    const live = canvasMarkNames()
+    const removed = [...seenMarks.current].filter((name) => !live.has(name))
+    if (!removed.length) return false
+    let kept = []
+    try {
+      const response = await queueMarkWrite(() =>
+        window.frappe.call({
+          method: "do_derma.api.prune_chart_marks",
+          args: { names: removed, annotation: savedAnnotationName || null },
+        })
+      )
+      kept = response?.message?.kept || []
+    } catch (error) {
+      window.frappe?.msgprint?.({
+        title: __("Unable to remove the deleted marks"),
+        message: describeError(error),
+        indicator: "orange",
+      })
+      return false
+    }
+    seenMarks.current = live
+    sessionMarks.current = new Set([...sessionMarks.current].filter((name) => live.has(name)))
+    if (kept.length) {
+      window.frappe?.msgprint?.({
+        title: __("Some deleted marks were kept"),
+        message: __("{0} mark(s) are part of the record already and stay on the chart.").replace("{0}", kept.length),
+        indicator: "orange",
+      })
+    }
+    return true
   }
 
   async function save() {
@@ -910,6 +1409,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
       window.frappe?.msgprint?.(__("A Patient Encounter is required before saving annotation."))
       return
     }
+    const gaps = requiredVariableGaps()
+    if (gaps.length && !(await confirmRequiredGaps(gaps))) return
     setSaving(true)
     try {
       // The badges on screen are already in the scene, so they are the badges that export and
@@ -919,6 +1420,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         window.frappe?.msgprint?.(__("The drawing surface is still loading."))
         return
       }
+      await persistProcedureVariables()
       await persistAreaVariables()
       const response = await window.frappe.call({
         method: "do_derma.api.save_derma_annotation",
@@ -939,21 +1441,33 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             // Left blank for a procedure anchor so the server owns the one rule that
             // procedure-anchored rows are typed "Treatment".
             encounter_type: context.clinicalProcedure ? "" : "Derma Annotation",
-            annotation_data: generateAnnotationDataHTML(badgeItems),
+            annotation_data: generateAnnotationDataHTML([...badgeItems, ...procedureLegendRows]),
+            // The durable owner of area values: a mark carries them only where one was placed.
+            area_values: partValues,
+            // What the exported image shows, so a reopen comes back looking like the file.
+            selected_areas: selectedAreas,
             json_text: exported.json_text,
             file_data: exported.file_data,
           },
         },
       })
-      window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
+      // Claimed before the reconciliations below: they can throw, and a retry that still
+      // thought the drawing was unsaved would file a second annotation for it.
+      const savedName = response.message?.name || annotationName
       if (response.message?.name) setAnnotationName(response.message.name)
       savedSignature.current = userSignature()
       // Saved marks belong to the annotation now; a later discard must not reach for them.
       sessionMarks.current = new Set()
+      // A photo deleted from the canvas is deleted from the record here, and nowhere earlier:
+      // undo before saving gives both the element and the photo back, and a save that failed
+      // above leaves the photo alone.
+      await photoCapture.reconcileDeletedPhotos()
+      const marksPruned = await reconcileDeletedMarks(savedName)
+      window.frappe.show_alert?.({ message: __("Annotation saved"), indicator: "green" })
       onSaved?.(response.message)
-      onClose?.()
+      onClose?.({ marksChanged: marksPruned })
     } catch (error) {
-      window.frappe?.msgprint?.({ title: __("Unable to save annotation"), message: error.message || String(error), indicator: "red" })
+      window.frappe?.msgprint?.({ title: __("Unable to save annotation"), message: describeError(error), indicator: "red" })
     } finally {
       setSaving(false)
     }
@@ -963,7 +1477,7 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
     <div className="derma-annotation-modal" role="dialog" aria-modal="true">
       <div className="derma-annotation-backdrop" />
       <section
-        className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure || editingMark ? "tagging" : ""} ${isProcedureAnchor ? "" : "no-right"}`}
+        className={`derma-annotation-shell ${drawer ? "drawer-open" : ""} ${activeProcedure || editingMark ? "tagging" : ""} ${activeProcedure || editingMark || canOfferMarkCopy ? "banner-open" : ""} ${isProcedureAnchor ? "" : "no-right"}`}
       >
         <header className="derma-annotation-header">
           <div>
@@ -1005,8 +1519,8 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                 {badgeItems.length ? `${__("Badges")} (${badgeItems.length})` : __("Badges")}
               </label>
             ) : null}
-            <button type="button" className="ghost" data-test="annotation-cancel" onClick={requestClose}>{__("Cancel")}</button>
-            <button type="button" className="primary" disabled={saving || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
+            <button type="button" className="ghost" data-test="annotation-cancel" disabled={discarding} onClick={requestClose}>{discarding ? __("Discarding...") : __("Cancel")}</button>
+            <button type="button" className="primary" disabled={saving || discarding || !selectedTemplate} onClick={save}>{saving ? __("Saving...") : __("Save Annotation")}</button>
           </div>
         </header>
 
@@ -1024,9 +1538,32 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
               onClick={() => {
                 setEditingMark(null)
                 setActiveProcedure("")
+                lastPlacedMark.current = null
               }}
             >
               {editingMark ? __("Done") : __("Stop Tagging")}
+            </button>
+          </div>
+        ) : null}
+
+        {canOfferMarkCopy ? (
+          <div className="derma-annotation-copy-banner" data-test="annotation-copy-previous-marks">
+            <span>
+              {__("The previous drawing on this procedure has {0} mark(s).").replace(
+                "{0}",
+                previousMarks.length
+              )}
+            </span>
+            <button type="button" className="ghost small" onClick={offerMarkCopy}>
+              {__("Copy marks...")}
+            </button>
+            <button
+              type="button"
+              className="ghost small"
+              data-test="annotation-copy-previous-dismiss"
+              onClick={() => setCopyOfferDismissed(true)}
+            >
+              {__("Dismiss")}
             </button>
           </div>
         ) : null}
@@ -1046,6 +1583,19 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
                   : __("Show all (matching {0} only)").replace("{0}", __(context.patientSex || ""))}
               </label>
             ) : null}
+            <div className="derma-template-group">
+              <div className="derma-template-list">
+                <button
+                  type="button"
+                  data-test="annotation-blank-template"
+                  className={selectedTemplate?.name === BLANK_TEMPLATE_NAME ? "active" : ""}
+                  onClick={() => setSelectedTemplateName(BLANK_TEMPLATE_NAME)}
+                >
+                  <span className="derma-template-blank-swatch" aria-hidden="true" />
+                  <small>{__("Blank sheet")}</small>
+                </button>
+              </div>
+            </div>
             {templateGroups.map((group) => (
               <div className="derma-template-group" key={group.label}>
                 <h4>{group.label}</h4>
@@ -1128,13 +1678,24 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         </aside> : null}
 
         <main className="derma-annotation-canvas">
+          <button
+            type="button"
+            className="derma-photo-capture"
+            data-test="annotation-capture-photo"
+            disabled={photoCapture.isBusy}
+            title={__("Photograph the lesion into this drawing")}
+            onClick={photoCapture.capture}
+          >
+            <PhotoCaptureIcon />
+            <span>{photoCapture.isBusy ? __("Saving...") : __("Photo")}</span>
+          </button>
           <EmbeddedExcalidraw
             ref={embeddedRef}
             selectedTemplate={selectedTemplate}
             bodyTemplate={selectedTemplate}
             procedureVariables={procedureValues[activeProcedure] || {}}
             initialAnnotation={annotation}
-            marks={marks || []}
+            marks={canvasMarks}
             onMarkPlaced={handleMarkPlaced}
             onMarkSelected={handleMarkSelected}
             onRegionSelected={handleRegionSelected}
@@ -1147,12 +1708,28 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
         {isProcedureAnchor ? <aside className="derma-annotation-right">
           <div className="derma-annotation-panel">
             <h3>{editingMark ? __("Editing Mark") : __("Procedure Variables")}</h3>
-            {editorProcedureDoc ? (
-              <div data-test="annotation-variable-editor" data-editing-mark={editingMark?.name || ""}>
+            {editorProcedureDoc && hasNoMarkToCarryVariables ? (
+              <p className="derma-annotation-empty" data-test="annotation-variables-unavailable">
+                {__("{0} draws in ink and records no mark, so it has nowhere to keep variables yet.").replace("{0}", editorProcedureName)}
+              </p>
+            ) : editorProcedureDoc ? (
+              <div
+                data-test="annotation-variable-editor"
+                data-editing-mark={editingMark?.name || ""}
+                data-shared-set={editsSharedSet ? "1" : "0"}
+              >
+                {sharedLabels.has(editorProcedureName) ? (
+                  <p className="derma-annotation-empty" data-test="annotation-variable-scope">
+                    {editsSharedSet
+                      ? __("Applies to the whole procedure.")
+                      : __("Overrides the procedure's value for this mark. Clear a field to go back to it.")}
+                  </p>
+                ) : null}
                 <VariableEditor
                   title={editorProcedureName}
                   fields={procedureVariables(editorProcedureDoc)}
-                  values={procedureValues[editorProcedureName] || {}}
+                  values={editorValues}
+                  inherited={inheritedValues}
                   onChange={(field, value) => updateProcedureValue(editorProcedureName, field, value)}
                 />
               </div>
@@ -1161,14 +1738,34 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
 
           <div className="derma-annotation-panel">
             <h3>{__("Selected Area")}</h3>
-            {selectedPart ? (
-              <VariableEditor
-                title={selectedPart.partName || selectedPart.part_name}
-                fields={selectedPart.variables || []}
-                values={partValues[selectedPart.partName || selectedPart.part_name] || {}}
-                onChange={(field, value) => updatePartValue(selectedPart.partName || selectedPart.part_name, field, value)}
-              />
-            ) : <p className="derma-annotation-empty">{__("Click a predefined image part to fill area variables.")}</p>}
+            <p
+              className="derma-annotation-empty"
+              data-test="annotation-selected-area-count"
+              data-selected-count={selectedAreas.length}
+            >
+              {selectedAreas.length
+                ? __("{0} area(s) selected. The saved image shows these only.").replace("{0}", selectedAreas.length)
+                : __("No areas selected. Click a predefined image part to select it and fill its variables.")}
+            </p>
+            {focusedPart ? (
+              <>
+                <VariableEditor
+                  title={focusedArea}
+                  fields={focusedPart.variables || []}
+                  values={partValues[focusedArea] || {}}
+                  onChange={(field, value) => updatePartValue(focusedArea, field, value)}
+                />
+                <button
+                  type="button"
+                  className="ghost"
+                  data-test="annotation-unselect-area"
+                  title={__("Take this area out of the saved image. Its values are kept.")}
+                  onClick={() => unselectArea(focusedArea)}
+                >
+                  {__("Unselect this area")}
+                </button>
+              </>
+            ) : null}
           </div>
 
           <div className="derma-annotation-panel">
@@ -1176,10 +1773,39 @@ function DermaAnnotationStudio({ context, bodyTemplates, procedureTemplates, ann
             <p className="derma-annotation-empty" data-test="annotation-mark-count" data-mark-count={markCount}>
               {markCount ? __("{0} tagged mark(s) on this drawing.").replace("{0}", markCount) : __("No marks placed yet.")}
             </p>
+            {placedMarkItems.length ? (
+              <ul className="derma-mark-list" data-test="annotation-mark-list">
+                {placedMarkItems.map((item) => (
+                  <li key={item.markName || item.elementId}>
+                    <button
+                      type="button"
+                      className={editingMark?.name === item.markName ? "active" : ""}
+                      title={__("Show this mark on the drawing")}
+                      onClick={() => focusMark(item)}
+                    >
+                      <span className="derma-mark-badge" style={{ background: item.color, color: getContrastText(item.color) }}>
+                        {item.badgeNum}
+                      </span>
+                      <b>{item.name}</b>
+                      <small>{variableSummary(item.params) || __("No values recorded")}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </aside> : null}
       </section>
     </div>
+  )
+}
+
+function PhotoCaptureIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z" />
+      <circle cx="12" cy="13" r="3.4" />
+    </svg>
   )
 }
 
@@ -1196,8 +1822,10 @@ function TemplateThumbnail({ template, broken, onBroken }) {
 }
 
 /** Required is shown, never enforced: placing a mark mid-procedure must not be refused. */
-function VariableEditor({ title, fields, values, onChange }) {
-  const missing = missingRequiredVariables(fields, values)
+function VariableEditor({ title, fields, values, onChange, inherited = {} }) {
+  // A value the procedure supplies counts as answered, so it must not be reported missing
+  // just because this mark has not typed one of its own.
+  const missing = missingRequiredVariables(fields, { ...inherited, ...stripBlanks(values) })
   return (
     <div className="derma-variable-editor">
       <strong>{title}</strong>
@@ -1214,23 +1842,52 @@ function VariableEditor({ title, fields, values, onChange }) {
         const key = variableKey(field)
         const options = normalizeOptions(field.options)
         const type = field.type || field.fieldtype || "Data"
+        // What the procedure would supply if this mark said nothing. Shown, never stored: only
+        // a value the clinician typed here is this mark's own.
+        const fallback = inherited[key]
+        const isOverridden = fallback !== undefined && String(values[key] ?? "") !== ""
         return (
-          <label key={key} data-test="annotation-variable-row" data-fieldname={key} data-required={field.required ? "1" : "0"}>
+          <label
+            key={key}
+            data-test="annotation-variable-row"
+            data-fieldname={key}
+            data-required={field.required ? "1" : "0"}
+            data-inherited={fallback !== undefined && !isOverridden ? "1" : "0"}
+          >
             <span>
               {variableLabel(field)}
               {field.required ? (
                 <abbr className="derma-variable-required" title={__("Required")} data-test="annotation-variable-required">*</abbr>
               ) : null}
+              {isOverridden ? (
+                <button
+                  type="button"
+                  className="ghost"
+                  data-test="annotation-variable-reset"
+                  title={__("Use the procedure's value")}
+                  onClick={() => onChange(field, "")}
+                >
+                  {__("reset")}
+                </button>
+              ) : null}
             </span>
             {type === "Select" ? (
               <select value={values[key] || ""} onChange={(event) => onChange(field, event.target.value)}>
-                <option value="">{__("Select")}</option>
+                <option value="">{fallback ? __("From procedure: {0}", [fallback]) : __("Select")}</option>
                 {options.map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
             ) : type === "Check" ? (
-              <input type="checkbox" checked={Boolean(values[key])} onChange={(event) => onChange(field, event.target.checked ? 1 : 0)} />
+              <input
+                type="checkbox"
+                checked={Boolean(values[key] ?? fallback)}
+                onChange={(event) => onChange(field, event.target.checked ? 1 : 0)}
+              />
             ) : (
-              <input value={values[key] || ""} onChange={(event) => onChange(field, event.target.value)} />
+              <input
+                value={values[key] || ""}
+                placeholder={fallback === undefined ? "" : String(fallback)}
+                onChange={(event) => onChange(field, event.target.value)}
+              />
             )}
           </label>
         )
@@ -1258,6 +1915,7 @@ export function openDermaAnnotationStudio(options = {}) {
       procedureTemplates={options.procedureTemplates || []}
       annotation={options.annotation || null}
       marks={options.marks || []}
+      previousMarks={options.previousMarks || []}
       onSaved={options.onSaved}
       onClose={close}
     />

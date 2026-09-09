@@ -1,7 +1,12 @@
 <template>
   <header class="derma-encounter-header" data-test="encounter-header">
     <div class="encounter-patient">
-      <img v-if="patient.image" :src="patient.image" :alt="patientName" />
+      <img
+        v-if="patient.image && !isBroken(patient.image)"
+        :src="patient.image"
+        :alt="patientName"
+        @error="markBroken(patient.image)"
+      />
       <span v-else class="patient-avatar">{{ initials }}</span>
       <div>
         <strong data-test="header-patient-name">{{ patientName }}</strong>
@@ -33,7 +38,7 @@
         type="button"
         class="primary"
         data-test="complete-session"
-        :disabled="!hasSessionContext || completing"
+        :disabled="!hasSessionContext || completing || pending"
         @click="$emit('complete')"
       >
         {{ completing ? __("Completing...") : __("Complete Encounter") }}
@@ -59,8 +64,11 @@
 
 <script setup>
 import { computed } from "vue"
+import { useBrokenImages } from "../../shared/broken_images.js"
 
 const __ = window.__ || ((txt) => txt)
+
+const { isBroken, markBroken } = useBrokenImages()
 
 const props = defineProps({
   patient: { type: Object, default: () => ({}) },
@@ -71,6 +79,9 @@ const props = defineProps({
   insuranceLabel: { type: String, default: "" },
   hasSessionContext: { type: Boolean, default: false },
   completing: { type: Boolean, default: false },
+  // A completion awaiting its confirm dialog: the button refuses a second click without
+  // claiming that completion is under way.
+  pending: { type: Boolean, default: false },
   alerts: { type: Array, default: () => [] },
 })
 

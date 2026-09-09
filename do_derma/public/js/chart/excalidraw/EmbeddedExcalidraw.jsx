@@ -1,11 +1,19 @@
 import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react"
 import { createRoot } from "react-dom/client"
 import { markerSizeOf, scaledStrokeWidth } from "../../shared/marker_size"
+import { convertBlobToDataUrl, imageUrlToRenderableData } from "../../shared/image_data.js"
 
 const GENERATED_BY_MARKS = "render_chart_marks"
 const MIN_DRAWN_MARK_SIZE = 6
 export const BADGE_KIND = "derma_badge"
 export const TEMPLATE_PART_KIND = "derma_template_part"
+export const PHOTO_KIND = "derma_photo"
+/** Images the scene stores as a URL and repaints on load, rather than carrying their bytes. */
+const REBUILDABLE_IMAGE_KINDS = new Set(["derma_template", PHOTO_KIND])
+/** A captured photo lands big enough to work on: this share of the visible canvas. */
+const PHOTO_VIEWPORT_RATIO = 0.4
+/** Each shot of a burst steps off the last, so none of them hides another. */
+const PHOTO_CASCADE_OFFSET = 32
 const FIT_RETRY_LIMIT = 3
 const TEMPLATE_MEASURE_RETRY_LIMIT = 30
 
@@ -26,14 +34,6 @@ const CLINICAL_UI_OPTIONS = {
     toggleTheme: false,
   },
 }
-
-const convertBlobToDataUrl = (blob) =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
 
 function parseAnnotation(annotation) {
   if (!annotation?.json) return null
@@ -73,7 +73,7 @@ function parseAnnotation(annotation) {
 	const previousDraggingIdRef = useRef(null)
 	// Selection / filled-values / hidden state for the template-part layer, kept in a
 	// ref so a template reload can re-apply it after re-rendering the polygons.
-	const partStateRef = useRef({ hidden: false, selected: "", filled: [] })
+	const partStateRef = useRef({ hidden: false, selected: [], filled: [] })
 
 	function applyDermaTool(nextTemplate) {
 		const effectiveTemplate = nextTemplate !== undefined ? nextTemplate : template
@@ -105,7 +105,7 @@ function parseAnnotation(annotation) {
 			}
 			// Badges are already in the scene, so the export picks them up once.
 			const blob = await excalidrawModule.exportToBlob({
-        elements,
+        elements: exportableElements(elements, partStateRef.current),
         appState: {
           ...api.getAppState(),
           exportBackground: true,
@@ -116,7 +116,7 @@ function parseAnnotation(annotation) {
       })
 			return {
         json_text: JSON.stringify({
-          ...stripTemplateImagePayload(elements, files),
+          ...stripStoredImagePayload(elements, files),
           derma_template: serializeTemplate(chartTemplate),
         }),
         file_data: await convertBlobToDataUrl(blob),
@@ -134,6 +134,23 @@ function parseAnnotation(annotation) {
 	      applyDermaTool(nextTemplate)
 	    },
 		    setBodyTemplate: setChartTemplate,
+	    // Empties the sheet: drops the template image and its area outlines, and keeps whatever
+	    // the practitioner drew. Everything downstream already copes with no template - the
+	    // image effect no-ops without one, and placing a tagged mark is refused.
+	    clearBodyTemplate: (blankTemplate) => {
+	      if (!api) return
+	      const kept = api
+	        .getSceneElements()
+	        .filter(
+	          (element) =>
+	            element.customData?.kind !== "derma_template" &&
+	            element.customData?.kind !== TEMPLATE_PART_KIND
+	        )
+	      api.updateScene({ elements: kept })
+	      // Recorded, not forgotten: the saved scene's `derma_template.name` is what reopening
+	      // reads, so a drawing made on the blank sheet has to come back on it.
+	      setChartTemplate(blankTemplate || null)
+	    },
 	    setProcedureVariables: (variables) => {
 	      procedureVariablesRef.current = variables || {}
 	    },
@@ -166,7 +183,7 @@ function parseAnnotation(annotation) {
     setPartStates: (state) => {
       partStateRef.current = {
         ...partStateRef.current,
-        selected: state?.selected || "",
+        selected: state?.selected || [],
         filled: state?.filled || [],
       }
       styleTemplateParts(api, partStateRef.current)
@@ -176,6 +193,8 @@ function parseAnnotation(annotation) {
       styleTemplateParts(api, partStateRef.current)
     },
     setBadgeElements: (badges) => syncBadgeLayer(api, badges, badgeSignature),
+    insertPhotos: (photos) => insertPhotoElements(api, photos),
+    getPhotoNames: () => photoElementNames(api),
     updateMarkVariables: (payload) => updateMarkVariables(api, payload),
     resetView: () => fitToTemplate(api),
     // Counts outlines the practitioner can see. An area with degenerate bounds is not drawn,
@@ -229,7 +248,7 @@ function parseAnnotation(annotation) {
 	}
 
 		async function loadSceneIntoApi(api, scene, commitToHistory) {
-		  const hydrated = await hydrateTemplateImageFiles(scene)
+		  const hydrated = await hydrateSceneImageFiles(scene)
       for (const file of Object.values(hydrated.files || {})) {
         api.addFiles([file])
       }
@@ -336,13 +355,20 @@ function parseAnnotation(annotation) {
 	          if (!api) return
 	          const origin = pointerDownState?.origin || pointerDownState?.lastCoords
 	          const hitRegion = origin ? findTemplatePartAtPoint(api, origin.x, origin.y) : null
-	          if (hitRegion) {
-	            onRegionSelected?.(hitRegion)
+	          // Reported on a miss too: bare canvas is how the practitioner closes the area editor.
+	          // Only a deliberate click reports it, though - a pen stroke or an eraser drag that
+	          // happens to start inside an outline must not change what the saved image shows.
+	          const isPlacingMark = requestedToolRef.current === "mark"
+	          if (isPlacingMark || api.getAppState?.()?.activeTool?.type === "selection") {
+	            onRegionSelected?.(hitRegion, { isPlacingMark })
 	          }
 	          if (dermaToolRef.current !== "mark" || !isStampBehavior(template)) return
 	          if (pointerDownState?.scrollbars?.isOverEither) return
 	          if (!getTemplateElement(api)) {
-	            globalThis.frappe?.show_alert?.({ message: "Load a chart image before placing marks", indicator: "orange" })
+	            globalThis.frappe?.show_alert?.({
+	              message: "Choose a body template before placing marks - the blank sheet has nothing to position them on",
+	              indicator: "orange",
+	            })
 	            return
 	          }
 	          if (!origin) return
@@ -383,7 +409,7 @@ function parseAnnotation(annotation) {
 	            }
 	          }
 	          const drawingTool = dermaToolRef.current
-	          if (drawingTool === "area" || drawingTool === "draw") {
+	          if (DRAWN_SHAPES[drawingTool]) {
 	            const finished = findCommittedElement(elements, appState, previousDraggingIdRef)
 	            if (finished) {
 	              tagDrawnElement(api, finished, template, procedureVariablesRef.current, drawingTool)
@@ -398,30 +424,61 @@ function parseAnnotation(annotation) {
 
 export default EmbeddedExcalidraw
 
+/**
+ * The drawing tools whose finished element becomes a mark, and the shape each one records.
+ * The pen is deliberately absent: a freehand stroke shades or outlines a region for the eye,
+ * so it stays ink. Marks drawn with it before that decision are still marks and still load.
+ */
+const DRAWN_SHAPES = { area: "area", line: "line" }
+
 function isStampBehavior(template) {
   // createStampElements() already has a complete fallback chain ending in createNumberedDot,
   // so any configured marker_behavior is stampable - no need to keep an allowlist in sync with it.
   return Boolean(String(template?.custom_derma_marker_behavior || "").trim())
 }
 
+function behaviorOf(template) {
+  return String(template?.custom_derma_marker_behavior || "").toLowerCase()
+}
+
+function isAreaKeyword(behavior) {
+  return behavior.includes("area") || behavior.includes("hatch") || behavior.includes("five_lines")
+}
+
+/**
+ * How a dragged region is filled. The three area behaviours share one gesture and one element,
+ * so the fill is the only thing that tells them apart - and it is what marker_preview.js draws.
+ */
+function areaFillStyle(behavior) {
+  if (behavior.includes("five_lines")) return "cross-hatch"
+  if (behavior.includes("hatch")) return "hachure"
+  return "solid"
+}
+
 export function isAreaBehavior(template) {
   // Coverage-style procedures (a laser pass, a scarred/pigmented patch) are drawn as a
   // drag-to-size rectangle over the actual treated region instead of a fixed-size point stamp.
-  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
-  return behavior.includes("area") || behavior.includes("hatch") || behavior.includes("five_lines")
+  return isAreaKeyword(behaviorOf(template))
 }
 
 export function isFreehandBehavior(template) {
   // Irregular regions - a graft, a scar, a patch of melasma - that a rectangle misrepresents.
-  // The pen takes the procedure's colour and the finished stroke becomes one Derma Chart Mark.
-  const behavior = String(template?.custom_derma_marker_behavior || "").toLowerCase()
+  // The pen takes the procedure's colour; the stroke it leaves is ink, not a Derma Chart Mark.
+  const behavior = behaviorOf(template)
   return behavior.includes("freehand") || behavior.includes("stroke") || behavior.includes("paint")
+}
+
+export function isLineBehavior(template) {
+  // Findings with a length and no width - an incision, a scar, an injection track. Callers ask
+  // isAreaBehavior first, which claims five_lines, so plain `includes` is enough here.
+  return !isAreaBehavior(template) && behaviorOf(template).includes("line")
 }
 
 /** Which drawing tool a procedure's marker behaviour asks for. */
 function placementToolFor(template) {
   if (isAreaBehavior(template)) return "area"
   if (isFreehandBehavior(template)) return "draw"
+  if (isLineBehavior(template)) return "line"
   return "mark"
 }
 
@@ -435,6 +492,7 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
     loadAnnotation: (annotation) => bridgeRef.current?.loadAnnotation?.(annotation),
     setSelectedTemplate: (template) => bridgeRef.current?.setSelectedTemplate?.(template),
     setBodyTemplate: (template) => bridgeRef.current?.setBodyTemplate?.(template),
+    clearBodyTemplate: (blankTemplate) => bridgeRef.current?.clearBodyTemplate?.(blankTemplate),
     setProcedureVariables: (variables) => bridgeRef.current?.setProcedureVariables?.(variables),
     setMarks: (marks) => bridgeRef.current?.setMarks?.(marks),
     setMarkerSize: (size) => bridgeRef.current?.setMarkerSize?.(size),
@@ -453,11 +511,13 @@ export function mountEmbeddedExcalidraw(element, props = {}) {
 function setDermaTool(api, tool, template) {
   if (!api) return
   const color = template?.custom_derma_marker_color || "#0f766e"
+  const areaFill = areaFillStyle(behaviorOf(template))
   const typeMap = {
     select: "selection",
     mark: "selection",
     draw: "freedraw",
     area: "rectangle",
+    line: "line",
     text: "text",
   }
   api.updateScene({
@@ -465,8 +525,13 @@ function setDermaTool(api, tool, template) {
       ...api.getAppState(),
       currentItemStrokeColor: color,
       currentItemBackgroundColor: tool === "area" ? color : "transparent",
-      currentItemOpacity: tool === "area" ? 18 : 100,
+      // A hachured region reads as texture rather than wash, so it needs the fuller opacity.
+      currentItemOpacity: tool === "area" && areaFill === "solid" ? 18 : 100,
+      currentItemFillStyle: areaFill,
       activeTool: { type: typeMap[tool] || "selection" },
+      // Entering select mode drops whatever placement left selected, so the first click
+      // on a mark binds the editor to that mark and not to the last stamp placed.
+      ...(tool === "select" ? { selectedElementIds: {}, selectedGroupIds: {} } : {}),
     },
     commitToHistory: true,
   })
@@ -516,13 +581,16 @@ function buildPlacementPayload(api, template, chartTemplate, origin, stamp, proc
 }
 
 /**
- * A stroke's true geometry lives in the scene; the mark carries its centroid, because
- * x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged areas
- * already make.
+ * A stroke's or line's true geometry lives in the scene; the mark carries its centroid,
+ * because x_percent/y_percent are mandatory on Derma Chart Mark. Same compromise dragged
+ * areas already make.
  */
-function drawnElementCentre(element, shape) {
+function drawnElementCentre(element) {
   const points = element.points || []
-  if (shape !== "freehand" || !points.length) {
+  // Anything with points is a linear element, whose x,y is its first point rather than its
+  // bounding-box corner: a line drawn leftward or upward carries negative points, so the box
+  // formula would put the centre off the stroke entirely.
+  if (!points.length) {
     return { x: element.x + (element.width || 0) / 2, y: element.y + (element.height || 0) / 2 }
   }
   return {
@@ -559,7 +627,7 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
         marker_behavior: template?.custom_derma_marker_behavior,
         marker_color: template?.custom_derma_marker_color,
         procedure_variables: sanitizeVariables(procedureVariables),
-        shape: tool === "draw" ? "freehand" : "area",
+        shape: DRAWN_SHAPES[tool] || "area",
       },
     }
   })
@@ -567,9 +635,9 @@ function tagDrawnElement(api, element, template, procedureVariables = {}, tool =
 }
 
 function buildDrawnPlacementPayload(api, template, chartTemplate, element, procedureVariables = {}, tool = "area") {
-  const shape = tool === "draw" ? "freehand" : "area"
+  const shape = DRAWN_SHAPES[tool] || "area"
   const bounds = getTemplateBounds(api)
-  const centre = drawnElementCentre(element, shape)
+  const centre = drawnElementCentre(element)
   const centerX = centre.x
   const centerY = centre.y
   const xPercent = bounds ? clamp(((centerX - bounds.x) / bounds.width) * 100, 0, 100) : 50
@@ -724,6 +792,10 @@ function selectMarkElement(api, markName) {
     },
     commitToHistory: false,
   })
+  // Selecting a mark the practitioner picked from a list is worth nothing if it sits
+  // outside the viewport.
+  const selected = api.getSceneElements().filter((element) => ids.includes(element.id))
+  api.scrollToContent?.(selected, { fitToContent: false, animate: true })
 }
 
 function renderChartMarks(api, marks = []) {
@@ -866,13 +938,14 @@ function createTemplatePartElements(parts = [], bounds) {
 function styleTemplateParts(api, state = {}) {
   if (!api) return
   const filled = new Set(state.filled || [])
+  const selected = new Set(state.selected || [])
   let changed = false
   const elements = api.getSceneElements().map((element) => {
     if (element.isDeleted || element.customData?.kind !== TEMPLATE_PART_KIND) return element
     const partName = element.customData?.part_name || element.customData?.partName || ""
     const baseColor = element.customData?.base_color || "#4dabf7"
     const baseOpacity = Number(element.customData?.base_opacity || 0.14)
-    const isSelected = Boolean(partName) && state.selected === partName
+    const isSelected = Boolean(partName) && selected.has(partName)
     const isFilled = filled.has(partName)
     const next = {
       opacity: state.hidden ? 0 : 100,
@@ -889,6 +962,25 @@ function styleTemplateParts(api, state = {}) {
   if (!changed) return
   api.updateScene({ elements, commitToHistory: false })
   api.refresh?.()
+}
+
+/**
+ * The scene as the exported image should show it: only the selected areas, drawn as they are
+ * on screen even while "Hide Areas" fades them, so a view toggle never changes what is filed.
+ * The live scene is untouched, so a failed export cannot leave the canvas half-hidden.
+ */
+function exportableElements(elements, state = {}) {
+  const selected = new Set(state.selected || [])
+  return (elements || [])
+    .filter((element) => {
+      if (element.customData?.kind !== TEMPLATE_PART_KIND) return true
+      return selected.has(element.customData?.part_name || element.customData?.partName || "")
+    })
+    .map((element) =>
+      element.customData?.kind === TEMPLATE_PART_KIND && element.opacity !== 100
+        ? { ...element, opacity: 100 }
+        : element
+    )
 }
 
 function findTemplatePartAtPoint(api, sceneX, sceneY) {
@@ -956,11 +1048,16 @@ function stampShapeElements({ behavior, color, origin, sequence, groupId, templa
   if (preset.length) return preset
   if (behavior.includes("x")) return createXMark(origin, color, groupId, template, procedureVariables, scale)
   if (behavior.includes("target")) return createTargetMark(origin, color, groupId, template, procedureVariables, scale)
-  // Dragged behaviours take their geometry from the gesture, so their shape stays unscaled.
-  if (behavior.includes("hatch") || behavior.includes("five_lines")) return createHatchMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("area")) return createAreaMark(origin, color, groupId, template, procedureVariables)
-  if (behavior.includes("triangle")) return createTriangleCluster(origin, color, groupId, template, procedureVariables, scale)
-  if (behavior.includes("finding_dot") || behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables, scale)
+  // Dragged behaviours take their geometry from the gesture, so their shape stays unscaled. They
+  // differ only in fill, and they come before `line` because five_lines contains that substring.
+  if (isAreaKeyword(behavior)) return createAreaMark(origin, color, groupId, template, procedureVariables, areaFillStyle(behavior))
+  if (behavior.includes("line")) return createLineMark(origin, color, groupId, template, procedureVariables, scale)
+  // The cluster is checked first: triangle_cluster contains "triangle".
+  if (behavior.includes("triangle_cluster")) return createTriangleCluster(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("triangle")) return createTriangleMark(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("three_dots")) return createDotCluster(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("finding_dot")) return createRingedDot(origin, color, groupId, template, procedureVariables, scale)
+  if (behavior.includes("blue_dot")) return createHollowDot(origin, color, groupId, template, procedureVariables, scale)
   return createNumberedDot(origin, color, groupId, template, sequence, procedureVariables, scale)
 }
 
@@ -1015,6 +1112,34 @@ function createNumberedDot(origin, color, groupId, template, sequence, procedure
   ]
 }
 
+/** An outline dot. The plain counterpart to the filled `numbered_dot`. */
+function createHollowDot(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const radius = 8 * scale
+  return [
+    ellipseElement(origin.x - radius, origin.y - radius, radius * 2, radius * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: "transparent",
+      strokeWidth: scaledStrokeWidth(2, scale),
+    }),
+  ]
+}
+
+/** A filled dot inside a ring, so a finding stands out from the procedure dots around it. */
+function createRingedDot(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const core = 5 * scale
+  const ring = 11 * scale
+  const stroke = scaledStrokeWidth(2, scale)
+  return [
+    ellipseElement(origin.x - ring, origin.y - ring, ring * 2, ring * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: "transparent",
+      strokeWidth: stroke,
+    }),
+    ellipseElement(origin.x - core, origin.y - core, core * 2, core * 2, color, groupId, template, procedureVariables, {
+      backgroundColor: color,
+      strokeWidth: stroke,
+    }),
+  ]
+}
+
 function createDotCluster(origin, color, groupId, template, procedureVariables, scale = 1) {
   const offsets = [[0, -12], [-12, 8], [12, 8]]
   const radius = 5 * scale
@@ -1026,16 +1151,15 @@ function createDotCluster(origin, color, groupId, template, procedureVariables, 
   )
 }
 
+/** One triangle. `triangle_cluster` is the three-up version. */
+function createTriangleMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  return triangleElements(origin.x, origin.y, 22 * scale, color, groupId, template, procedureVariables, scale)
+}
+
 function createTriangleCluster(origin, color, groupId, template, procedureVariables, scale = 1) {
   const offsets = [[0, -14], [-14, 10], [14, 10]]
   return offsets.flatMap(([x, y]) =>
     triangleElements(origin.x + x * scale, origin.y + y * scale, 16 * scale, color, groupId, template, procedureVariables, scale)
-  )
-}
-
-function createHatchMark(origin, color, groupId, template, procedureVariables) {
-  return [-20, -10, 0, 10, 20].map((offset) =>
-    lineElement(origin.x - 36, origin.y + offset + 18, origin.x + 36, origin.y + offset - 18, color, groupId, template, procedureVariables, 3)
   )
 }
 
@@ -1045,6 +1169,17 @@ function createXMark(origin, color, groupId, template, procedureVariables, scale
   return [
     lineElement(origin.x - arm, origin.y - arm, origin.x + arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
     lineElement(origin.x + arm, origin.y - arm, origin.x - arm, origin.y + arm, color, groupId, template, procedureVariables, stroke),
+  ]
+}
+
+/** A line procedure is normally drawn with the line tool; this is what a mark saved without its
+ * own geometry - a copied mark, a legacy row - falls back to. */
+function createLineMark(origin, color, groupId, template, procedureVariables, scale = 1) {
+  const reach = 30 * scale
+  const rise = 12 * scale
+  const stroke = scaledStrokeWidth(3, scale)
+  return [
+    lineElement(origin.x - reach, origin.y + rise, origin.x + reach, origin.y - rise, color, groupId, template, procedureVariables, stroke),
   ]
 }
 
@@ -1064,11 +1199,12 @@ function createTargetMark(origin, color, groupId, template, procedureVariables, 
   ]
 }
 
-function createAreaMark(origin, color, groupId, template, procedureVariables) {
+function createAreaMark(origin, color, groupId, template, procedureVariables, fillStyle = "solid") {
   return [
     rectangleElement(origin.x - 40, origin.y - 28, 80, 56, color, groupId, template, procedureVariables, {
       backgroundColor: color,
-      opacity: 18,
+      fillStyle,
+      opacity: fillStyle === "solid" ? 18 : 100,
     }),
   ]
 }
@@ -1140,7 +1276,7 @@ function baseElement(type, x, y, width, height, color, groupId, template, proced
     angle: 0,
     strokeColor: overrides.strokeColor || color,
     backgroundColor: overrides.backgroundColor || "transparent",
-    fillStyle: "solid",
+    fillStyle: overrides.fillStyle || "solid",
     strokeWidth: overrides.strokeWidth || 2,
     strokeStyle: "solid",
     roughness: 0,
@@ -1173,6 +1309,8 @@ function sanitizeVariables(variables = {}) {
 
 function variablesFromMark(mark = {}) {
   return sanitizeVariables({
+    // Stored variable rows first, so a value that also maps to a mark field reads the field.
+    ...(mark.procedure_variables || {}),
     product_name: mark.product_name,
     dose: mark.dose,
     dose_unit: mark.dose_unit,
@@ -1258,6 +1396,107 @@ function makeId(prefix) {
 
 function templateImageSignature(template) {
   return [template?.name, template?.image, template?.view_key].filter(Boolean).join("|")
+}
+
+/**
+ * Drop captured photos onto the canvas at the centre of what the practitioner is looking at,
+ * cascaded so a burst reads as several photos. They are ordinary, unlocked elements: movable,
+ * resizable, and drawable over.
+ */
+function insertPhotoElements(api, photos = []) {
+  if (!api || !photos.length) return []
+  const viewport = viewportBounds(api.getAppState())
+  const elements = photos.map((photo, index) => photoElement(photo, viewport, index))
+  api.addFiles(
+    elements.map((element) => ({
+      id: element.fileId,
+      mimeType: "image/jpeg",
+      dataURL: element.dataURL,
+      created: Date.now(),
+      lastRetrieved: Date.now(),
+    }))
+  )
+  api.updateScene({ elements: [...api.getSceneElements(), ...elements], commitToHistory: true })
+  return elements.map((element) => element.id)
+}
+
+function viewportBounds(appState = {}) {
+  const zoom = appState.zoom?.value || 1
+  const width = (appState.width || 900) / zoom
+  const height = (appState.height || 620) / zoom
+  return {
+    width,
+    height,
+    centreX: width / 2 - (appState.scrollX || 0),
+    centreY: height / 2 - (appState.scrollY || 0),
+  }
+}
+
+function photoElement(photo, viewport, index) {
+  const fileId = `derma-photo-${String(photo.photo).replace(/[^a-zA-Z0-9_-]+/g, "-")}`
+  const { width, height } = photoGeometry(photo, viewport)
+  const offset = index * PHOTO_CASCADE_OFFSET
+  return {
+    ...photoElementDefaults(),
+    id: `${fileId}-element`,
+    x: viewport.centreX - width / 2 + offset,
+    y: viewport.centreY - height / 2 + offset,
+    width,
+    height,
+    dataURL: photo.dataUrl,
+    fileId,
+    customData: {
+      kind: PHOTO_KIND,
+      photo: photo.photo,
+      photo_set: photo.photoSet,
+      image: photo.fileUrl,
+    },
+  }
+}
+
+function photoGeometry(photo, viewport) {
+  const naturalWidth = Number(photo.width) || 1600
+  const naturalHeight = Number(photo.height) || 1200
+  const scale = Math.min(
+    (viewport.width * PHOTO_VIEWPORT_RATIO) / naturalWidth,
+    (viewport.height * PHOTO_VIEWPORT_RATIO) / naturalHeight
+  )
+  return { width: naturalWidth * scale, height: naturalHeight * scale }
+}
+
+function photoElementDefaults() {
+  return {
+    type: "image",
+    angle: 0,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    roughness: 0,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    seed: Math.floor(Math.random() * 1000000000),
+    version: 1,
+    versionNonce: Math.floor(Math.random() * 1000000000),
+    isDeleted: false,
+    boundElements: null,
+    updated: Date.now(),
+    link: null,
+    locked: false,
+    status: "saved",
+    scale: [1, 1],
+  }
+}
+
+/** The photos the drawing currently carries. What is missing from it has been deleted. */
+function photoElementNames(api) {
+  return (api?.getSceneElements?.() || [])
+    .filter((element) => !element.isDeleted && element.customData?.kind === PHOTO_KIND)
+    .map((element) => element.customData.photo)
+    .filter(Boolean)
 }
 
 async function loadTemplateIntoCanvas(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef) {
@@ -1394,11 +1633,24 @@ function ensureTemplateImage(api, template, latestTemplateImageRef, loadingTempl
   loadTemplateIntoCanvas(api, template, latestTemplateImageRef, loadingTemplateImageRef, templateLoadGenerationRef)
 }
 
-async function hydrateTemplateImageFiles(scene) {
+/**
+ * The URL a stored image element is repainted from. Only the body template may fall back to the
+ * scene-level template: a captured photo that lost its own URL must render as Excalidraw's
+ * placeholder, never as another image.
+ */
+function elementImageSource(element, scene) {
+  const custom = element.customData || {}
+  if (custom.kind === PHOTO_KIND) return custom.image || ""
+  const template = custom.template || (custom.kind === "derma_template" ? scene.derma_template : null)
+  return template?.image || ""
+}
+
+async function hydrateSceneImageFiles(scene) {
   const elements = scene.elements || []
   const files = normalizeBinaryFiles(scene.files)
   const hydratedFiles = { ...files }
   const elementDataUrls = {}
+  let unreadablePhotoCount = 0
 
   for (const element of elements) {
     if (element.type !== "image" || !element.fileId) continue
@@ -1406,14 +1658,10 @@ async function hydrateTemplateImageFiles(scene) {
       elementDataUrls[element.fileId] = hydratedFiles[element.fileId].dataURL
       continue
     }
-    // Only the body template may fall back to the scene-level template. A user-inserted photo
-    // that lost its file entry must render as Excalidraw's placeholder, not as the silhouette -
-    // a visibly missing image is safer than a confidently wrong one.
-    const isTemplateImage = element.customData?.kind === "derma_template"
-    const template = element.customData?.template || (isTemplateImage ? scene.derma_template : null)
-    if (!template?.image) continue
+    const source = elementImageSource(element, scene)
+    if (!source) continue
     try {
-      const { dataURL, mimeType } = await imageUrlToRenderableData(template.image)
+      const { dataURL, mimeType } = await imageUrlToRenderableData(source)
       elementDataUrls[element.fileId] = dataURL
       hydratedFiles[element.fileId] = {
         id: element.fileId,
@@ -1424,7 +1672,14 @@ async function hydrateTemplateImageFiles(scene) {
       }
     } catch {
       // Keep the element in place; Excalidraw will show its placeholder if the image URL is unavailable.
+      if (element.customData?.kind === PHOTO_KIND) unreadablePhotoCount += 1
     }
+  }
+  if (unreadablePhotoCount) {
+    globalThis.frappe?.show_alert?.({
+      message: `${unreadablePhotoCount} photo(s) on this drawing could not be loaded. Their frames are left in place.`,
+      indicator: "red",
+    })
   }
 
   return {
@@ -1481,21 +1736,6 @@ function normalizeBinaryFile(file) {
   }
 }
 
-/**
- * Drop the body template's base64 payload from what gets persisted. hydrateTemplateImageFiles()
- * rebuilds it on load from the template's own URL, so the ~35 KB average it costs per annotation
- * buys nothing.
- *
- * Keyed strictly on the template element, never on "is an image": a photo the practitioner
- * inserted has no URL to rebuild from, so stripping it would destroy it. And the template
- * *element* must survive - _sync_chart_marks_for_annotation returns early without it, which
- * would silently stop every mark in the session being linked back to the annotation.
- */
-/**
- * Swap the badge layer for a freshly numbered one. Badges are ordinary scene elements so they
- * export with the drawing and are visible while working, but they are derived state: never
- * committed to undo history, and stripped from what gets persisted.
- */
 /** The single selected element, when it is a mark the practitioner drew or stamped. */
 function selectedMarkElement(elements = [], appState = {}) {
   const selectedIds = Object.entries(appState.selectedElementIds || {})
@@ -1518,6 +1758,11 @@ function markLayerSignature(elements = []) {
     .join("|")
 }
 
+/**
+ * Swap the badge layer for a freshly numbered one. Badges are ordinary scene elements so they
+ * export with the drawing and are visible while working, but they are derived state: never
+ * committed to undo history, and stripped from what gets persisted.
+ */
 function syncBadgeLayer(api, badges = [], signatureRef) {
   if (!api) return
   const signature = badges.map((badge) => `${badge.id}:${Math.round(badge.x)}:${Math.round(badge.y)}:${badge.text || ""}`).join("|")
@@ -1527,10 +1772,20 @@ function syncBadgeLayer(api, badges = [], signatureRef) {
   api.updateScene({ elements: [...existing, ...badges], commitToHistory: false })
 }
 
-function stripTemplateImagePayload(elements, files) {
-  const templateFileIds = new Set(
+/**
+ * Drop the base64 payload of every image the scene can repaint from a URL - the body template
+ * and the captured photos. hydrateSceneImageFiles() rebuilds them on load, so the megabytes they
+ * would otherwise cost per annotation buy nothing.
+ *
+ * Keyed strictly on those two kinds, never on "is an image": an image the practitioner inserted
+ * with Excalidraw's own tool has no URL to rebuild from, so stripping it would destroy it. And
+ * the template *element* must survive - _sync_chart_marks_for_annotation returns early without
+ * it, which would silently stop every mark in the session being linked back to the annotation.
+ */
+function stripStoredImagePayload(elements, files) {
+  const rebuildableFileIds = new Set(
     elements
-      .filter((element) => element.customData?.kind === "derma_template" && element.fileId)
+      .filter((element) => REBUILDABLE_IMAGE_KINDS.has(element.customData?.kind) && element.fileId)
       .map((element) => element.fileId)
   )
   return {
@@ -1540,8 +1795,8 @@ function stripTemplateImagePayload(elements, files) {
       // them would freeze a drawing against the geometry it was made with, so a later template
       // edit would leave old and new outlines mixed on the next resave.
       .filter((element) => element.customData?.kind !== TEMPLATE_PART_KIND)
-      .map((element) => (templateFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element)),
-    files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !templateFileIds.has(fileId))),
+      .map((element) => (rebuildableFileIds.has(element.fileId) ? { ...element, dataURL: undefined } : element)),
+    files: Object.fromEntries(Object.entries(files).filter(([fileId]) => !rebuildableFileIds.has(fileId))),
   }
 }
 
@@ -1565,49 +1820,6 @@ function fitToTemplate(api, attempt = 0) {
     : api.getSceneElements().filter((element) => !element.isDeleted)
   if (!visibleElements.length) return
   api.scrollToContent(visibleElements, { fitToViewport: true, viewportZoomFactor: 0.72 })
-}
-
-async function imageUrlToRenderableData(url) {
-  if (String(url || "").startsWith("data:")) {
-    const image = await loadImage(url)
-    const mimeType = mimeTypeFromDataUrl(url)
-    return {
-      dataURL: url,
-      width: image.naturalWidth || image.width || 900,
-      height: image.naturalHeight || image.height || 620,
-      mimeType: mimeType === "image/jpeg" || mimeType === "image/png" ? mimeType : "image/png",
-    }
-  }
-  const response = await fetch(url)
-  const blob = await response.blob()
-  const sourceURL = await convertBlobToDataUrl(blob)
-  const image = await loadImage(sourceURL)
-  const canvas = document.createElement("canvas")
-  canvas.width = image.naturalWidth || image.width
-  canvas.height = image.naturalHeight || image.height
-  const context = canvas.getContext("2d")
-  context.drawImage(image, 0, 0)
-  const mimeType = blob.type && blob.type !== "image/svg+xml" ? blob.type : "image/jpeg"
-  return {
-    dataURL: canvas.toDataURL(mimeType === "image/png" ? "image/png" : "image/jpeg", 0.92),
-    width: canvas.width,
-    height: canvas.height,
-    mimeType: mimeType === "image/png" ? "image/png" : "image/jpeg",
-  }
-}
-
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => resolve(image)
-    image.onerror = reject
-    image.src = src
-  })
-}
-
-function mimeTypeFromDataUrl(dataURL) {
-  const match = String(dataURL || "").match(/^data:([^;]+);/)
-  return match?.[1] || "image/png"
 }
 
 function serializeTemplate(template) {

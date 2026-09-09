@@ -8,6 +8,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from do_derma.consumables import conversion
+
 ITEM_FIELDS = ["item_name", "stock_uom", "has_batch_no"]
 
 
@@ -66,19 +68,7 @@ def _validated_batch(item_code: str, batch_no: str) -> str | None:
 
 
 def validated_conversion_factor(item_code: str, uom: str | None, stock_uom: str | None) -> float:
-	"""How many stock units one row unit is worth, refused when the item cannot convert."""
-	if not uom or uom == stock_uom:
-		return 1.0
-	factor = flt(
-		frappe.db.get_value(
-			"UOM Conversion Detail",
-			{"parent": item_code, "parenttype": "Item", "uom": uom},
-			"conversion_factor",
-		)
-	)
-	if not factor:
-		# Stock would move at zero, so the unit is refused here rather than at completion.
-		frappe.throw(
-			_("{0} is recorded in {1}, which does not convert to its stock unit.").format(item_code, uom)
-		)
+	"""How many stock units one row unit is worth, refused here rather than at completion."""
+	factor = conversion.get_factor(item_code, uom, stock_uom)
+	conversion.ensure_convertible(item_code, uom, factor)
 	return factor

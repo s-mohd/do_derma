@@ -302,6 +302,91 @@ class TestPrintFormatInjection(PrintingTestBase):
 		self.assertNotIn(inject.ASSESSMENT.start, self._html_of(name))
 
 
+class TestProcedureVariablesPrintBlock(ConfigTemplateHelpers, PrintingTestBase):
+	"""Clinical settings on a document handed to the patient, so nothing prints unless the
+	template asked for it."""
+
+	def setUp(self):
+		super().setUp()
+		self.patient = self._make_patient()
+		self.encounter = self._make_encounter(self.patient)
+
+	def _procedure(self, template):
+		doc = frappe.get_doc(
+			{
+				"doctype": "Clinical Procedure",
+				"patient": self.patient,
+				"procedure_template": template,
+				"practitioner": self._get_or_create_practitioner(),
+				"company": frappe.db.get_value("Company", {}, "name"),
+				"status": "Draft",
+			}
+		).insert(ignore_permissions=True)
+		field = api._get_clinical_procedure_encounter_field()
+		if field:
+			frappe.db.set_value("Clinical Procedure", doc.name, field, self.encounter.name)
+		return doc
+
+	def test_prints_the_values_when_the_template_opted_in(self):
+		template = self._make_derma_template(
+			custom_derma_variables_per_procedure=1, custom_derma_print_procedure_variables=1
+		)
+		procedure = self._procedure(template)
+		api.save_procedure_variables(procedure.name, template, {"fluence": "8 J"})
+
+		html = render.derma_procedure_variables_html(self.encounter)
+
+		self.assertIn("Procedure Details", html)
+		self.assertIn("8 J", html)
+		self.assertIn(frappe.db.get_value("Clinical Procedure Template", template, "template"), html)
+
+	def test_prints_nothing_when_the_template_did_not_opt_in(self):
+		"""The default. Suppressed even though the values exist and the chart shows them."""
+		template = self._make_derma_template(
+			custom_derma_variables_per_procedure=1, custom_derma_print_procedure_variables=0
+		)
+		procedure = self._procedure(template)
+		api.save_procedure_variables(procedure.name, template, {"fluence": "8 J"})
+
+		self.assertEqual(render.derma_procedure_variables_html(self.encounter), "")
+
+	def test_prints_nothing_when_the_procedure_recorded_nothing(self):
+		template = self._make_derma_template(
+			custom_derma_variables_per_procedure=1, custom_derma_print_procedure_variables=1
+		)
+		self._procedure(template)
+
+		self.assertEqual(render.derma_procedure_variables_html(self.encounter), "")
+
+	def test_a_blank_value_is_not_printed_as_an_empty_line(self):
+		template = self._make_derma_template(
+			custom_derma_variables_per_procedure=1, custom_derma_print_procedure_variables=1
+		)
+		procedure = self._procedure(template)
+		api.save_procedure_variables(procedure.name, template, {"fluence": "8 J", "passes": ""})
+
+		html = render.derma_procedure_variables_html(self.encounter)
+
+		self.assertIn("Fluence", html)
+		self.assertNotIn("Passes", html)
+
+	def test_escapes_whatever_it_is_handed(self):
+		html = render.render_procedure_variables(
+			[{"procedure": "<b>Laser</b>", "rows": [{"label": "Device", "value": "<script>x</script>"}]}]
+		)
+
+		self.assertNotIn("<script>", html)
+		self.assertNotIn("<b>Laser</b>", html)
+		self.assertIn("&lt;script&gt;", html)
+
+	def test_logs_and_returns_empty_on_failure(self):
+		class Exploding:
+			def get(self, *args, **kwargs):
+				raise RuntimeError("boom")
+
+		self.assertEqual(render.derma_procedure_variables_html(Exploding()), "")
+
+
 class TestConsumablesPrintBlock(ConsumableHelpers, ConfigTemplateHelpers, PrintingTestBase):
 	"""The paper record says what each procedure consumed, or says nothing at all."""
 

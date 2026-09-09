@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from do_derma.consumables.defaults import normalize_row
+from do_derma.consumables.defaults import normalize_row, read_stored_row
 
 # What makes a live row a deviation from the default it came from.
 COMPARED_FIELDS = ["qty", "uom", "batch_no"]
@@ -33,7 +33,7 @@ def load(value: str | None) -> list[dict[str, Any]]:
 		rows = None
 	if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
 		frappe.throw(_("The stored template consumables of this mark are unreadable."))
-	return [normalize_row(row) for row in rows]
+	return [read_stored_row(row) for row in rows]
 
 
 def compare(live_rows: list[dict[str, Any]], frozen_rows: list[dict[str, Any]]) -> dict[str, list]:

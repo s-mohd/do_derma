@@ -294,6 +294,20 @@
                     <i class="fa-solid fa-box-open"></i>
                     <span>{{ __("Materials") }} ({{ consumableCount(row) }})</span>
                   </button>
+                  <!-- Offered even when empty: the studio only records these alongside a
+                       drawing, so a procedure that needs no drawing has no other way in. -->
+                  <button
+                    v-if="row.derma_captures_variables_per_procedure"
+                    type="button"
+                    class="detail-chip detail-chip-button"
+                    data-test="procedure-edit-variables"
+                    :title="__('Recorded once for the whole procedure')"
+                    :disabled="readOnly"
+                    @click.stop="$emit('edit-procedure-variables', row)"
+                  >
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>{{ row.derma_procedure_variables_text || __("Add details") }}</span>
+                  </button>
                   <span v-if="row.derma_artifact_text" class="detail-chip derma-artifact-chip">
                     <i class="fa-regular fa-images"></i>
                     <span>{{ row.derma_artifact_text }}</span>
@@ -335,6 +349,13 @@
                     >
                       {{ __("Reset") }}
                     </button>
+                    <span
+                      v-if="isRowSaving(row)"
+                      class="chart-spinner"
+                      role="status"
+                      data-test="procedure-row-saving"
+                      :aria-label="__('Saving the price')"
+                    ></span>
                     <div v-if="overrideListOpenRow === row.name" class="override-dropdown" @mousedown.prevent>
                       <button
                         v-for="pl in getPriceListOptions(row)"
@@ -477,6 +498,10 @@
 <script setup>
 import { computed, ref, onBeforeUnmount, onMounted, watch, nextTick } from "vue"
 import ConsumablesEditor from "./consumables/ConsumablesEditor.vue"
+import { procedureDisplayName } from "../../shared/procedure_label.js"
+import { nameDialogControls } from "../../shared/dialog_a11y.js"
+import { runDialogAction } from "../../shared/dialog_progress.js"
+import { htmlToPlainText, serverErrorText } from "../../shared/error_text.js"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -499,6 +524,7 @@ const emit = defineEmits([
   "refresh",
   "sync-billables",
   "annotate-procedure",
+  "edit-procedure-variables",
   "new-procedure",
   "copy-marks",
   "edit-surfaces",
@@ -830,10 +856,11 @@ const emptyStateTitle = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value ? __("No matching procedures") : __("No procedures added yet")
 )
 
+// The list holds this visit only; earlier visits live on the Review timeline.
 const emptyStateMessage = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value
-    ? __("Adjust or clear the filters to bring procedure history back into view.")
-    : __("Procedures will appear here after they are recorded for this patient.")
+    ? __("Adjust or clear the filters to bring this visit's procedures back into view.")
+    : __("Procedures recorded on this visit appear here. Earlier visits are on the Review timeline.")
 )
 
 function setFilter(status) {
@@ -956,6 +983,8 @@ const expandedConsumables = ref({})
 const consumablesByOwner = ref({})
 const consumableErrors = ref({})
 const savingConsumables = ref({})
+// Which procedure rows have a price, no-charge or note write in flight.
+const savingRows = ref({})
 
 watch(
   () => props.groups,
@@ -997,7 +1026,7 @@ function consumableOwners(row) {
     {
       doctype: "Clinical Procedure",
       name: row.name,
-      label: row.title || row.procedure_template || "",
+      label: procedureDisplayName(row),
       source: row,
       editable: isEditable(row),
     },
@@ -1022,8 +1051,13 @@ function toggleConsumables(row) {
   }
 }
 
+/** Names the mark the way the rest of the chart does - "#3 Botox - Forehead", never its autoname. */
 function markConsumablesLabel(mark) {
-  return mark.region_label || mark.body_region || mark.category || mark.name
+  const detail = [mark.procedure_template || mark.category, mark.region_label || mark.body_region]
+    .filter(Boolean)
+    .join(" — ")
+  const number = mark.sequence ? `#${mark.sequence}` : ""
+  return [number, detail].filter(Boolean).join(" ") || __("Mark")
 }
 
 async function saveConsumables(owner, rows) {
@@ -1048,16 +1082,8 @@ async function saveConsumables(owner, rows) {
   }
 }
 
-// A refused frappe.call rejects with the jqXHR, so the reason the clinician needs is in
-// the response body rather than on the error itself.
 function consumableErrorText(err) {
-  const raw = err?.responseJSON?._server_messages || err?._server_messages
-  try {
-    const first = JSON.parse(JSON.parse(raw)[0])
-    return htmlToPlainText(first?.message || first)
-  } catch (parseError) {
-    return htmlToPlainText(err?.message || "") || __("The materials could not be saved.")
-  }
+  return serverErrorText(err, __("The materials could not be saved."))
 }
 
 function updateLocal(row, key, value) {
@@ -1068,22 +1094,6 @@ function updateLocal(row, key, value) {
       [key]: value,
     },
   }
-}
-
-function htmlToPlainText(value) {
-  const raw = String(value || "")
-  if (!raw) return ""
-  if (!/[<>]/.test(raw)) return raw
-  const html = raw
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "- ")
-  const el = document.createElement("div")
-  el.innerHTML = html
-  return (el.textContent || el.innerText || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
 }
 
 function resolveRowPatient(row) {
@@ -1236,6 +1246,11 @@ async function openProcedureNoteDialog(row) {
   // picked from the library.
   const noteSentence = String(row.note_sentence_template || "").trim()
 
+  const setTemplateMessage = (text) => {
+    const $wrapper = dialog?.fields_dict?.template_preview?.$wrapper
+    if ($wrapper?.length) $wrapper.html(`<div class="procedure-note-dialog__loading">${escapeHtml(text)}</div>`)
+  }
+
   const updateTemplatePreview = async () => {
     if (!dialog) return
     const templateName = dialog.get_value("note_template")
@@ -1243,8 +1258,12 @@ async function openProcedureNoteDialog(row) {
       setTemplatePreview(toEditorHtml(noteSentence), htmlToPlainText(noteSentence))
       return
     }
+    setTemplateMessage(__("Loading the template..."))
     const templateData = await fetchNoteTemplate(templateName)
-    if (!templateData) return
+    if (!templateData) {
+      setTemplatePreview()
+      return
+    }
     setTemplatePreview(templateData.raw_html, templateData.plain_text)
   }
 
@@ -1333,20 +1352,21 @@ async function openProcedureNoteDialog(row) {
       },
     ],
     primary_action_label: editable ? __("Save Note") : __("Close"),
-    primary_action: async (values) => {
+    primary_action: (values) => {
       if (!editable) {
         dialog.hide()
-        return
+        return undefined
       }
-      const nextValue = values?.note ?? ""
-      updateLocal(row, "notes", nextValue)
-      const saved = await saveRow(row, { silent: true })
-      if (!saved) {
-        frappe.show_alert({ message: __("Could not save the note."), indicator: "red" })
-        return
-      }
-      dialog.hide()
-      frappe.show_alert({ message: __("Procedure note saved."), indicator: "green" })
+      return runDialogAction(dialog, __("Saving the note..."), async () => {
+        updateLocal(row, "notes", values?.note ?? "")
+        const saved = await saveRow(row, { silent: true })
+        if (!saved) {
+          frappe.show_alert({ message: __("Could not save the note."), indicator: "red" })
+          return false
+        }
+        frappe.show_alert({ message: __("Procedure note saved."), indicator: "green" })
+        return true
+      })
     },
   })
 
@@ -1356,11 +1376,18 @@ async function openProcedureNoteDialog(row) {
   )
   if (editable) {
     dialog.set_secondary_action_label(__("Apply Template"))
-    dialog.set_secondary_action(() => {
-      void applyTemplateToNote()
+    dialog.set_secondary_action(async (event) => {
+      const button = event?.currentTarget
+      if (button) button.disabled = true
+      try {
+        await applyTemplateToNote()
+      } finally {
+        if (button) button.disabled = false
+      }
     })
   }
   dialog.show()
+  nameDialogControls(dialog)
   void renderRelatedHistory()
   if (editable && noteSentence) void updateTemplatePreview()
 }
@@ -1502,24 +1529,26 @@ function closeOverrideList() {
 
 async function setOverrideFromPriceList(row, priceList) {
   const normalized = normalizePriceListName(priceList)
-  if (!normalized) return
-  try {
-    const resp = await frappe.call("do_derma.api.get_procedure_price", {
-      procedure_name: row.name,
-      price_list: normalized,
-    })
-    const rate = resp?.message?.rate
-    updateLocal(row, "price", rate)
-    updateLocal(row, "no_charge", false)
-    updateLocal(row, "price_override_reason", "")
-    saveRow(row, { silent: true })
-  } catch (err) {
-    frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
-    // eslint-disable-next-line no-console
-    console.warn("Failed to fetch override price", err)
-  } finally {
-    closeOverrideList()
-  }
+  if (!normalized || isRowSaving(row)) return
+  await withRowSaving(row.name, async () => {
+    try {
+      const resp = await frappe.call("do_derma.api.get_procedure_price", {
+        procedure_name: row.name,
+        price_list: normalized,
+      })
+      const rate = resp?.message?.rate
+      updateLocal(row, "price", rate)
+      updateLocal(row, "no_charge", false)
+      updateLocal(row, "price_override_reason", "")
+      await saveRow(row, { silent: true })
+    } catch (err) {
+      frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
+      // eslint-disable-next-line no-console
+      console.warn("Failed to fetch override price", err)
+    } finally {
+      closeOverrideList()
+    }
+  })
 }
 
 onBeforeUnmount(() => {
@@ -1534,39 +1563,66 @@ async function repriceRow(row, priceList) {
     updateLocal(row, "price_list", normalizePriceListName(priceList) || CUSTOM_PRICE_LIST)
     return
   }
-  try {
-    const resp = await frappe.call("do_derma.api.get_procedure_price", {
-      procedure_name: row.name,
-      price_list: normalizePriceListName(priceList),
-    })
-    const rate = resp?.message?.rate
-    updateLocal(row, "price", rate)
-    updateLocal(row, "price_list", normalizePriceListName(priceList))
-    updateLocal(row, "no_charge", false)
-    updateLocal(row, "price_override_reason", "")
-    row.base_rate = rate
-    saveRow(row)
-  } catch (err) {
-    frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
-    // eslint-disable-next-line no-console
-    console.warn("Failed to fetch price", err)
-  }
+  if (isRowSaving(row)) return
+  await withRowSaving(row.name, async () => {
+    try {
+      const resp = await frappe.call("do_derma.api.get_procedure_price", {
+        procedure_name: row.name,
+        price_list: normalizePriceListName(priceList),
+      })
+      const rate = resp?.message?.rate
+      updateLocal(row, "price", rate)
+      updateLocal(row, "price_list", normalizePriceListName(priceList))
+      updateLocal(row, "no_charge", false)
+      updateLocal(row, "price_override_reason", "")
+      row.base_rate = rate
+      await saveRow(row)
+    } catch (err) {
+      frappe.show_alert({ message: __("Could not fetch price."), indicator: "red" })
+      // eslint-disable-next-line no-console
+      console.warn("Failed to fetch price", err)
+    }
+  })
 }
 
 // Client row keys -> Clinical Procedure fieldnames (do_derma custom fields,
-// created by schema.py). Notes deliberately avoid the core `notes` field:
-// healthcare marks it set_only_once, so any edit after insert throws.
+// created by schema.py). The note rides on the core `notes` field, which do_derma's
+// property setter unlocks so an edit after insert lands instead of throwing.
 const PROCEDURE_UPDATE_FIELD_MAP = {
   price_override: "custom_derma_price_override",
   price_list: "custom_derma_price_list",
   no_charge: "custom_derma_no_charge",
   price_override_reason: "custom_derma_price_override_reason",
-  notes: "custom_derma_notes",
+  notes: "notes",
 }
 
 /** Resolves true when the row is persisted (or there was nothing to save), false on failure. */
 function saveRow(row, opts = {}) {
   if (!isPersistedRow(row)) return Promise.resolve(false)
+  return withRowSaving(row.name, () => writeRow(row, opts))
+}
+
+function isRowSaving(row) {
+  return Boolean(savingRows.value[row?.name])
+}
+
+/**
+ * Counted, because a reprice wraps this around the save that wraps it again. Both ends read
+ * the live count: two saves of one row can overlap - a price edit still in flight when Reset
+ * is clicked - and writing back a depth captured on the way in left the count above zero for
+ * good, so the row span forever and refused every later reprice.
+ */
+async function withRowSaving(name, action) {
+  savingRows.value = { ...savingRows.value, [name]: (savingRows.value[name] || 0) + 1 }
+  try {
+    return await action()
+  } finally {
+    const remaining = Math.max((savingRows.value[name] || 1) - 1, 0)
+    savingRows.value = { ...savingRows.value, [name]: remaining }
+  }
+}
+
+function writeRow(row, opts) {
   const payload = edits.value[row.name] || {}
   const updates = {}
   if (payload.price !== undefined) {

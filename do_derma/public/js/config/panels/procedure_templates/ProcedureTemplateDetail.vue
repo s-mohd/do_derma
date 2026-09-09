@@ -285,7 +285,30 @@
         :fieldtypes="payload.fieldtypes"
         :read-only="!canWrite"
         @update:rows="draft.variables = $event"
-      />
+      >
+        <label class="config-toggle">
+          <input
+            v-model="draft.variables_per_procedure"
+            type="checkbox"
+            :true-value="1"
+            :false-value="0"
+            :disabled="!canWrite"
+            data-test="config-variables-per-procedure"
+          />
+          {{ __("Capture these once per procedure, not per mark") }}
+        </label>
+        <label v-if="draft.variables_per_procedure" class="config-toggle">
+          <input
+            v-model="draft.print_procedure_variables"
+            type="checkbox"
+            :true-value="1"
+            :false-value="0"
+            :disabled="!canWrite"
+            data-test="config-print-procedure-variables"
+          />
+          {{ __("Print them on the encounter printout") }}
+        </label>
+      </VariablesSection>
 
       <section class="config-detail-section" id="config-section-note">
         <h4>{{ __("Note sentence") }}</h4>

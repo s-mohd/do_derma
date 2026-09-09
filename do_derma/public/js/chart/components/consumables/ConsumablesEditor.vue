@@ -43,16 +43,26 @@
             />
           </td>
           <td>
-            <select
-              v-if="!readOnly"
-              class="inline-input consumable-select"
-              data-test="consumable-uom"
-              :value="row.uom"
-              :disabled="unitOptions(row).length < 2"
-              @change="commitField(index, 'uom', $event.target.value)"
-            >
-              <option v-for="unit in unitOptions(row)" :key="unit" :value="unit">{{ unit }}</option>
-            </select>
+            <template v-if="!readOnly">
+              <select
+                class="inline-input consumable-select"
+                data-test="consumable-uom"
+                :value="row.uom"
+                :disabled="isUnitLocked(row)"
+                :title="unitTitle(row)"
+                @change="commitField(index, 'uom', $event.target.value)"
+              >
+                <option v-for="unit in unitOptions(row)" :key="unit" :value="unit">
+                  {{ unitLabel(row, unit) }}
+                </option>
+              </select>
+              <span v-if="isOptionsLoading(row)" class="text-muted consumable-hint">
+                {{ __("Loading units...") }}
+              </span>
+              <span v-else-if="isUnitUnknown(row)" class="consumable-flag broken" :title="unitTitle(row)">
+                {{ __("No conversion") }}
+              </span>
+            </template>
             <span v-else>{{ row.uom || "-" }}</span>
           </td>
           <td>
@@ -69,6 +79,9 @@
                 {{ batchLabel(batch) }}
               </option>
             </select>
+            <span v-else-if="isOptionsLoading(row)" class="text-muted consumable-hint">
+              {{ __("Loading batches...") }}
+            </span>
             <span v-else>{{ row.batch_no || "-" }}</span>
           </td>
           <td v-if="!readOnly">
@@ -131,10 +144,16 @@
         v-model="draftNew.uom"
         class="inline-input consumable-select"
         data-test="consumable-new-uom"
-        :disabled="unitOptions(draftNew).length < 2"
+        :disabled="isUnitLocked(draftNew)"
+        :title="unitTitle(draftNew)"
       >
-        <option v-for="unit in unitOptions(draftNew)" :key="unit" :value="unit">{{ unit }}</option>
+        <option v-for="unit in unitOptions(draftNew)" :key="unit" :value="unit">
+          {{ unitLabel(draftNew, unit) }}
+        </option>
       </select>
+      <span v-if="isOptionsLoading(draftNew)" class="text-muted consumable-hint">
+        {{ __("Loading units...") }}
+      </span>
       <select
         v-if="isBatchTracked(draftNew.item_code)"
         v-model="draftNew.batch_no"
@@ -183,6 +202,9 @@ const pickingItem = ref(false)
 const itemHost = ref(null)
 // Units and batches per item, fetched once the panel is open and reused by every row.
 const itemOptions = ref({})
+// The items whose options are still in flight, so a row says so instead of looking single-unit.
+const pendingItems = ref([])
+const optionRequests = new Map()
 // Which line the last change came from, so a refused save reports itself where it happened.
 const failedIndex = ref(null)
 let itemControl = null
@@ -217,10 +239,46 @@ function optionsOf(itemCode) {
 }
 
 function unitOptions(row) {
-  const options = optionsOf(row?.item_code)
-  const units = options?.uoms || []
-  if (row?.uom && !units.includes(row.uom)) return [row.uom, ...units]
+  // The item's convertible units come first and always stay listed: a stored unit the item
+  // cannot convert is appended, so picking a good one never empties the list and locks the row.
+  const units = optionsOf(row?.item_code)?.uoms || []
+  if (row?.uom && !units.includes(row.uom)) return [...units, row.uom]
   return units.length ? units : [row?.uom].filter(Boolean)
+}
+
+function isOptionsLoading(row) {
+  return !!row?.item_code && pendingItems.value.includes(row.item_code)
+}
+
+function isUnitUnknown(row) {
+  const options = optionsOf(row?.item_code)
+  return !!options && !!row?.uom && !options.uoms.includes(row.uom)
+}
+
+function isUnitLocked(row) {
+  // Only a genuinely single-unit item locks. Until the item's options are in hand the list is
+  // unknown, so the control stays open rather than looking broken.
+  return !!optionsOf(row?.item_code) && unitOptions(row).length < 2
+}
+
+function unitLabel(row, unit) {
+  const options = optionsOf(row?.item_code)
+  if (!options || options.uoms.includes(unit)) return unit
+  return `${unit} · ${__("no conversion")}`
+}
+
+function unitTitle(row) {
+  if (isOptionsLoading(row)) return __("Loading units...")
+  const stockUnit = optionsOf(row?.item_code)?.stock_uom
+  if (isUnitUnknown(row)) {
+    return __("{0} does not convert to the stock unit {1}. Pick a listed unit.")
+      .replace("{0}", row.uom)
+      .replace("{1}", stockUnit || "")
+  }
+  if (isUnitLocked(row)) {
+    return __("This item is only stocked in {0}.").replace("{0}", stockUnit || row?.uom || "")
+  }
+  return ""
 }
 
 function batchOptions(row) {
@@ -244,15 +302,29 @@ function loadOptionsForRows() {
 }
 
 async function loadOptions(itemCode) {
-  if (!itemCode || itemOptions.value[itemCode]) return null
-  const resp = await frappe.call({
-    method: "do_derma.api.get_consumable_item_options",
-    args: { item_code: itemCode, owner_doctype: props.ownerDoctype, owner_name: props.ownerName },
-    silent: true,
-  })
-  if (!resp?.message) return null
-  itemOptions.value = { ...itemOptions.value, [itemCode]: resp.message }
-  return resp.message
+  if (!itemCode) return null
+  if (itemOptions.value[itemCode]) return itemOptions.value[itemCode]
+  // The in-flight call is shared rather than skipped, so a second asker waits for the same
+  // answer instead of being told there is none and settling for a blank unit.
+  if (!optionRequests.has(itemCode)) optionRequests.set(itemCode, fetchOptions(itemCode))
+  return optionRequests.get(itemCode)
+}
+
+async function fetchOptions(itemCode) {
+  pendingItems.value = [...pendingItems.value, itemCode]
+  try {
+    const resp = await frappe.call({
+      method: "do_derma.api.get_consumable_item_options",
+      args: { item_code: itemCode, owner_doctype: props.ownerDoctype, owner_name: props.ownerName },
+      silent: true,
+    })
+    if (!resp?.message) return null
+    itemOptions.value = { ...itemOptions.value, [itemCode]: resp.message }
+    return resp.message
+  } finally {
+    pendingItems.value = pendingItems.value.filter((code) => code !== itemCode)
+    optionRequests.delete(itemCode)
+  }
 }
 
 function submit(rows, index = null) {
@@ -396,6 +468,16 @@ async function applyItem(itemCode) {
   text-transform: uppercase;
   background: var(--yellow-100, #fef3c7);
   color: var(--yellow-700, #a16207);
+}
+
+.consumable-flag.broken {
+  background: var(--red-100, #fee2e2);
+  color: var(--red-700, #b91c1c);
+}
+
+.consumable-hint {
+  margin-left: 6px;
+  font-size: 10px;
 }
 
 .consumables-error {

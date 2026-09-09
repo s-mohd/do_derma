@@ -37,10 +37,12 @@
             type="button"
             :class="{ active: stage === photo.stage }"
             :data-test="`photo-stage-${stage.toLowerCase()}`"
+            :disabled="Boolean(busy)"
             @click="$emit('retag', stage)"
           >
             {{ stage }}
           </button>
+          <span v-if="busy === 'retag'" class="chart-spinner" role="status" :aria-label="__('Saving the stage')"></span>
         </div>
         <span v-else class="photo-stage-badge">{{ photo.stage }}</span>
 
@@ -54,9 +56,11 @@
             type="button"
             class="danger small"
             data-test="photo-delete"
+            :disabled="Boolean(busy)"
             @click="$emit('delete')"
           >
-            {{ __("Delete") }}
+            <span v-if="busy === 'delete'" class="chart-spinner" aria-hidden="true"></span>
+            {{ busy === "delete" ? __("Deleting...") : __("Delete") }}
           </button>
         </div>
       </footer>
@@ -74,6 +78,8 @@ const props = defineProps({
   partner: { type: Object, default: null },
   stages: { type: Array, default: () => [] },
   canEdit: { type: Boolean, default: false },
+  // Which photo write is in flight: "upload", "retag", "delete", or empty.
+  busy: { type: String, default: "" },
 })
 
 defineEmits(["close", "retag", "delete", "compare", "swap"])

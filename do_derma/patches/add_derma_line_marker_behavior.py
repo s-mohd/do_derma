@@ -3,16 +3,15 @@ from __future__ import annotations
 import frappe
 
 FIELDNAME = "custom_derma_marker_behavior"
-BEHAVIOR = "freehand"
+BEHAVIOR = "line"
 
 
 def execute():
-	"""Offer "freehand" when configuring a Clinical Procedure Template's marker behaviour.
+	"""Offer "line" when configuring a Clinical Procedure Template's marker behaviour.
 
-	A freehand procedure turns the annotation studio's pen its colour and leaves the stroke as
-	ink. Without the option a clinic cannot select the behaviour from the form at all, because
-	the field is a Select - and marks drawn back when the stroke did become one would fail
-	validation on their next save.
+	A line procedure arms the annotation studio's line tool in its colour and turns the drawn
+	line into one Derma Chart Mark - an incision, a scar, an injection track. Without the option
+	a clinic cannot select the behaviour from the form at all, because the field is a Select.
 	"""
 	if not frappe.db.exists("DocType", "Clinical Procedure Template"):
 		return

@@ -45,7 +45,13 @@ def _as_item(row: dict[str, Any], source: str) -> dict[str, Any]:
 	return {
 		**row,
 		"source": source,
-		"title": row.get("title") or row.get("product_name") or _("Readiness"),
+		# A blocker the practitioner cannot name is a blocker they cannot resolve, so
+		# every fallback here is still an item, never a category.
+		"title": row.get("title")
+		or row.get("product_name")
+		or row.get("product_item")
+		or row.get("identity")
+		or _("Readiness"),
 		"detail": row.get("detail") or row.get("message") or "",
 	}
 

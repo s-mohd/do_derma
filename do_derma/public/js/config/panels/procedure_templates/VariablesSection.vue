@@ -2,6 +2,9 @@
   <section class="config-detail-section" data-test="config-variables-section">
     <h4>{{ __("Variables") }}</h4>
 
+    <!-- How these are captured, which belongs beside them rather than in Requirements. -->
+    <slot />
+
     <p v-if="collision" class="config-status warning" data-test="config-variable-collision">
       {{ __("{0} and {1} both become the fieldname {2}.", [collision.first, collision.second, collision.fieldname]) }}
     </p>

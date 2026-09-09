@@ -24,7 +24,7 @@
   {"default": "0", "fieldname": "sequence", "fieldtype": "Int", "in_list_view": 1, "label": "Sequence"},
   {"default": "0", "fieldname": "disabled", "fieldtype": "Check", "label": "Disabled"},
   {"fieldname": "visual_section", "fieldtype": "Section Break", "label": "Chart Behavior"},
-  {"default": "blue_dot", "fieldname": "marker_behavior", "fieldtype": "Select", "in_list_view": 1, "label": "Marker Behavior", "options": "numbered_dot\nblue_dot\nthree_dots\ntriangle\ntriangle_cluster\nhatch\nfive_lines\nx_mark\ntarget\narea\nfinding_dot\nfreehand"},
+  {"default": "blue_dot", "fieldname": "marker_behavior", "fieldtype": "Select", "in_list_view": 1, "label": "Marker Behavior", "options": "numbered_dot\nblue_dot\nthree_dots\ntriangle\ntriangle_cluster\nhatch\nfive_lines\nx_mark\ntarget\narea\nfinding_dot\nfreehand\nline"},
   {"default": "#2563eb", "fieldname": "marker_color", "fieldtype": "Data", "in_list_view": 1, "label": "Marker Color"},
   {"fieldname": "marker_label", "fieldtype": "Data", "label": "Marker Label"},
   {"fieldname": "default_body_template", "fieldtype": "Link", "label": "Default Body Template", "options": "Derma Body Template"},
