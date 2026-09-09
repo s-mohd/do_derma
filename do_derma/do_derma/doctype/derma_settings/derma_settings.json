@@ -15,8 +15,11 @@
   "enable_billing_sync",
   "voice_section",
   "enable_voice_scribe",
+  "stt_base_url",
   "elevenlabs_api_key",
   "stt_model",
+  "max_recording_minutes",
+  "audio_retention_days",
   "voice_column",
   "llm_base_url",
   "llm_model",
@@ -86,7 +89,7 @@
    "fieldname": "voice_section",
    "fieldtype": "Section Break",
    "label": "Voice AI Scribe",
-   "description": "Records the consultation from the Derma Chart, transcribes it (ElevenLabs Scribe, English/Arabic) and drafts the SOAP note with an OpenAI-compatible model. The doctor reviews before saving."
+   "description": "Records the consultation from the Derma Chart, transcribes it (English/Arabic) and drafts the note and letters with an AI model. The doctor reviews before saving. Provider: SOULVD AI Gateway (one key, metered) or direct provider keys."
   },
   {
    "fieldname": "enable_voice_scribe",
@@ -118,7 +121,7 @@
    "label": "LLM Base URL",
    "default": "https://api.openai.com/v1",
    "depends_on": "enable_voice_scribe",
-   "description": "Any OpenAI-compatible endpoint, e.g. https://api.groq.com/openai/v1"
+   "description": "Any OpenAI-compatible endpoint: https://api.openai.com/v1, https://api.groq.com/openai/v1 or the SOULVD AI Gateway https://gateway.soulvd.com/v1"
   },
   {
    "fieldname": "llm_model",
@@ -132,13 +135,37 @@
    "fieldtype": "Password",
    "label": "LLM API Key",
    "depends_on": "enable_voice_scribe"
+  },
+  {
+   "fieldname": "stt_base_url",
+   "fieldtype": "Data",
+   "label": "Speech-to-Text Base URL",
+   "default": "https://api.elevenlabs.io/v1",
+   "depends_on": "enable_voice_scribe",
+   "description": "ElevenLabs directly, or the SOULVD AI Gateway (https://gateway.soulvd.com/v1) with the SOULVD key in both key fields."
+  },
+  {
+   "fieldname": "max_recording_minutes",
+   "fieldtype": "Int",
+   "label": "Max Recording (minutes)",
+   "default": "20",
+   "depends_on": "enable_voice_scribe",
+   "description": "Recording stops itself at this length."
+  },
+  {
+   "fieldname": "audio_retention_days",
+   "fieldtype": "Int",
+   "label": "Keep Audio (days)",
+   "default": "0",
+   "depends_on": "enable_voice_scribe",
+   "description": "0 keeps recordings forever. Otherwise the nightly job deletes consultation audio older than this; transcripts and notes stay."
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-09 10:30:00",
+ "modified": "2026-09-09 13:00:00",
  "modified_by": "Administrator",
  "module": "Do Derma",
  "name": "Derma Settings",

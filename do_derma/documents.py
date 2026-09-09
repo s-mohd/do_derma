@@ -29,13 +29,14 @@ KINDS: dict[str, dict[str, str]] = {
 	"explainer": {"title": "Patient Explainer Letter", "document_type": "Patient Explainer Letter"},
 }
 
-DOC_COMMON = """You are SOULVD Health, the clinical documentation assistant of DermaOne Medical Centre, a dermatology clinic in the Kingdom of Bahrain.
+DOC_COMMON = """You are SOULVD Health, the clinical documentation assistant of {clinic}, a dermatology clinic in {country}.
 
 GROUNDING RULES (mandatory):
 - Use ONLY the consultation note, patient data, prior-visit summaries and transcript you are given. Never invent findings, medications, doses, dates, results, or history. Where information is missing, omit the line or write "Not documented".
 - Professional, clear English. No markdown other than "## " for the headings named below and "- " for list lines. No tables, no bold, no code fences.
 - Use the clinician name, clinician title and clinic name exactly as passed in for any sign-off.
-- Respond with ONLY a valid JSON object, no commentary: {"text": "..."}"""
+- Also produce text_ar: a faithful Arabic version of the same document (same structure and headings, translated; clinical Arabic as used in {country}; patient-facing letters in warm plain Arabic).
+- Respond with ONLY a valid JSON object, no commentary: {"text": "...", "text_ar": "..."}"""
 
 DOC_PROMPTS: dict[str, str] = {
 	"report": DOC_COMMON
@@ -98,7 +99,10 @@ Warm regards,
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
 # become headings and "- " lines become bullets, everything else a paragraph.
-LETTER_TEMPLATE = """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
+TEMPLATE_VERSION = 2
+TEMPLATE_MARKER = "<!-- derma-ai-letter v"
+LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
+""" + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
   <table style="width:100%;border-bottom:2px solid #1a3a5c;padding-bottom:10px;margin-bottom:22px;"><tr>
     <td style="vertical-align:bottom;">
       <div style="font-size:18px;font-weight:700;color:#1a3a5c;">{{ (company and company.company_name) or (clinic and clinic.custom_clinic_name_en) or '' }}</div>
@@ -124,6 +128,16 @@ LETTER_TEMPLATE = """<div style="font-family:Arial,Helvetica,sans-serif;max-widt
     <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ practitioner.practitioner_name if practitioner else '' }}<br>
       <span style="color:#666;">{{ (practitioner and practitioner.designation) or '' }}</span></div>
   </div>
+  {% if values.body_ar %}
+  <div dir="rtl" style="page-break-before:always;font-size:13px;padding-top:12px;">
+    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title }}</h1>
+    {% for line in values.body_ar.split('\\n') %}
+      {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:16px 0 6px;">{{ line[3:] }}</h2>
+      {% elif line.startswith('- ') %}<div style="padding-right:16px;margin:2px 0;">&bull; {{ line[2:] }}</div>
+      {% elif line.strip() %}<p style="margin:6px 0;">{{ line }}</p>{% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>"""
 
 
@@ -138,12 +152,15 @@ def generate_document(kind: str, encounter: str, addressee: str | None = None) -
 		frappe.throw(_("Not permitted to write documents for this encounter."), frappe.PermissionError)
 
 	context = build_document_context(encounter_doc, addressee)
-	raw = voice.chat_complete(DOC_PROMPTS[kind], build_document_prompt(kind, context))
+	raw, usage = voice.chat_complete_with_usage(voice.fill_clinic(DOC_PROMPTS[kind], encounter_doc.company), build_document_prompt(kind, context))
 	parsed = voice.safe_parse_json(raw)
 	text = cstr((parsed or {}).get("text")).strip()
+	text_ar = cstr((parsed or {}).get("text_ar")).strip()
 	if not text:
+		voice.record_usage("Document", encounter=encounter_doc.name, patient=encounter_doc.patient, status="Failed", error=f"unparseable {kind}", **usage)
 		frappe.log_error(title=f"AI document: unparseable {kind}", message=raw[:4000])
 		frappe.throw(_("The document could not be generated. Please try again."))
+	voice.record_usage("Document", encounter=encounter_doc.name, patient=encounter_doc.patient, **usage)
 
 	doc = frappe.get_doc(
 		{
@@ -155,10 +172,20 @@ def generate_document(kind: str, encounter: str, addressee: str | None = None) -
 			"encounter": encounter_doc.name,
 			"practitioner": encounter_doc.practitioner,
 			"company": encounter_doc.company,
-			"values_json": json.dumps({"title": spec["title"], "body": text, "addressee": cstr(addressee)}),
+			"values_json": json.dumps({"title": spec["title"], "body": text, "body_ar": text_ar, "addressee": cstr(addressee)}),
 		}
 	).insert()
 	return serialize_document(doc)
+
+
+@frappe.whitelist()
+def queue_document(kind: str, encounter: str, addressee: str | None = None) -> dict[str, str]:
+	voice.require_enabled()
+	return voice.enqueue_ai_job("do_derma.documents.document_job", kind=kind, encounter=encounter, addressee=addressee)
+
+
+def document_job(job: str, kind: str, encounter: str, addressee: str | None) -> None:
+	voice.run_ai_job(job, lambda: generate_document(kind, encounter, addressee))
 
 
 @frappe.whitelist()
@@ -195,6 +222,7 @@ def serialize_document(doc) -> dict[str, Any]:
 		"creation": cstr(doc.get("creation")),
 		"title": values.get("title") or doc.get("document_type"),
 		"body": values.get("body") or "",
+		"body_ar": values.get("body_ar") or "",
 		"pdf_url": frappe.db.get_value("File", pdf, "file_url") if pdf else "",
 	}
 
@@ -219,7 +247,7 @@ def build_document_context(encounter_doc, addressee: str | None = None) -> dict[
 		"patient": patient,
 		"doctor": practitioner.get("practitioner_name") or "",
 		"doctor_title": practitioner.get("designation") or "Dermatologist",
-		"clinic": encounter_doc.company or "",
+		"clinic": voice.clinic_context(encounter_doc.company)["clinic"],
 		"visit_date": cstr(encounter_doc.encounter_date),
 		"addressee": cstr(addressee),
 		"diagnosis": current_diagnosis(encounter_doc),
@@ -301,7 +329,13 @@ def ensure_document_templates() -> list[str]:
 	created = []
 	for spec in KINDS.values():
 		title = TEMPLATE_PREFIX + spec["title"]
-		if frappe.db.exists("Patient Print Template", {"title": title}):
+		existing = frappe.db.get_value("Patient Print Template", {"title": title}, ["name", "template_source_code"], as_dict=True)
+		if existing:
+			# Our own older version is upgraded; a clinic-edited template (marker removed) is kept.
+			source = existing.template_source_code or ""
+			if TEMPLATE_MARKER in source and f"{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->" not in source:
+				frappe.db.set_value("Patient Print Template", existing.name, {"template_source_code": LETTER_TEMPLATE, "template_html": LETTER_TEMPLATE})
+				created.append(f"{title} (upgraded)")
 			continue
 		frappe.get_doc(
 			{
@@ -316,6 +350,7 @@ def ensure_document_templates() -> list[str]:
 				"variables": [
 					{"variable_name": "title", "variable_label": "Title", "variable_type": "Data", "is_required": 1},
 					{"variable_name": "body", "variable_label": "Body", "variable_type": "Data", "is_required": 1},
+					{"variable_name": "body_ar", "variable_label": "Body (Arabic)", "variable_type": "Data"},
 					{"variable_name": "addressee", "variable_label": "Addressee", "variable_type": "Data"},
 				],
 			}

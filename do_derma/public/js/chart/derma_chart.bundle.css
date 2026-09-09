@@ -5000,3 +5000,18 @@ li[data-status="Issued"] .ai-doc-status {
   max-height: 320px;
   overflow: auto;
 }
+
+.voice-refine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.voice-refine input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--derma-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--derma-white);
+}

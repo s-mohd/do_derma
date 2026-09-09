@@ -42,6 +42,13 @@
       </small>
     </div>
 
+    <form v-if="hasNote && state !== 'recording'" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
+      <input v-model="instruction" type="text" :placeholder="__('Ask the AI to adjust the note, e.g. add a 2-week follow-up and mention sun protection')" :disabled="refining" />
+      <button type="submit" class="ghost small" :disabled="refining || instruction.trim().length < 3">
+        <span v-if="refining" class="voice-spinner" aria-hidden="true"></span>{{ refining ? __("Adjusting...") : __("Adjust") }}
+      </button>
+    </form>
+
     <div v-if="result" class="voice-result" data-test="voice-result">
       <div class="voice-result-head">
         <b>{{ result.diagnosis || __("No diagnosis suggested") }}</b>
@@ -89,8 +96,28 @@ const __ = window.__ || ((txt) => txt)
 const props = defineProps({
   // {encounter, appointment, patient} - same shape the chart sends to every endpoint
   context: { type: Object, required: true },
+  maxMinutes: { type: Number, default: 20 },
+  hasNote: { type: Boolean, default: false },
 })
-const emit = defineEmits(["fill"])
+const emit = defineEmits(["fill", "refined"])
+
+const instruction = ref("")
+const refining = ref(false)
+
+async function refine() {
+  refining.value = true
+  error.value = ""
+  try {
+    const response = await frappe.call({ method: "do_derma.voice.refine_note", args: { ...props.context, instruction: instruction.value } })
+    emit("refined", response.message)
+    instruction.value = ""
+    window.frappe?.show_alert?.({ message: __("Note adjusted and saved as a draft."), indicator: "green" })
+  } catch (err) {
+    window.frappe?.show_alert?.({ message: String(err?.message || __("The AI could not adjust the note.")).replace(/<[^>]+>/g, ""), indicator: "red" }, 8)
+  } finally {
+    refining.value = false
+  }
+}
 
 const state = ref("idle") // idle | recording | transcribing | generating | ready | failed
 const error = ref("")
@@ -153,6 +180,10 @@ async function startRecording() {
     ticker = setInterval(() => {
       const s = recorder.elapsedSec()
       clock.value = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
+      if (s >= props.maxMinutes * 60) {
+        window.frappe?.show_alert?.({ message: __("Maximum recording length reached; transcribing now."), indicator: "orange" }, 6)
+        stopRecording()
+      }
     }, 500)
     silenceWarned.value = false
     meterTicker = setInterval(() => {
@@ -177,11 +208,8 @@ async function stopRecording() {
     const text = await transcribe(blob)
     if (!text) throw new Error(__("Nothing was heard. Check the microphone and try again."))
     state.value = "generating"
-    const note = await frappe.call({
-      method: "do_derma.voice.generate_note",
-      args: { ...props.context, transcript: text },
-    })
-    result.value = note.message || null
+    const queued = await frappe.call({ method: "do_derma.voice.queue_note", args: { ...props.context, transcript: text } })
+    result.value = await waitForJob(queued.message?.job)
     emit("fill", result.value)
     state.value = "ready"
     attachAudio(blob, result.value?.encounter || props.context.encounter)
@@ -190,9 +218,24 @@ async function stopRecording() {
   }
 }
 
+// The note is written by a background job; poll every 3 s (up to 5 min).
+async function waitForJob(job) {
+  if (!job) throw new Error(__("The note job was not started."))
+  for (let i = 0; i < 100; i++) {
+    const status = await frappe.call({ method: "do_derma.voice.job_status", args: { job } })
+    const m = status.message || {}
+    if (m.status === "done") return m.result
+    if (m.status === "failed") throw new Error(m.error || __("The AI note failed."))
+    if (m.status === "unknown") throw new Error(__("The note job expired."))
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+  throw new Error(__("The AI is taking too long. Try again in a minute."))
+}
+
 async function transcribe(blob) {
   const form = new FormData()
   form.append("audio", blob, `consultation-${Date.now()}.wav`)
+  if (props.context.encounter) form.append("encounter", props.context.encounter)
   const response = await fetch("/api/method/do_derma.voice.transcribe", {
     method: "POST",
     headers: { "X-Frappe-CSRF-Token": window.frappe?.csrf_token || "", Accept: "application/json" },

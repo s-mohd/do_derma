@@ -81,7 +81,8 @@ class TestGenerateNote(DermaTestHelpers, IntegrationTestCase):
 		with self._enabled(), patch.object(voice.requests, "post", return_value=fake) as post:
 			out = voice.generate_note(transcript, encounter=self.encounter.name)
 		sent = post.call_args.kwargs["json"]
-		self.assertEqual(sent["messages"][0]["content"], voice.NOTE_SYSTEM_PROMPT)
+		self.assertEqual(sent["messages"][0]["content"], voice.note_system_prompt(self.encounter.company))
+		self.assertNotIn("{clinic}", sent["messages"][0]["content"])
 		self.assertIn(transcript, sent["messages"][1]["content"])
 		self.assertEqual(out["encounter"], self.encounter.name)
 		self.assertEqual(out["values"][SOAP_FIELDS[0]], NOTE["subjective"])

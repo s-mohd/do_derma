@@ -64,7 +64,9 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 	def test_generate_creates_a_draft_official_document(self):
 		with self._enabled(), self._llm(REPORT) as post:
 			out = documents.generate_document("report", self.encounter.name)
-		self.assertEqual(post.call_args.kwargs["json"]["messages"][0]["content"], documents.DOC_PROMPTS["report"])
+		system = post.call_args.kwargs["json"]["messages"][0]["content"]
+		self.assertNotIn("{clinic}", system)
+		self.assertIn("Medical Report", system)
 		doc = frappe.get_doc("Patient Official Document", out["name"])
 		self.assertEqual(doc.document_type, "Medical Report")
 		self.assertEqual(doc.status, "Draft")

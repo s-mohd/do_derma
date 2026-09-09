@@ -40,6 +40,10 @@
           <summary>{{ __("Preview text") }}</summary>
           <pre>{{ doc.body }}</pre>
         </details>
+        <details v-if="doc.body_ar">
+          <summary>{{ __("Arabic version") }}</summary>
+          <pre dir="rtl">{{ doc.body_ar }}</pre>
+        </details>
       </li>
     </ul>
   </section>
@@ -84,17 +88,28 @@ async function generate(kind) {
   busy.value = kind
   error.value = ""
   try {
-    const response = await frappe.call({
-      method: "do_derma.documents.generate_document",
-      args: { kind, encounter: props.encounter, addressee },
-    })
-    documents.value = [response.message, ...documents.value]
+    const queued = await frappe.call({ method: "do_derma.documents.queue_document", args: { kind, encounter: props.encounter, addressee } })
+    const doc = await waitForJob(queued.message?.job)
+    documents.value = [doc, ...documents.value]
     frappe.show_alert({ message: __("Draft ready. Review it, then Issue."), indicator: "green" })
   } catch (err) {
     error.value = err?.message || __("The document could not be generated.")
   } finally {
     busy.value = ""
   }
+}
+
+async function waitForJob(job) {
+  if (!job) throw new Error(__("The document job was not started."))
+  for (let i = 0; i < 100; i++) {
+    const status = await frappe.call({ method: "do_derma.voice.job_status", args: { job } })
+    const m = status.message || {}
+    if (m.status === "done") return m.result
+    if (m.status === "failed") throw new Error(m.error || __("The document failed."))
+    if (m.status === "unknown") throw new Error(__("The document job expired."))
+    await new Promise((r) => setTimeout(r, 3000))
+  }
+  throw new Error(__("The AI is taking too long. Try again in a minute."))
 }
 
 function askAddressee() {

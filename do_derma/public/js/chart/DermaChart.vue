@@ -97,7 +97,10 @@
                 <VoiceScribe
                   v-if="data.voice_scribe_enabled && assessmentPanel.encounter && !assessmentModeLocked"
                   :context="contextArgs()"
+                  :max-minutes="data.voice_scribe?.max_recording_minutes || 20"
+                  :has-note="assessmentPanel.isFilled"
                   @fill="applyVoiceNote"
+                  @refined="applyRefinedNote"
                 />
                 <AssessmentPanel
                   :mode="assessmentPanel.mode"
@@ -1700,6 +1703,11 @@ async function saveAssessment({ payload, mode }) {
 
 // The voice scribe drafts SOAP values; the doctor edits and saves them through the
 // normal panel. Unsaved typing in the panel is replaced by the draft on purpose.
+function applyRefinedNote(message) {
+  applyAssessmentResponse(message || {})
+  assessmentPanel.editing = true
+}
+
 // The voice draft is saved straight onto the encounter (still a draft, still editable)
 // so a closed tab never loses a dictation; the panel reopens in edit mode for review.
 async function applyVoiceNote(note) {
