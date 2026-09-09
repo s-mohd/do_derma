@@ -251,8 +251,8 @@ def transcribe_bytes(data: bytes, filename: str = "audio.wav") -> str:
 		try:
 			response = requests.post(
 				f"{cstr(_setting('stt_base_url', DEFAULT_STT_BASE_URL)).rstrip('/')}/speech-to-text",
-				# ElevenLabs reads xi-api-key; the SOULVD gateway accepts either header.
-				headers={"xi-api-key": key, "Authorization": f"Bearer {key}"},
+				# ElevenLabs rejects a second auth header; the SOULVD gateway accepts xi-api-key too.
+				headers={"xi-api-key": key},
 				# language unset - Scribe auto-detects and handles Arabic/English code-switching
 				data={"model_id": model, "tag_audio_events": "false"},
 				files={"file": (filename, data, "audio/wav")},
