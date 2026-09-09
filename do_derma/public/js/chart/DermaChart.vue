@@ -1700,17 +1700,17 @@ async function saveAssessment({ payload, mode }) {
 
 // The voice scribe drafts SOAP values; the doctor edits and saves them through the
 // normal panel. Unsaved typing in the panel is replaced by the draft on purpose.
+// The voice draft is saved straight onto the encounter (still a draft, still editable)
+// so a closed tab never loses a dictation; the panel reopens in edit mode for review.
 async function applyVoiceNote(note) {
   if (!note?.values) return
   // H&P stays H&P; Structured has no free-text home for a dictation, so it becomes SOAP.
   if (assessmentPanel.mode !== "SOAP" && assessmentPanel.mode !== "HP") await setAssessmentMode("SOAP")
-  if (assessmentPanel.mode === "HP") {
-    assessmentPanel.hpValues = { ...assessmentPanel.hpValues, ...(note.hp_values || {}) }
-  } else {
-    assessmentPanel.soapValues = { ...assessmentPanel.soapValues, ...note.values }
-  }
+  const mode = assessmentPanel.mode
+  const payload = mode === "HP" ? note.hp_values || {} : note.values
+  await saveAssessment({ payload, mode })
   assessmentPanel.editing = true
-  frappe.show_alert({ message: __("Voice note drafted. Review and save."), indicator: "blue" })
+  frappe.show_alert({ message: __("Voice note saved as a draft. Review and edit below."), indicator: "blue" })
 }
 
 // Only the active tab offers the switch: an inactive Assessment tab keeps its
