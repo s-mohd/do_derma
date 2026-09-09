@@ -20,10 +20,10 @@
 
     <template v-else>
       <SoapNoteFields
-        v-if="mode === SOAP"
+        v-if="mode === SOAP || mode === HP"
         ref="fieldsRef"
-        :layout="soapLayout"
-        :values="soapValues"
+        :layout="mode === SOAP ? soapLayout : hpLayout"
+        :values="mode === SOAP ? soapValues : hpValues"
         :edit-mode="editMode"
         :docstatus="docstatus"
         :allow-on-submit-fields="allowOnSubmitFields"
@@ -80,8 +80,9 @@ import StructuredAssessmentFields from "./StructuredAssessmentFields.vue"
 const __ = window.__ || ((txt) => txt)
 
 const SOAP = "SOAP"
+const HP = "HP"
 const STRUCTURED = "Structured"
-const MODE_LABELS = { SOAP: "SOAP Note", Structured: "Structured Assessment" }
+const MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
 
 const props = defineProps({
   mode: { type: String, default: STRUCTURED },
@@ -90,6 +91,8 @@ const props = defineProps({
   values: { type: Object, default: () => ({}) },
   soapLayout: { type: Array, default: () => [] },
   soapValues: { type: Object, default: () => ({}) },
+  hpLayout: { type: Array, default: () => [] },
+  hpValues: { type: Object, default: () => ({}) },
   contextValues: { type: Object, default: () => ({}) },
   loading: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
@@ -105,7 +108,12 @@ const emit = defineEmits(["request-edit", "save"])
 const fieldsRef = ref(null)
 const isDirty = ref(false)
 
-const otherMode = computed(() => (props.mode === SOAP ? STRUCTURED : SOAP))
+const valuesByMode = computed(() => ({ [STRUCTURED]: props.values, [SOAP]: props.soapValues, [HP]: props.hpValues }))
+const otherModesWithContent = computed(() =>
+  Object.entries(valuesByMode.value)
+    .filter(([mode, source]) => mode !== props.mode && Object.values(source || {}).some(hasContent))
+    .map(([mode]) => mode)
+)
 const isSubmitted = computed(() => Number(props.docstatus ?? 0) === 1)
 
 const canEdit = computed(() => {
@@ -116,13 +124,13 @@ const canEdit = computed(() => {
   return false
 })
 
-const inactiveModeHasContent = computed(() => {
-  const source = props.mode === SOAP ? props.values : props.soapValues
-  return Object.values(source || {}).some(hasContent)
-})
+const inactiveModeHasContent = computed(() => otherModesWithContent.value.length > 0)
 
 const otherFormatNote = computed(() =>
-  __("This visit also has content saved as {0}.").replace("{0}", __(MODE_LABELS[otherMode.value]))
+  __("This visit also has content saved as {0}.").replace(
+    "{0}",
+    otherModesWithContent.value.map((mode) => __(MODE_LABELS[mode])).join(", ")
+  )
 )
 
 const submittedNote = computed(() => {

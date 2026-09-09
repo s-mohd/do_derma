@@ -15,7 +15,7 @@ from frappe import _
 from do_derma.config.marker_size import MARKER_SIZE_FIELD
 
 DERMA_MODULE = "Do Derma"
-ASSESSMENT_MODE_OPTIONS = "\nStructured\nSOAP"
+ASSESSMENT_MODE_OPTIONS = "\nStructured\nSOAP\nHP"
 # `freehand` and `line` are last because their patches appended them there.
 MARKER_BEHAVIOR_OPTIONS = "\n".join(
 	[
@@ -35,8 +35,13 @@ MARKER_BEHAVIOR_OPTIONS = "\n".join(
 	]
 )
 SOAP_ONLY = "eval:doc.custom_derma_assessment_mode=='SOAP'"
+HP_ONLY = "eval:doc.custom_derma_assessment_mode=='HP'"
 # Written when a clinic set to Block completes a session past its readiness blockers.
 COMPLETION_OVERRIDE_FIELD = "custom_derma_completion_override_reason"
+# Raw transcript from the voice scribe, kept for audit next to the SOAP fields.
+VOICE_TRANSCRIPT_FIELD = "custom_derma_voice_transcript"
+MODE_FIELD = "custom_derma_assessment_mode"
+PRACTITIONER_DEFAULT_FIELD = "custom_derma_default_assessment_mode"
 
 DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 	"Patient Encounter": [
@@ -85,13 +90,65 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"depends_on": SOAP_ONLY,
 		},
 		{
+			"fieldname": "custom_derma_hp_chief_complaint",
+			"fieldtype": "Small Text",
+			"label": "Chief Complaint",
+			"insert_after": "custom_derma_soap_plan",
+			"depends_on": HP_ONLY,
+		},
+		{
+			"fieldname": "custom_derma_hp_history",
+			"fieldtype": "Small Text",
+			"label": "History of Presenting Complaint",
+			"insert_after": "custom_derma_hp_chief_complaint",
+			"depends_on": HP_ONLY,
+		},
+		{
+			"fieldname": "custom_derma_hp_past_history",
+			"fieldtype": "Small Text",
+			"label": "Past Medical History",
+			"insert_after": "custom_derma_hp_history",
+			"depends_on": HP_ONLY,
+		},
+		{
+			"fieldname": "custom_derma_hp_examination",
+			"fieldtype": "Small Text",
+			"label": "Examination Findings",
+			"insert_after": "custom_derma_hp_past_history",
+			"depends_on": HP_ONLY,
+		},
+		{
+			"fieldname": "custom_derma_hp_assessment",
+			"fieldtype": "Small Text",
+			"label": "Assessment",
+			"insert_after": "custom_derma_hp_examination",
+			"depends_on": HP_ONLY,
+		},
+		{
+			"fieldname": "custom_derma_hp_plan",
+			"fieldtype": "Small Text",
+			"label": "Management Plan",
+			"insert_after": "custom_derma_hp_assessment",
+			"depends_on": HP_ONLY,
+		},
+		{
 			"fieldname": COMPLETION_OVERRIDE_FIELD,
 			"fieldtype": "Small Text",
 			"label": "Completion Override Reason",
-			"insert_after": "custom_derma_soap_plan",
+			"insert_after": "custom_derma_hp_plan",
 			"read_only": 1,
 			"no_copy": 1,
 			"description": "Why this session was completed with readiness blockers unresolved.",
+		},
+		{
+			"fieldname": VOICE_TRANSCRIPT_FIELD,
+			"fieldtype": "Long Text",
+			"label": "Voice Transcript",
+			"insert_after": COMPLETION_OVERRIDE_FIELD,
+			"read_only": 1,
+			"no_copy": 1,
+			"hidden": 1,
+			"description": "Raw speech-to-text of the recorded consultation, kept for audit.",
 		},
 	],
 	# do_health owns this child table; do_derma adds the column that carries the badge legend
@@ -320,6 +377,7 @@ DERMA_PROPERTY_SETTERS: list[dict[str, Any]] = [
 def ensure_derma_schema() -> dict[str, list[str]]:
 	"""Create every missing custom field and property setter. Returns what was created."""
 	created: dict[str, list[str]] = {}
+	ensure_mode_options()
 	_ensure_property_setters()
 	for doctype, specs in DERMA_CUSTOM_FIELDS.items():
 		if not frappe.db.exists("DocType", doctype):
@@ -342,6 +400,18 @@ def ensure_derma_schema() -> dict[str, list[str]]:
 				continue
 			created.setdefault(doctype, []).append(fieldname)
 	return created
+
+
+def ensure_mode_options() -> None:
+	"""Existing sites keep their fields untouched, except the mode Select must learn new modes."""
+	for doctype, fieldname in (("Patient Encounter", MODE_FIELD), ("Healthcare Practitioner", PRACTITIONER_DEFAULT_FIELD)):
+		name = frappe.db.get_value("Custom Field", {"dt": doctype, "fieldname": fieldname}, "name")
+		if not name:
+			continue
+		options = frappe.db.get_value("Custom Field", name, "options") or ""
+		if options != ASSESSMENT_MODE_OPTIONS:
+			frappe.db.set_value("Custom Field", name, "options", ASSESSMENT_MODE_OPTIONS, update_modified=False)
+			frappe.clear_cache(doctype=doctype)
 
 
 def _ensure_property_setters() -> None:

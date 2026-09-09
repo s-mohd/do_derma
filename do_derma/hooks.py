@@ -53,3 +53,7 @@ jinja = {
 # Runs on every migrate, bypassing Patch Log, so a site whose patches are recorded
 # as applied but whose fields are missing converges anyway. Idempotent.
 after_migrate = "do_derma.install.after_migrate"
+
+scheduler_events = {
+	"daily": ["do_derma.voice.purge_old_audio"],
+}
