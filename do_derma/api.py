@@ -2186,6 +2186,7 @@ def get_patient_derma_chart(
 
 	return {
 		**context,
+		"voice_scribe_enabled": voice.is_enabled(),
 		"procedure_templates": section("procedure templates", [], _get_derma_procedure_templates),
 		"procedures": procedures,
 		"annotations": annotation_context["annotations"],

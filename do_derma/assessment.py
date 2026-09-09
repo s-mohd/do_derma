@@ -1,6 +1,6 @@
 """Assessment Mode resolution, layout and serialisation for the derma chart.
 
-Owns everything about how a visit is documented: which of the two Assessment Modes
+Owns everything about how a visit is documented: which of the three Assessment Modes
 an encounter is written in, the field layout each mode renders, and the rules that
 stamp a mode without ever discarding the other mode's content.
 """
@@ -15,7 +15,9 @@ from do_derma.settings import SETTINGS_DOCTYPE, get_settings_doc
 
 STRUCTURED = "Structured"
 SOAP = "SOAP"
-ASSESSMENT_MODES = (STRUCTURED, SOAP)
+HP = "HP"
+ASSESSMENT_MODES = (STRUCTURED, SOAP, HP)
+MODE_LABELS = {STRUCTURED: "Structured Assessment", SOAP: "SOAP Note", HP: "History & Physical"}
 
 MODE_FIELD = "custom_derma_assessment_mode"
 PRACTITIONER_DEFAULT_FIELD = "custom_derma_default_assessment_mode"
@@ -26,6 +28,16 @@ SOAP_FIELDS = (
 	"custom_derma_soap_assessment",
 	"custom_derma_soap_plan",
 )
+HP_FIELDS = (
+	"custom_derma_hp_chief_complaint",
+	"custom_derma_hp_history",
+	"custom_derma_hp_past_history",
+	"custom_derma_hp_examination",
+	"custom_derma_hp_assessment",
+	"custom_derma_hp_plan",
+)
+# Free-text modes: fixed custom fields, rendered as one textarea per field.
+MODE_FIELDS = {SOAP: SOAP_FIELDS, HP: HP_FIELDS}
 
 # The Structured Assessment defaults. Seeded into Derma Settings once; a clinic
 # that edits the list keeps its edit across migrates.
@@ -74,15 +86,25 @@ def has_field(doctype: str, fieldname: str) -> bool:
 		return False
 
 
-def soap_is_supported() -> bool:
-	"""SOAP needs its five custom fields; a site that has not migrated lacks them."""
+def mode_is_supported(mode: str) -> bool:
+	"""A free-text mode needs its custom fields; a site that has not migrated lacks them."""
+	if mode == STRUCTURED:
+		return True
 	if not has_field("Patient Encounter", MODE_FIELD):
 		return False
-	return all(has_field("Patient Encounter", fieldname) for fieldname in SOAP_FIELDS)
+	return all(has_field("Patient Encounter", fieldname) for fieldname in MODE_FIELDS.get(mode, ()))
+
+
+def soap_is_supported() -> bool:
+	return mode_is_supported(SOAP)
+
+
+def hp_is_supported() -> bool:
+	return mode_is_supported(HP)
 
 
 def available_modes() -> list[str]:
-	return list(ASSESSMENT_MODES) if soap_is_supported() else [STRUCTURED]
+	return [mode for mode in ASSESSMENT_MODES if mode_is_supported(mode)]
 
 
 def get_structured_fieldnames() -> list[str]:
@@ -104,15 +126,24 @@ def get_structured_layout() -> list[dict[str, Any]]:
 	return layout
 
 
-def get_soap_layout() -> list[dict[str, Any]]:
-	if not soap_is_supported():
+def get_mode_layout(mode: str) -> list[dict[str, Any]]:
+	"""Fixed-field layout for SOAP or H&P; empty when the site lacks the fields."""
+	if not mode_is_supported(mode):
 		return []
 	meta = frappe.get_meta("Patient Encounter")
-	return [_layout_row(meta.get_field(fieldname)) for fieldname in SOAP_FIELDS if meta.get_field(fieldname)]
+	return [_layout_row(meta.get_field(fieldname)) for fieldname in MODE_FIELDS[mode] if meta.get_field(fieldname)]
+
+
+def get_soap_layout() -> list[dict[str, Any]]:
+	return get_mode_layout(SOAP)
+
+
+def get_hp_layout() -> list[dict[str, Any]]:
+	return get_mode_layout(HP)
 
 
 def get_layout(mode: str) -> list[dict[str, Any]]:
-	return get_soap_layout() if mode == SOAP else get_structured_layout()
+	return get_mode_layout(mode) if mode in MODE_FIELDS else get_structured_layout()
 
 
 def get_assessment_mode(encounter_doc) -> str:
@@ -156,20 +187,25 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 	mode = get_assessment_mode(encounter_doc)
 	structured_layout = get_structured_layout()
 	soap_layout = get_soap_layout()
+	hp_layout = get_hp_layout()
 	values = serialize_values(encounter_doc, structured_layout)
 	soap_values = serialize_values(encounter_doc, soap_layout)
+	hp_values = serialize_values(encounter_doc, hp_layout)
 	return {
 		"encounter": encounter_doc.name,
 		"docstatus": cint(encounter_doc.docstatus),
 		"mode": mode,
 		"is_stamped": bool(_stamped_mode(encounter_doc)),
-		"is_filled": any(_has_content(value) for value in [*values.values(), *soap_values.values()]),
+		"is_filled": any(_has_content(value) for value in [*values.values(), *soap_values.values(), *hp_values.values()]),
 		"available_modes": available_modes(),
 		"soap_supported": soap_is_supported(),
+		"hp_supported": hp_is_supported(),
 		"layout": structured_layout,
 		"values": values,
 		"soap_layout": soap_layout,
 		"soap_values": soap_values,
+		"hp_layout": hp_layout,
+		"hp_values": hp_values,
 		"context_values": {
 			"patient": encounter_doc.get("patient"),
 			"appointment": encounter_doc.get("appointment"),
@@ -188,10 +224,13 @@ def empty_assessment() -> dict[str, Any]:
 		"is_filled": False,
 		"available_modes": available_modes(),
 		"soap_supported": soap_is_supported(),
+		"hp_supported": hp_is_supported(),
 		"layout": structured_layout,
 		"values": {},
 		"soap_layout": get_soap_layout(),
 		"soap_values": {},
+		"hp_layout": get_hp_layout(),
+		"hp_values": {},
 		"context_values": {},
 	}
 
@@ -243,8 +282,8 @@ def stamp_mode(encounter_doc, mode: str) -> None:
 	target_mode = normalize_mode(mode)
 	if not target_mode:
 		frappe.throw(_("{0} is not a valid Assessment Mode.").format(mode), frappe.ValidationError)
-	if target_mode == SOAP and not soap_is_supported():
-		frappe.throw(_("SOAP Note fields are not installed on this site."))
+	if not mode_is_supported(target_mode):
+		frappe.throw(_("{0} fields are not installed on this site.").format(MODE_LABELS[target_mode]))
 	if cint(encounter_doc.docstatus) != 0:
 		frappe.throw(_("The documentation format can only be changed while the encounter is a draft."))
 	if not has_field("Patient Encounter", MODE_FIELD):

@@ -1,5 +1,10 @@
 export const SAMPLE_RATE = 16000
 const DEVICE_KEY = "derma_voice_mic"
+// Below this RMS the buffer counts as silence (room noise on a laptop mic is ~0.003).
+export const HEARD_RMS = 0.012
+// A good speaking level; above LOUD the signal is near clipping - mic too close.
+export const GOOD_RMS = 0.03
+export const LOUD_PEAK = 0.9
 
 export function encodeWAV(samples, sampleRate) {
   const buffer = new ArrayBuffer(44 + samples.length * 2)
@@ -77,6 +82,9 @@ export function createVoiceRecorder() {
   let chunks = []
   let inputRate = SAMPLE_RATE
   let startedAt = 0
+  let level = 0 // RMS of the latest buffer, 0..1
+  let peak = 0
+  let lastHeardAt = 0
 
   async function start(deviceId = rememberedDeviceId()) {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone access is not available in this browser.")
@@ -92,11 +100,28 @@ export function createVoiceRecorder() {
     processor = context.createScriptProcessor(4096, 1, 1)
     chunks = []
     processor.onaudioprocess = (event) => {
-      chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)))
+      const samples = event.inputBuffer.getChannelData(0)
+      chunks.push(new Float32Array(samples))
+      measure(samples)
     }
     source.connect(processor)
     processor.connect(context.destination)
-    startedAt = Date.now()
+    startedAt = lastHeardAt = Date.now()
+    level = peak = 0
+  }
+
+  function measure(samples) {
+    let sum = 0
+    let max = 0
+    for (let i = 0; i < samples.length; i++) {
+      const v = samples[i]
+      sum += v * v
+      if (v > max) max = v
+      else if (-v > max) max = -v
+    }
+    level = Math.sqrt(sum / samples.length)
+    peak = max
+    if (level > HEARD_RMS) lastHeardAt = Date.now()
   }
 
   async function stop() {
@@ -129,5 +154,10 @@ export function createVoiceRecorder() {
     return startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   }
 
-  return { start, stop, cancel: cleanup, elapsedSec }
+  // Snapshot for the meter: level/peak now, and how long since speech was last heard.
+  function meter() {
+    return { level, peak, silentSec: lastHeardAt ? (Date.now() - lastHeardAt) / 1000 : 0 }
+  }
+
+  return { start, stop, cancel: cleanup, elapsedSec, meter }
 }

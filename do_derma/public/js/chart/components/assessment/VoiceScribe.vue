@@ -22,13 +22,20 @@
         <span class="voice-spinner" aria-hidden="true"></span>
         {{ state === "transcribing" ? __("Transcribing...") : __("Writing note...") }}
       </button>
+      <div v-if="state === 'recording'" class="voice-meter" :data-zone="meterZone" data-test="voice-meter" :title="meterHint">
+        <span v-for="n in METER_BARS" :key="n" class="voice-bar" :class="{ on: n <= litBars }"></span>
+        <em>{{ meterHint }}</em>
+      </div>
 
       <select v-if="microphones.length > 1 && state !== 'recording'" v-model="deviceId" class="voice-mic" :title="__('Microphone')" data-test="voice-mic">
         <option v-for="mic in microphones" :key="mic.deviceId" :value="mic.deviceId">{{ mic.label || __("Microphone") }}</option>
       </select>
 
       <small class="voice-hint">
-        <template v-if="state === 'idle'">{{ __("Record the visit (English / Arabic); the AI drafts the SOAP note for you to review.") }}</template>
+        <template v-if="state === 'idle'">{{ __("Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.") }}</template>
+        <template v-else-if="state === 'recording' && silenceWarning">
+          <span class="voice-warning" data-test="voice-silence">{{ silenceWarning }}</span>
+        </template>
         <template v-else-if="state === 'recording'">{{ __("Recording. Speak naturally; press Stop when the visit ends.") }}</template>
         <template v-else-if="state === 'ready'">{{ __("Draft filled below. Edit anything, then Save.") }}</template>
         <template v-else-if="state === 'failed'">{{ error }}</template>
@@ -62,8 +69,20 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from "vue"
-import { createVoiceRecorder, listMicrophones, rememberDeviceId, rememberedDeviceId } from "../../voice/voice_recorder.js"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import {
+  GOOD_RMS,
+  HEARD_RMS,
+  LOUD_PEAK,
+  createVoiceRecorder,
+  listMicrophones,
+  rememberDeviceId,
+  rememberedDeviceId,
+} from "../../voice/voice_recorder.js"
+
+const METER_BARS = 12
+// Seconds of silence before the doctor is told the mic is not picking anything up.
+const SILENCE_WARN_SEC = 6
 
 const __ = window.__ || ((txt) => txt)
 
@@ -80,8 +99,35 @@ const clock = ref("0:00")
 const microphones = ref([])
 const deviceId = ref(rememberedDeviceId())
 
+const meter = ref({ level: 0, peak: 0, silentSec: 0 })
+const silenceWarned = ref(false)
+
 const recorder = createVoiceRecorder()
 let ticker = null
+let meterTicker = null
+
+const litBars = computed(() => Math.min(METER_BARS, Math.round((meter.value.level / (GOOD_RMS * 2)) * METER_BARS)))
+const meterZone = computed(() => {
+  const { level, peak } = meter.value
+  if (peak >= LOUD_PEAK) return "loud"
+  if (level < HEARD_RMS) return "quiet"
+  if (level < GOOD_RMS) return "low"
+  return "good"
+})
+const meterHint = computed(
+  () =>
+    ({
+      quiet: __("No sound"),
+      low: __("Low - bring the mic closer"),
+      good: __("Good level"),
+      loud: __("Too loud - move the mic away"),
+    })[meterZone.value]
+)
+const silenceWarning = computed(() =>
+  meter.value.silentSec >= SILENCE_WARN_SEC
+    ? __("Nothing has been heard for {0} s. Bring the mic closer or check the selected microphone.").replace("{0}", Math.floor(meter.value.silentSec))
+    : ""
+)
 
 onMounted(async () => {
   try {
@@ -93,6 +139,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearInterval(ticker)
+  clearInterval(meterTicker)
   recorder.cancel()
 })
 
@@ -107,6 +154,14 @@ async function startRecording() {
       const s = recorder.elapsedSec()
       clock.value = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
     }, 500)
+    silenceWarned.value = false
+    meterTicker = setInterval(() => {
+      meter.value = recorder.meter()
+      if (meter.value.silentSec >= SILENCE_WARN_SEC && !silenceWarned.value) {
+        silenceWarned.value = true
+        window.frappe?.show_alert?.({ message: __("The microphone is not picking up any voice."), indicator: "orange" }, 6)
+      }
+    }, 120)
   } catch (err) {
     fail(err?.message || __("Microphone permission was refused."))
   }
@@ -114,6 +169,7 @@ async function startRecording() {
 
 async function stopRecording() {
   clearInterval(ticker)
+  clearInterval(meterTicker)
   state.value = "transcribing"
   let blob
   try {
@@ -175,6 +231,7 @@ function serverMessage(data) {
 
 function fail(message) {
   clearInterval(ticker)
+  clearInterval(meterTicker)
   recorder.cancel()
   error.value = String(message).replace(/<[^>]+>/g, "")
   state.value = "failed"

@@ -3,6 +3,7 @@
 import frappe
 
 from do_derma.assessment import ensure_derma_settings_defaults
+from do_derma.documents import ensure_document_templates
 from do_derma.printing.inject import ensure_derma_blocks_in_print_formats
 from do_derma.schema import ensure_derma_schema
 from do_derma.settings import ensure_readiness_defaults
@@ -25,3 +26,7 @@ def after_migrate() -> None:
 		ensure_derma_blocks_in_print_formats()
 	except Exception:
 		frappe.log_error(title="Derma print formats", message=frappe.get_traceback())
+	try:
+		ensure_document_templates()
+	except Exception:
+		frappe.log_error(title="Derma AI document templates", message=frappe.get_traceback())

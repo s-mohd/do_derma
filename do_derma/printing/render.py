@@ -20,6 +20,7 @@ from do_derma.consumables import encounter as encounter_consumables
 # the Structured list gets it rendered, not escaped.
 MARK_SAFE_FIELDTYPES = {"Text Editor", "HTML Editor", "Markdown Editor"}
 FORMATTED_FIELDTYPES = {"Date", "Datetime", "Time", "Currency", "Float", "Int", "Percent"}
+MODE_HEADINGS = {assessment.SOAP: "SOAP", assessment.HP: "H&P"}
 
 
 def derma_assessment_html(doc) -> Markup:
@@ -27,10 +28,13 @@ def derma_assessment_html(doc) -> Markup:
 	try:
 		encounter = doc if hasattr(doc, "get") else frappe.get_doc("Patient Encounter", doc)
 		mode = assessment.get_assessment_mode(encounter)
-		block = render_mode(encounter, mode)
 		# A legacy encounter resolves to a mode it holds no content in. Never print a blank
-		# heading over real clinical content written in the other mode.
-		return block or render_mode(encounter, other_mode(mode))
+		# heading over real clinical content written in another mode.
+		for candidate in (mode, *other_modes(mode)):
+			block = render_mode(encounter, candidate)
+			if block:
+				return block
+		return Markup("")
 	except Exception:
 		# A raise here 500s the printview for every encounter, including ones with no derma
 		# content at all. Degrade to nothing printed, loudly logged.
@@ -96,14 +100,14 @@ def render_mode(encounter, mode: str) -> Markup:
 	if not filled:
 		return Markup("")
 
-	heading = _("Assessment (SOAP)") if mode == assessment.SOAP else _("Assessment")
+	heading = _("Assessment ({0})").format(MODE_HEADINGS[mode]) if mode in MODE_HEADINGS else _("Assessment")
 	paragraphs = [
 		Markup("<p><b>{label}:</b> ").format(label=row.get("label") or row["fieldname"])
 		+ text
 		+ Markup("</p>")
 		for row, text in filled
 	]
-	css_class = "derma-soap" if mode == assessment.SOAP else "derma-structured"
+	css_class = {assessment.SOAP: "derma-soap", assessment.HP: "derma-hp"}.get(mode, "derma-structured")
 	return (
 		Markup('<div class="{css_class}"><h5>{heading}</h5>').format(css_class=css_class, heading=heading)
 		+ Markup("").join(paragraphs)
@@ -111,8 +115,8 @@ def render_mode(encounter, mode: str) -> Markup:
 	)
 
 
-def other_mode(mode: str) -> str:
-	return assessment.STRUCTURED if mode == assessment.SOAP else assessment.SOAP
+def other_modes(mode: str) -> tuple[str, ...]:
+	return tuple(candidate for candidate in assessment.ASSESSMENT_MODES if candidate != mode)
 
 
 def format_field(row: dict[str, Any], value: Any) -> Markup:

@@ -25,7 +25,7 @@ import requests
 from frappe import _
 from frappe.utils import cint, cstr, getdate, date_diff, nowdate
 
-from do_derma.assessment import SOAP_FIELDS
+from do_derma.assessment import HP_FIELDS, SOAP_FIELDS
 from do_derma.schema import VOICE_TRANSCRIPT_FIELD as TRANSCRIPT_FIELD
 from do_derma.settings import get_settings_doc
 
@@ -40,6 +40,7 @@ MAX_TOKENS = 5000
 PASSWORD_FIELDS = {"elevenlabs_api_key", "llm_api_key"}
 
 SUBJECTIVE, OBJECTIVE, ASSESSMENT, PLAN = SOAP_FIELDS
+HP_KEYS = ("chief_complaint", "history_of_presenting_complaint", "past_medical_history", "examination_findings", "hp_assessment", "management_plan")
 
 NOTE_SYSTEM_PROMPT = """You are SOULVD Health, an expert dermatology medical scribe assistant working for DermaOne Medical Centre, a dermatology clinic in the Kingdom of Bahrain.
 
@@ -54,11 +55,9 @@ DERMATOLOGY EXPERTISE you must apply:
 RULES:
 1. Base the note ONLY on what is actually said in the transcript plus the context given. Never invent findings, vitals, or lab results. If something was not mentioned, omit it rather than fabricate.
 2. Use professional medical English. Expand colloquialisms ("heat rash" -> possible miliaria, "blood pressure pill" -> antihypertensive).
-3. Write four separate plain-text sections (no markdown headers, short paragraphs or "- " bullets):
-   - subjective: chief complaint, history of present illness, medications & allergies, relevant review.
-   - objective: examination findings as stated (site, morphology, distribution, size, dermoscopy).
-   - assessment: working diagnosis and differential, with reasoning.
-   - plan: treatments, investigations, patient education, follow-up.
+3. Write the visit twice, as plain-text sections (no markdown headers, short paragraphs or "- " bullets):
+   SOAP - subjective: chief complaint, history of present illness, medications & allergies, relevant review. objective: examination findings as stated (site, morphology, distribution, size, dermoscopy). assessment: working diagnosis and differential, with reasoning. plan: treatments, investigations, patient education, follow-up.
+   H&P - chief_complaint, history_of_presenting_complaint, past_medical_history, examination_findings, hp_assessment, management_plan. Every H&P section must be present; write "Not discussed." where the transcript truly has nothing for it.
 4. diagnosis: short primary diagnosis line. icd10: the most likely ICD-10-CM code with a brief label, e.g. "L70.0 - Acne vulgaris". If uncertain, give the best-fit code.
 5. soap_ar: a faithful MEDICAL Arabic translation of the four sections, labelled "الشكوى والتاريخ", "الفحص", "التقييم", "الخطة" (Gulf clinical Arabic), not a summary.
 6. followup_en: a warm, patient-friendly after-visit message in simple English, ready to send via WhatsApp from the clinic: greeting, 3-6 clear instruction bullets, red-flag warning when relevant, sign-off from DermaOne Medical Centre. Plain text with "- " bullets, max ~180 words.
@@ -66,7 +65,7 @@ RULES:
 8. If the transcript is clearly a DOCTOR DICTATION (structured monologue, no patient dialogue), still produce the same output structure.
 
 Respond with ONLY a valid JSON object (no markdown fences, no commentary) with exactly these keys:
-{"subjective": "...", "objective": "...", "assessment": "...", "plan": "...", "diagnosis": "...", "icd10": "...", "soap_ar": "...", "followup_en": "...", "followup_ar": "..."}"""
+{"subjective": "...", "objective": "...", "assessment": "...", "plan": "...", "chief_complaint": "...", "history_of_presenting_complaint": "...", "past_medical_history": "...", "examination_findings": "...", "hp_assessment": "...", "management_plan": "...", "diagnosis": "...", "icd10": "...", "soap_ar": "...", "followup_en": "...", "followup_ar": "..."}"""
 
 
 # ---------------------------------------------------------------- settings
@@ -77,7 +76,8 @@ def _setting(name: str, default: Any = None) -> Any:
 	settings = get_settings_doc()
 	if settings and settings.meta.has_field(name):
 		value = settings.get_password(name, raise_exception=False) if name in PASSWORD_FIELDS else settings.get(name)
-		if value not in (None, ""):
+		# An unticked Check reads as 0, so only a truthy Settings value wins over site_config.
+		if value not in (None, "", 0, "0"):
 			return value
 	value = frappe.conf.get(name)
 	return default if value in (None, "") else value
@@ -87,7 +87,7 @@ def is_enabled() -> bool:
 	return bool(cint(_setting("enable_voice_scribe", 0)))
 
 
-def _require_enabled() -> None:
+def require_enabled() -> None:
 	if not is_enabled():
 		frappe.throw(_("Voice AI scribe is not enabled in Derma Settings."))
 	from do_derma.api import _ensure_clinical_access  # lazy: api imports this module
@@ -101,7 +101,7 @@ def _require_enabled() -> None:
 @frappe.whitelist()
 def transcribe() -> dict[str, str]:
 	"""POST multipart with field ``audio`` (WAV). Returns ``{"text": ...}``."""
-	_require_enabled()
+	require_enabled()
 	upload = frappe.request.files.get("audio") if frappe.request else None
 	if upload is None:
 		frappe.throw(_("No audio file provided."))
@@ -144,7 +144,7 @@ def transcribe_bytes(data: bytes, filename: str = "audio.wav") -> str:
 @frappe.whitelist()
 def generate_note(transcript: str, encounter: str | None = None, appointment: str | None = None, patient: str | None = None) -> dict[str, Any]:
 	"""Draft SOAP values for the encounter from a transcript. Saves only the transcript."""
-	_require_enabled()
+	require_enabled()
 	transcript = cstr(transcript).strip()
 	if len(transcript) < 20:
 		frappe.throw(_("The transcript is too short to write a note from."))
@@ -154,7 +154,7 @@ def generate_note(transcript: str, encounter: str | None = None, appointment: st
 
 	prompt = build_note_prompt(
 		transcript,
-		patient=_patient_context(encounter_doc.patient),
+		patient=patient_context(encounter_doc.patient),
 		previous=_previous_visit_summary(encounter_doc),
 		clinician=frappe.db.get_value("Healthcare Practitioner", encounter_doc.practitioner, "practitioner_name")
 		if encounter_doc.practitioner
@@ -177,6 +177,7 @@ def generate_note(transcript: str, encounter: str | None = None, appointment: st
 			ASSESSMENT: cstr(parsed.get("assessment")).strip(),
 			PLAN: cstr(parsed.get("plan")).strip(),
 		},
+		"hp_values": {field: cstr(parsed.get(key)).strip() for field, key in zip(HP_FIELDS, HP_KEYS, strict=True)},
 		"diagnosis": cstr(parsed.get("diagnosis")).strip(),
 		"icd10": cstr(parsed.get("icd10")).strip(),
 		"soap_ar": cstr(parsed.get("soap_ar")).strip(),
@@ -201,7 +202,7 @@ def _resolve_encounter(encounter: str | None, appointment: str | None, patient: 
 	return frappe.get_doc("Patient Encounter", name)
 
 
-def _patient_context(patient: str | None) -> dict[str, Any]:
+def patient_context(patient: str | None) -> dict[str, Any]:
 	if not patient:
 		return {}
 	row = frappe.db.get_value("Patient", patient, ["patient_name", "sex", "dob"], as_dict=True) or {}

@@ -106,6 +106,8 @@
                   :values="assessmentPanel.values"
                   :soap-layout="assessmentPanel.soapLayout"
                   :soap-values="assessmentPanel.soapValues"
+                  :hp-layout="assessmentPanel.hpLayout"
+                  :hp-values="assessmentPanel.hpValues"
                   :context-values="assessmentPanel.contextValues"
                   :loading="assessmentPanel.loading"
                   :saving="assessmentPanel.saving"
@@ -260,6 +262,7 @@
           <section v-else-if="activeSection === 'review'" class="workspace-shell review-shell" data-test="review-section">
         <div class="workspace-tabview">
           <div class="workspace-content review-section-stack">
+            <AiDocumentsCard v-if="data.voice_scribe_enabled && encounter.name" :encounter="encounter.name" />
             <section class="derma-timeline-workspace">
               <header>
                 <div>
@@ -527,6 +530,7 @@ import { computed, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import VoiceScribe from "./components/assessment/VoiceScribe.vue"
+import AiDocumentsCard from "./components/review/AiDocumentsCard.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
 import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
@@ -640,6 +644,8 @@ const assessmentPanel = reactive({
   values: {},
   soapLayout: [],
   soapValues: {},
+  hpLayout: [],
+  hpValues: {},
   contextValues: {},
 })
 
@@ -830,7 +836,7 @@ const consentProcedureOptions = computed(() =>
 )
 
 const assessmentEditableOnSubmitFields = computed(() => {
-  const layout = assessmentPanel.mode === "SOAP" ? assessmentPanel.soapLayout : assessmentPanel.layout
+  const layout = { SOAP: assessmentPanel.soapLayout, HP: assessmentPanel.hpLayout }[assessmentPanel.mode] || assessmentPanel.layout
   return (layout || []).filter((row) => row.allow_on_submit).map((row) => row.fieldname).filter(Boolean)
 })
 
@@ -1672,6 +1678,8 @@ function applyAssessmentResponse(message) {
   assessmentPanel.values = message.values || {}
   assessmentPanel.soapLayout = message.soap_layout || []
   assessmentPanel.soapValues = message.soap_values || {}
+  assessmentPanel.hpLayout = message.hp_layout || []
+  assessmentPanel.hpValues = message.hp_values || {}
   assessmentPanel.contextValues = message.context_values || {}
   assessmentPanel.editing = false
 }
@@ -1694,8 +1702,13 @@ async function saveAssessment({ payload, mode }) {
 // normal panel. Unsaved typing in the panel is replaced by the draft on purpose.
 async function applyVoiceNote(note) {
   if (!note?.values) return
-  if (assessmentPanel.mode !== "SOAP") await setAssessmentMode("SOAP")
-  assessmentPanel.soapValues = { ...assessmentPanel.soapValues, ...note.values }
+  // H&P stays H&P; Structured has no free-text home for a dictation, so it becomes SOAP.
+  if (assessmentPanel.mode !== "SOAP" && assessmentPanel.mode !== "HP") await setAssessmentMode("SOAP")
+  if (assessmentPanel.mode === "HP") {
+    assessmentPanel.hpValues = { ...assessmentPanel.hpValues, ...(note.hp_values || {}) }
+  } else {
+    assessmentPanel.soapValues = { ...assessmentPanel.soapValues, ...note.values }
+  }
   assessmentPanel.editing = true
   frappe.show_alert({ message: __("Voice note drafted. Review and save."), indicator: "blue" })
 }
@@ -1711,7 +1724,8 @@ const assessmentModeToggleVisible = computed(
 
 const assessmentModeLocked = computed(() => Number(assessmentPanel.docstatus ?? 0) !== 0)
 
-const ASSESSMENT_MODE_SHORT_LABELS = { SOAP: "SOAP", Structured: "Structured" }
+const ASSESSMENT_MODE_SHORT_LABELS = { SOAP: "SOAP", HP: "H&P", Structured: "Structured" }
+const ASSESSMENT_MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
 
 function assessmentModeShortLabel(mode) {
   return __(ASSESSMENT_MODE_SHORT_LABELS[mode] || mode)
@@ -1724,9 +1738,12 @@ function assessmentValueHasContent(value) {
   return true
 }
 
+function assessmentModeValues(mode) {
+  return { SOAP: assessmentPanel.soapValues, HP: assessmentPanel.hpValues }[mode] || assessmentPanel.values
+}
+
 function assessmentModeHasContent(mode) {
-  const source = mode === "SOAP" ? assessmentPanel.soapValues : assessmentPanel.values
-  return Object.values(source || {}).some(assessmentValueHasContent)
+  return Object.values(assessmentModeValues(mode) || {}).some(assessmentValueHasContent)
 }
 
 function requestAssessmentModeChange(target) {
@@ -1738,7 +1755,7 @@ function requestAssessmentModeChange(target) {
     setAssessmentMode(target)
     return
   }
-  const label = target === "SOAP" ? __("SOAP Note") : __("Structured Assessment")
+  const label = __(ASSESSMENT_MODE_LABELS[target] || target)
   window.frappe.confirm(
     __("Switch this visit to {0}? Nothing you have written is deleted.").replace("{0}", label),
     () => setAssessmentMode(target)

@@ -7,7 +7,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from do_derma import voice
-from do_derma.assessment import SOAP_FIELDS
+from do_derma.assessment import HP_FIELDS, SOAP_FIELDS
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
 
@@ -16,6 +16,12 @@ NOTE = {
 	"objective": "Erythematous scaly plaques on the dorsal hands, no vesicles.",
 	"assessment": "Irritant contact dermatitis.",
 	"plan": "Avoid the detergent; mometasone 0.1% cream twice daily for 2 weeks.",
+	"chief_complaint": "Itchy rash on both hands.",
+	"history_of_presenting_complaint": "Two weeks, after a new detergent.",
+	"past_medical_history": "Not discussed.",
+	"examination_findings": "Erythematous scaly plaques on the dorsal hands.",
+	"hp_assessment": "Irritant contact dermatitis.",
+	"management_plan": "Avoid the detergent; mometasone cream.",
 	"diagnosis": "Irritant contact dermatitis",
 	"icd10": "L24.0 - Irritant contact dermatitis due to detergents",
 	"soap_ar": "الشكوى والتاريخ: طفح جلدي",
@@ -81,6 +87,8 @@ class TestGenerateNote(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(out["values"][SOAP_FIELDS[0]], NOTE["subjective"])
 		self.assertEqual(out["values"][SOAP_FIELDS[3]], NOTE["plan"])
 		self.assertEqual(out["icd10"], NOTE["icd10"])
+		self.assertEqual(out["hp_values"][HP_FIELDS[0]], NOTE["chief_complaint"])
+		self.assertEqual(out["hp_values"][HP_FIELDS[5]], NOTE["management_plan"])
 		self.assertEqual(out["followup_ar"], NOTE["followup_ar"])
 		self.assertEqual(
 			frappe.db.get_value("Patient Encounter", self.encounter.name, voice.TRANSCRIPT_FIELD), transcript
