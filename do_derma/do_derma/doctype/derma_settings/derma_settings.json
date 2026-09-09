@@ -108,8 +108,8 @@
    "fieldname": "stt_model",
    "fieldtype": "Data",
    "label": "Speech-to-Text Model",
-   "default": "scribe_v1",
-   "depends_on": "enable_voice_scribe"
+   "depends_on": "enable_voice_scribe",
+   "description": "Leave empty for scribe_v1."
   },
   {
    "fieldname": "voice_column",
@@ -119,16 +119,15 @@
    "fieldname": "llm_base_url",
    "fieldtype": "Data",
    "label": "LLM Base URL",
-   "default": "https://api.openai.com/v1",
    "depends_on": "enable_voice_scribe",
-   "description": "Any OpenAI-compatible endpoint: https://api.openai.com/v1, https://api.groq.com/openai/v1 or the SOULVD AI Gateway https://gateway.soulvd.com/v1"
+   "description": "Leave empty for OpenAI (https://api.openai.com/v1). Also: https://api.groq.com/openai/v1 or the SOULVD AI Gateway https://gateway.soulvd.com/v1. site_config applies when empty."
   },
   {
    "fieldname": "llm_model",
    "fieldtype": "Data",
    "label": "LLM Model",
-   "default": "gpt-4o",
-   "depends_on": "enable_voice_scribe"
+   "depends_on": "enable_voice_scribe",
+   "description": "Leave empty for gpt-4o."
   },
   {
    "fieldname": "llm_api_key",
@@ -140,9 +139,8 @@
    "fieldname": "stt_base_url",
    "fieldtype": "Data",
    "label": "Speech-to-Text Base URL",
-   "default": "https://api.elevenlabs.io/v1",
    "depends_on": "enable_voice_scribe",
-   "description": "ElevenLabs directly, or the SOULVD AI Gateway (https://gateway.soulvd.com/v1) with the SOULVD key in both key fields."
+   "description": "Leave empty for ElevenLabs (https://api.elevenlabs.io/v1). SOULVD AI Gateway: https://gateway.soulvd.com/v1 with the SOULVD key in both key fields. site_config keys of the same name apply when empty."
   },
   {
    "fieldname": "max_recording_minutes",
@@ -165,7 +163,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-09 13:00:00",
+ "modified": "2026-09-09 14:00:00",
  "modified_by": "Administrator",
  "module": "Do Derma",
  "name": "Derma Settings",
