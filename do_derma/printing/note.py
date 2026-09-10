@@ -9,7 +9,7 @@ import frappe
 
 PRINT_FORMAT = "Derma Assessment Note"
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 2
+TEMPLATE_VERSION = 3
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """

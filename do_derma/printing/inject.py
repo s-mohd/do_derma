@@ -59,11 +59,22 @@ def ensure_derma_blocks_in_print_formats() -> dict[str, list[str]]:
 		if not (row.html or "").strip():
 			result["skipped"].append(row.name)
 			continue
+		if ASSESSMENT.method + "(" in strip_marked_blocks(row.html):
+			# The format already renders the assessment itself (e.g. the Derma Assessment Note letter).
+			result["unchanged"].append(row.name)
+			continue
 		outcome = _apply_to(row.name, row.html)
 		result[outcome].append(row.name)
 	if result["updated"]:
 		frappe.clear_cache()
 	return result
+
+
+def strip_marked_blocks(html: str) -> str:
+	"""The format without the blocks this module placed, so its own calls can be seen."""
+	for block in BLOCKS:
+		html = re.sub(re.escape(block.start) + r".*?" + re.escape(block.end), "", html, flags=re.DOTALL)
+	return html
 
 
 def _apply_to(name: str, html: str) -> str:
