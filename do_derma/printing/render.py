@@ -24,10 +24,16 @@ FORMATTED_FIELDTYPES = {"Date", "Datetime", "Time", "Currency", "Float", "Int", 
 MODE_HEADINGS = {assessment.SOAP: "SOAP", assessment.HP: "H&P"}
 
 
-def derma_assessment_html(doc) -> Markup:
-	"""Jinja global. The assessment block for one encounter, or empty."""
+def derma_assessment_html(doc, mode: str | None = None) -> Markup:
+	"""Jinja global. The assessment block for one encounter, or empty.
+
+	With `mode` given, only that format prints (one print per report type); without it,
+	the format the encounter is documented in.
+	"""
 	try:
 		encounter = doc if hasattr(doc, "get") else frappe.get_doc("Patient Encounter", doc)
+		if mode:
+			return render_mode(encounter, mode) if mode in assessment.ASSESSMENT_MODES else Markup("")
 		mode = assessment.get_assessment_mode(encounter)
 		# A legacy encounter resolves to a mode it holds no content in. Never print a blank
 		# heading over real clinical content written in another mode.

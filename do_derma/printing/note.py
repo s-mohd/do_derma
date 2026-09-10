@@ -7,7 +7,15 @@ format the encounter is documented in - what the doctor sees is what prints.
 
 import frappe
 
-PRINT_FORMAT = "Derma Assessment Note"
+from do_derma.assessment import HP, SOAP, STRUCTURED
+
+PRINT_FORMAT = "Derma Assessment Note"  # prints whichever format the visit is documented in
+# One print per report type - never mixed. The chart's Print button picks by the open tab.
+PRINT_FORMATS = {
+	HP: "Derma Assessment Note (H&P)",
+	SOAP: "Derma Assessment Note (SOAP)",
+	STRUCTURED: "Derma Assessment Note (Structured)",
+}
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
 TEMPLATE_VERSION = 3
 
@@ -36,25 +44,41 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """
 
 
+def template_for(mode: str | None) -> str:
+	"""The letter template pinned to one report type, or the documented-format one."""
+	if not mode:
+		return TEMPLATE
+	return TEMPLATE.replace("derma_assessment_html(doc)", f'derma_assessment_html(doc, "{mode}")')
+
+
 def ensure_assessment_print_format() -> str:
-	"""Seed the print format once. A clinic's own edit (marker removed) is kept."""
-	existing = frappe.db.get_value("Print Format", PRINT_FORMAT, ["name", "html"], as_dict=True)
+	"""Seed the print formats once. A clinic's own edit (marker removed) is kept."""
+	done = []
+	for mode, name in ((None, PRINT_FORMAT), *PRINT_FORMATS.items()):
+		outcome = _ensure_format(name, template_for(mode))
+		if outcome:
+			done.append(outcome)
+	return ", ".join(done)
+
+
+def _ensure_format(name: str, html: str) -> str:
+	existing = frappe.db.get_value("Print Format", name, ["name", "html"], as_dict=True)
 	if existing:
-		html = existing.html or ""
-		if TEMPLATE_MARKER in html and f"{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->" not in html:
-			frappe.db.set_value("Print Format", existing.name, "html", TEMPLATE)
-			return f"{PRINT_FORMAT} (upgraded)"
+		current = existing.html or ""
+		if TEMPLATE_MARKER in current and f"{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->" not in current:
+			frappe.db.set_value("Print Format", existing.name, "html", html)
+			return f"{name} (upgraded)"
 		return ""
 	frappe.get_doc(
 		{
 			"doctype": "Print Format",
-			"name": PRINT_FORMAT,
+			"name": name,
 			"doc_type": "Patient Encounter",
 			"module": "Do Derma",
 			"print_format_type": "Jinja",
 			"custom_format": 1,
 			"standard": "No",
-			"html": TEMPLATE,
+			"html": html,
 		}
 	).insert(ignore_permissions=True)
-	return PRINT_FORMAT
+	return name
