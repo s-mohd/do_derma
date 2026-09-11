@@ -48,6 +48,16 @@
       <footer class="assessment-footer">
         <span class="footer-status">{{ footerStatus }}</span>
         <button
+          v-if="canPrint"
+          type="button"
+          class="ghost"
+          data-test="assessment-print"
+          :title="__('Print this note on the clinic letterhead')"
+          @click="printNote"
+        >
+          {{ __("Print") }}
+        </button>
+        <button
           v-if="!editMode && canEdit"
           type="button"
           class="primary"
@@ -83,6 +93,8 @@ const SOAP = "SOAP"
 const HP = "HP"
 const STRUCTURED = "Structured"
 const MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
+// One print format per report type, seeded by do_derma.printing.note - never mixed.
+const PRINT_FORMATS = { SOAP: "Derma Assessment Note (SOAP)", HP: "Derma Assessment Note (H&P)", Structured: "Derma Assessment Note (Structured)" }
 
 const props = defineProps({
   mode: { type: String, default: STRUCTURED },
@@ -101,12 +113,23 @@ const props = defineProps({
   docstatus: { type: [Number, null], default: null },
   editMode: { type: Boolean, default: false },
   allowOnSubmitFields: { type: Array, default: () => [] },
+  encounter: { type: String, default: "" },
+  isFilled: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(["request-edit", "save"])
 
 const fieldsRef = ref(null)
 const isDirty = ref(false)
+
+// Printing goes through the seeded "Derma Assessment Note" print format, which
+// renders whichever format the encounter is stamped with - what you see is what prints.
+const canPrint = computed(() => Boolean(props.encounter) && props.isFilled)
+
+function printNote() {
+  const url = `/printview?doctype=Patient%20Encounter&name=${encodeURIComponent(props.encounter)}&format=${encodeURIComponent(PRINT_FORMATS[props.mode] || "Derma Assessment Note")}&no_letterhead=0&_lang=${window.frappe?.boot?.lang || "en"}`
+  window.open(url, "_blank", "noopener")
+}
 
 const valuesByMode = computed(() => ({ [STRUCTURED]: props.values, [SOAP]: props.soapValues, [HP]: props.hpValues }))
 const otherModesWithContent = computed(() =>

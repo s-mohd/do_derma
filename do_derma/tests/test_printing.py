@@ -5,7 +5,7 @@ from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
 from do_derma import assessment
-from do_derma.printing import inject, render
+from do_derma.printing import inject, note, render
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
 from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
@@ -135,6 +135,39 @@ class TestAssessmentPrintBlock(PrintingTestBase):
 				raise RuntimeError("boom")
 
 		self.assertEqual(render.derma_assessment_html(Exploding()), "")
+
+
+class TestOnePrintPerReportType(PrintingTestBase):
+	"""Each report type prints on its own; a mode-pinned block never mixes formats."""
+
+	def setUp(self):
+		super().setUp()
+		if not (assessment.soap_is_supported() and assessment.has_field("Patient Encounter", "custom_derma_hp_chief_complaint")):
+			self.skipTest("SOAP/H&P custom fields are not installed on this site")
+
+	def test_pinned_mode_prints_only_that_format(self):
+		encounter = self._soap_encounter(
+			custom_derma_soap_subjective="Itchy rash for three days",
+			custom_derma_hp_chief_complaint="Itchy rash",
+		)
+		soap = render.derma_assessment_html(encounter, assessment.SOAP)
+		hp = render.derma_assessment_html(encounter, assessment.HP)
+		self.assertIn("Itchy rash for three days", soap)
+		self.assertNotIn("Chief Complaint", soap)
+		self.assertIn("Chief Complaint", hp)
+		self.assertNotIn("Itchy rash for three days", hp)
+		self.assertEqual(render.derma_assessment_html(encounter, "Nope"), "")
+
+	def test_seeds_one_print_format_per_report_type(self):
+		note.ensure_assessment_print_format()
+		for mode, name in note.PRINT_FORMATS.items():
+			html = frappe.db.get_value("Print Format", name, "html") or ""
+			self.assertIn(f'derma_assessment_html(doc, "{mode}")', html, name)
+		self.assertIn("derma_assessment_html(doc)", frappe.db.get_value("Print Format", note.PRINT_FORMAT, "html") or "")
+		# the injector leaves these formats alone: they already render the block themselves
+		inject.ensure_derma_blocks_in_print_formats()
+		for name in note.PRINT_FORMATS.values():
+			self.assertNotIn(inject.ASSESSMENT.start, frappe.db.get_value("Print Format", name, "html") or "")
 
 
 class TestStructuredPrintBlock(PrintingTestBase):

@@ -3246,6 +3246,51 @@ def set_derma_assessment(payload=None, mode=None, encounter=None, appointment=No
 	return get_derma_assessment(encounter=encounter_doc.name)
 
 
+def _assessment_writable_on_submit(mode) -> bool:
+	"""True when at least one field of the mode may still be written after submit."""
+	return any(cint(row.get("allow_on_submit")) for row in assessment.get_layout(mode) if row.get("is_value_field"))
+
+
+@frappe.whitelist()
+def set_derma_assessment_all(payloads=None, mode=None, encounter=None, appointment=None, patient=None):
+	"""Write every format one dictation produced, in one save.
+
+	`payloads` is {"Structured": {...}, "SOAP": {...}, "HP": {...}}; any format may be
+	omitted. `mode` is the format the doctor is looking at - it is written last and
+	stamped, so the encounter still reopens in the format it was documented in.
+	"""
+	_ensure_clinical_access()
+	bundle = _parse_payload(payloads) or {}
+	if not isinstance(bundle, dict):
+		frappe.throw(_("Assessment payloads must be an object."), frappe.ValidationError)
+
+	encounter_doc = _resolve_patient_encounter_doc(
+		encounter=encounter, appointment=appointment, patient=patient, ptype="write"
+	)
+	if not encounter_doc:
+		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
+
+	active = assessment.normalize_mode(mode) or assessment.get_assessment_mode(encounter_doc)
+	others = [m for m in assessment.ASSESSMENT_MODES if m != active and assessment.mode_is_supported(m)]
+	# A completed encounter only accepts allow-on-submit fields. Say so, rather than
+	# letting a dictation the doctor just recorded disappear into a silent no-op.
+	dictated = [m for m in [*others, active] if isinstance(bundle.get(m), dict) and bundle.get(m)]
+	if cint(encounter_doc.docstatus) == 1 and any(not _assessment_writable_on_submit(m) for m in dictated):
+		frappe.throw(
+			_("This encounter is completed, so the note cannot be written into it. Reopen the encounter to save a dictated note."),
+			frappe.ValidationError,
+		)
+	for target in [*others, active]:
+		values = bundle.get(target)
+		if isinstance(values, dict) and values:
+			assessment.apply_assessment(encounter_doc, values, mode=target)
+	if assessment.mode_is_supported(active) and not cint(encounter_doc.docstatus):
+		assessment.stamp_mode(encounter_doc, active)
+	encounter_doc.flags.ignore_validate_update_after_submit = True
+	encounter_doc.save(ignore_permissions=True)
+	return get_derma_assessment(encounter=encounter_doc.name)
+
+
 @frappe.whitelist()
 def set_derma_assessment_mode(mode, encounter=None, appointment=None, patient=None):
 	"""Change the documented format. Writes no content and deletes nothing."""

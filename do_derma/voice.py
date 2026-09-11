@@ -58,16 +58,23 @@ RULES:
 1. Base the note ONLY on what is actually said in the transcript plus the context given. Never invent findings, vitals, or lab results. If something was not mentioned, omit it rather than fabricate.
 2. Use professional medical English. Expand colloquialisms ("heat rash" -> possible miliaria, "blood pressure pill" -> antihypertensive).
 3. Write the visit twice, as plain-text sections (no markdown headers, short paragraphs or "- " bullets):
-   SOAP - subjective: chief complaint, history of present illness, medications & allergies, relevant review. objective: examination findings as stated (site, morphology, distribution, size, dermoscopy). assessment: working diagnosis and differential, with reasoning. plan: treatments, investigations, patient education, follow-up.
-   H&P - chief_complaint, history_of_presenting_complaint, past_medical_history, examination_findings, hp_assessment, management_plan. Every H&P section must be present; write "Not discussed." where the transcript truly has nothing for it.
+   SOAP - subjective: chief complaint, history of present illness, then a "Past Medical History:" line carrying past history, medications and allergies. objective: examination findings as stated (site, morphology, distribution, size, dermoscopy). assessment: working diagnosis and differential, with reasoning. plan: one measure per sentence - treatments, investigations, patient education, follow-up.
+   H&P - chief_complaint, history_of_presenting_complaint, past_medical_history, examination_findings, hp_assessment, management_plan. Every H&P section must be present.
+   HOUSE STYLE for both, matching the notes this clinic already writes:
+   - Clinical register with the subject dropped: "Reports bilateral lower limb swelling.", "Describes heaviness after massage.", "Bilateral swelling noted." Never "The patient has been experiencing...".
+   - Carry every detail the transcript gives: duration, quantities, frequency, what improves or worsens it, what has already been tried and with what effect. Do not compress the history into one sentence.
+   - A stated negative is documented AS a negative, never as missing: "No significant medical history. No hypertension or diabetes mellitus.", "Not pregnant and not planning pregnancy." Write "Not discussed." ONLY where the transcript is genuinely silent on that whole section.
+   - hp_assessment / assessment: the working diagnosis with the reasoning behind it, and what is explicitly NOT present or NOT required.
+   - management_plan / plan: one measure per sentence, each self-contained (what, how, how long), including counselling and lifestyle advice. When the transcript states a review or follow-up interval, it is the LAST sentence of the section and is never dropped.
 4. diagnosis: short primary diagnosis line. icd10: the most likely ICD-10-CM code with a brief label, e.g. "L70.0 - Acne vulgaris". If uncertain, give the best-fit code.
 5. soap_ar: a faithful MEDICAL Arabic translation of the four sections, labelled "الشكوى والتاريخ", "الفحص", "التقييم", "الخطة" (clinical Arabic as used in {country}), not a summary.
 6. followup_en: a warm, patient-friendly after-visit message in simple English, ready to send via WhatsApp from the clinic: greeting, 3-6 clear instruction bullets, red-flag warning when relevant, sign-off from {clinic}. Plain text with "- " bullets, max ~180 words.
 7. followup_ar: the same message in natural, warm Arabic as used with patients in {country}.
 8. If the transcript is clearly a DOCTOR DICTATION (structured monologue, no patient dialogue), still produce the same output structure.
+9. structured: an object keyed by the STRUCTURED FIELDS listed in the user message, filling the clinic's own coded assessment from the same visit. Text fields take clinical text in the house style above. Fields marked LIST take an array of short clinical terms, one concept per item, e.g. ["Acne vulgaris"] - no sentences, no codes. Omit a key entirely when the transcript says nothing for it; never invent a term to fill a field.
 
 Respond with ONLY a valid JSON object (no markdown fences, no commentary) with exactly these keys:
-{"subjective": "...", "objective": "...", "assessment": "...", "plan": "...", "chief_complaint": "...", "history_of_presenting_complaint": "...", "past_medical_history": "...", "examination_findings": "...", "hp_assessment": "...", "management_plan": "...", "diagnosis": "...", "icd10": "...", "soap_ar": "...", "followup_en": "...", "followup_ar": "..."}"""
+{"subjective": "...", "objective": "...", "assessment": "...", "plan": "...", "chief_complaint": "...", "history_of_presenting_complaint": "...", "past_medical_history": "...", "examination_findings": "...", "hp_assessment": "...", "management_plan": "...", "diagnosis": "...", "icd10": "...", "soap_ar": "...", "followup_en": "...", "followup_ar": "...", "structured": {}}"""
 
 
 def clinic_context(company: str | None = None) -> dict[str, str]:
@@ -309,6 +316,7 @@ def generate_note(transcript: str, encounter: str | None = None, appointment: st
 			PLAN: cstr(parsed.get("plan")).strip(),
 		},
 		"hp_values": {field: cstr(parsed.get(key)).strip() for field, key in zip(HP_FIELDS, HP_KEYS, strict=True)},
+		"structured_values": structured_values_from_ai(parsed.get("structured")),
 		"diagnosis": cstr(parsed.get("diagnosis")).strip(),
 		"icd10": cstr(parsed.get("icd10")).strip(),
 		"soap_ar": cstr(parsed.get("soap_ar")).strip(),
@@ -396,6 +404,117 @@ def _previous_visit_summary(encounter_doc) -> str | None:
 	return f"Last visit ({prev.encounter_date}): {cstr(prev.get(ASSESSMENT))[:800]} | Plan: {cstr(prev.get(PLAN))[:400]}"
 
 
+# ------------------------------------------------ structured mode from voice
+
+# Free-text fields the AI is allowed to write. Select/Link/Date fields on the
+# Structured layout stay the doctor's, so a hallucinated option can never land.
+TEXT_FIELD_TYPES = {"Data", "Small Text", "Text", "Long Text", "Text Editor"}
+# ponytail: unmatched terms fall back to the note field beside their list; extend
+# the map if a clinic configures other list fields on the Structured layout.
+STRUCTURED_NOTE_FALLBACK = {"symptoms": "custom_symptoms_notes", "diagnosis": "custom_diagnosis_note"}
+
+
+def structured_layout() -> list[dict[str, Any]]:
+	from do_derma import assessment
+
+	return [row for row in assessment.get_structured_layout() if row.get("is_value_field") and not row.get("read_only")]
+
+
+def structured_prompt_block(layout: list[dict[str, Any]] | None = None) -> str:
+	"""Describe the clinic's own Structured fields so one dictation fills them too."""
+	from do_derma import assessment
+
+	meta = frappe.get_meta("Patient Encounter")
+	lines = []
+	for row in layout if layout is not None else structured_layout():
+		df = meta.get_field(row["fieldname"])
+		# The clinic's own field description is the only reliable guide to what belongs
+		# in a field its label alone does not explain (e.g. Illness Progression).
+		hint = f" - {cstr(df.description).strip()}" if df and cstr(df.description).strip() else ""
+		label = row.get("label") or row["fieldname"]
+		if row.get("fieldtype") in assessment.TABLE_FIELD_TYPES:
+			lines.append(f"- {row['fieldname']} (LIST): {label}{hint}")
+		elif row.get("fieldtype") in TEXT_FIELD_TYPES:
+			lines.append(f"- {row['fieldname']}: {label}{hint}")
+	if not lines:
+		return ""
+	return "STRUCTURED FIELDS (fill the \"structured\" object with these keys):\n" + "\n".join(lines)
+
+
+def _master_title_field(doctype: str) -> str:
+	"""The Data field a master is named after, e.g. Complaint -> complaints."""
+	autoname = cstr(frappe.get_meta(doctype).autoname)
+	return autoname.split(":", 1)[1].strip() if autoname.startswith("field:") else ""
+
+
+def _match_master(doctype: str, term: str) -> str | None:
+	# MariaDB's default collation compares case-insensitively, which is the match we want.
+	# Always read the stored name back: frappe.db.exists() would echo the AI's casing.
+	return frappe.db.get_value(doctype, {"name": term}, "name")
+
+
+def _link_rows(row: dict[str, Any], terms: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
+	"""Child rows for terms that name an existing master; the rest come back unmatched."""
+	link = next((f for f in row.get("fields") or [] if f.get("fieldtype") == "Link" and f.get("options")), None)
+	if not link:
+		return [], [cstr(term).strip() for term in terms if cstr(term).strip()]
+	target = link["options"]
+	may_create = bool(cint(_setting("ai_creates_clinical_masters", 0)))
+	rows: list[dict[str, Any]] = []
+	unmatched: list[str] = []
+	for raw in terms:
+		term = cstr(raw).strip()
+		if not term:
+			continue
+		name = _match_master(target, term)
+		if not name and may_create:
+			title_field = _master_title_field(target)
+			if title_field:
+				try:
+					name = frappe.get_doc({"doctype": target, title_field: term}).insert(ignore_permissions=True).name
+				except Exception:
+					# A master that will not save (length, validation, collision) must not
+					# sink the whole note; the term still reaches the notes field as text.
+					frappe.log_error(title=f"Voice scribe: could not create {target}", message=frappe.get_traceback())
+					name = None
+		if name:
+			rows.append({link["fieldname"]: name})
+		else:
+			unmatched.append(term)
+	return rows, unmatched
+
+
+def structured_values_from_ai(parsed: Any) -> dict[str, Any]:
+	"""Map the AI's `structured` object onto the clinic's Structured fields."""
+	from do_derma import assessment
+
+	if not isinstance(parsed, dict):
+		return {}
+	layout = structured_layout()
+	by_name = {row["fieldname"]: row for row in layout}
+	values: dict[str, Any] = {}
+	spillover: dict[str, list[str]] = {}
+	for fieldname, row in by_name.items():
+		given = parsed.get(fieldname)
+		if given in (None, "", []):
+			continue
+		if row.get("fieldtype") in assessment.TABLE_FIELD_TYPES:
+			terms = given if isinstance(given, list) else [given]
+			rows, unmatched = _link_rows(row, terms)
+			if rows:
+				values[fieldname] = rows
+			note_field = STRUCTURED_NOTE_FALLBACK.get(fieldname)
+			if unmatched and note_field in by_name:
+				spillover.setdefault(note_field, []).extend(unmatched)
+		elif row.get("fieldtype") in TEXT_FIELD_TYPES and isinstance(given, str):
+			values[fieldname] = given.strip()
+	for note_field, terms in spillover.items():
+		existing = cstr(values.get(note_field)).strip()
+		line = ", ".join(terms)
+		values[note_field] = f"{existing}\n{line}".strip() if existing else line
+	return values
+
+
 def build_note_prompt(transcript: str, patient: dict[str, Any] | None = None, previous: str | None = None, clinician: str | None = None) -> str:
 	parts = ["CONSULTATION TYPE: General dermatology consultation (Derma Chart visit)"]
 	if clinician:
@@ -408,6 +527,9 @@ def build_note_prompt(transcript: str, patient: dict[str, Any] | None = None, pr
 		parts.append("PATIENT CONTEXT:\n" + "\n".join(bits))
 	if previous:
 		parts.append(f"PREVIOUS VISIT SUMMARY (for follow-up context):\n{previous}")
+	block = structured_prompt_block()
+	if block:
+		parts.append(block)
 	parts.append(f'RAW TRANSCRIPT (may be English, Arabic or mixed; clean it up, do not quote verbatim):\n"""\n{transcript.strip()}\n"""')
 	parts.append("Generate the JSON object now.")
 	return "\n\n".join(parts)

@@ -20,6 +20,7 @@
   "stt_model",
   "max_recording_minutes",
   "audio_retention_days",
+  "ai_creates_clinical_masters",
   "voice_column",
   "llm_base_url",
   "llm_model",
@@ -157,6 +158,14 @@
    "default": "0",
    "depends_on": "enable_voice_scribe",
    "description": "0 keeps recordings forever. Otherwise the nightly job deletes consultation audio older than this; transcripts and notes stay."
+  },
+  {
+   "fieldname": "ai_creates_clinical_masters",
+   "fieldtype": "Check",
+   "label": "Let the AI create missing Complaint / Diagnosis records",
+   "default": "0",
+   "depends_on": "enable_voice_scribe",
+   "description": "Off: a dictated symptom or diagnosis fills the Structured tab only when it already exists in your master list; anything unmatched goes into Symptoms Notes / Diagnosis Note as text. On: the missing master is created automatically."
   }
  ],
  "grid_page_length": 50,

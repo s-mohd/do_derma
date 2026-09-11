@@ -54,19 +54,21 @@ Close with the clinician name and title on two separate lines.""",
 	"referral": DOC_COMMON
 	+ """
 
-TASK: Write a Referral Letter following this exact structure and wording, as plain paragraphs (no headings except the two labelled lines):
+TASK: Write a Referral Letter following this exact structure and wording. Plain paragraphs separated by blank lines; the three labelled lines "Clinical Summary:", "Investigations:" and "Referral Details:" each stand ALONE on their own line with their content starting on the next line:
 Dear Dr. <addressee>,   (if no addressee given use "Dear Colleague,")
 Thank you for seeing the patient below.
 I am writing to refer my patient who is known with <condition(s)> and currently using <current treatment>.
 They presented today with <presenting complaint>.
-Clinical Summary: <one paragraph - history, examination findings, assessment>
-Investigations: <"- " lines of investigations done or requested; "- None documented" if none>
-Referral Details: <one paragraph - what the referral is for and the specific question or action requested>
+Clinical Summary:
+<one paragraph - history, examination findings, assessment>
+Investigations:
+<one investigation per line, results included when known; "None documented" if none>
+Referral Details:
+<one paragraph - what the referral is for and the specific question or action requested>
 Thank you for your attention to this matter.
 Yours sincerely,
 <clinician name>
-<clinician title>
-<clinic name>""",
+<clinician title>""",
 	"education": DOC_COMMON
 	+ """
 
@@ -82,19 +84,21 @@ Tailor recommendations to the plan actually given in the note. Do not mention an
 	"explainer": DOC_COMMON
 	+ """
 
-TASK: Write a Patient Explainer Letter addressed to the patient, warm and plain-English, following this exact structure:
-Dear <patient first name>,
+TASK: Write a Patient Explainer Letter addressed to the patient, warm and plain-English, following this exact structure (no salutation line - the letter opens with the sentence below):
 It was a pleasure to see you today and review your health concerns. I appreciate the time you took to share details about your health and personal life. I've summarised our discussion below to help you remember what we covered.
 ## Topic/Issue #1: <title>
-<paragraph>
-(2 to 4 topics in total, numbered #1, #2, ... - each a distinct issue discussed in the visit)
+<paragraph opening "During our discussion, we talked about ..." - what was found, what it means in plain words ("This means ..."), and why it is or is not a concern>
+## Topic/Issue #2: <title>
+<paragraph opening "Another key point we covered was ..." - the management agreed and why each measure helps>
+## Topic/Issue #3: <title>
+<paragraph opening "We also discussed ..." - side effects, a treatment already tried, skin care, or follow-up>
+(3 topics normally; 2 only when the visit genuinely covered less, 4 when it covered more - each a distinct issue from the note)
 ## Next Steps:
-<"- " lines: treatments, how to use them, investigations, follow-up date if given>
+<"- " lines: treatments and how to use them, investigations, follow-up date if given>
 Thank you for trusting me with your care. If you have any questions or concerns about anything we discussed, please do not hesitate to reach out.
 Warm regards,
 <clinician name>
-<clinician title>
-<clinic name>""",
+<clinician title>""",
 }
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
