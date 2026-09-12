@@ -489,3 +489,22 @@ class TestPrintedEncounter(PrintingTestBase):
 
 		self.assertIn("Topical steroid twice daily", printed)
 		self.assertIn("Assessment (SOAP)", printed)
+
+	def test_patient_advice_prints_only_when_opted_in(self):
+		note.ensure_assessment_print_format()
+		encounter = self._soap_encounter(
+			custom_derma_soap_plan="Topical steroid twice daily",
+			custom_derma_patient_advice="Apply the cream <b>twice</b> a day.",
+			custom_derma_patient_advice_ar="ضعي الكريم مرتين يومياً.",
+		)
+		fmt = note.PRINT_FORMATS[assessment.SOAP]
+
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=fmt)
+		self.assertNotIn("Patient Advice", printed)
+
+		frappe.db.set_value("Patient Encounter", encounter.name, "custom_derma_print_patient_advice", 1)
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=fmt)
+		self.assertIn("Patient Advice", printed)
+		self.assertIn("Apply the cream &lt;b&gt;twice&lt;/b&gt; a day.", printed)
+		self.assertIn("ضعي الكريم مرتين يومياً.", printed)
+		self.assertIn("Topical steroid twice daily", printed)

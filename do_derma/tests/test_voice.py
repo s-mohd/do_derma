@@ -94,6 +94,15 @@ class TestGenerateNote(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(
 			frappe.db.get_value("Patient Encounter", self.encounter.name, voice.TRANSCRIPT_FIELD), transcript
 		)
+		saved = frappe.db.get_value(
+			"Patient Encounter",
+			self.encounter.name,
+			[voice.PATIENT_ADVICE_FIELD, voice.PATIENT_ADVICE_AR_FIELD, "custom_derma_print_patient_advice"],
+			as_dict=True,
+		)
+		self.assertEqual(saved[voice.PATIENT_ADVICE_FIELD], NOTE["followup_en"])
+		self.assertEqual(saved[voice.PATIENT_ADVICE_AR_FIELD], NOTE["followup_ar"])
+		self.assertEqual(saved["custom_derma_print_patient_advice"], 0)  # opt-in, never printed by default
 
 	def test_unparseable_reply_raises(self):
 		fake = MagicMock(status_code=200)

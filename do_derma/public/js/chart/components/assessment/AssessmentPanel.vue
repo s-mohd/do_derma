@@ -45,8 +45,19 @@
         {{ otherFormatNote }}
       </p>
 
+      <details v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
+        <summary>{{ __("Patient advice") }}</summary>
+        <pre v-if="patientAdvice">{{ patientAdvice }}</pre>
+        <pre v-if="patientAdviceAr" dir="rtl">{{ patientAdviceAr }}</pre>
+        <small>{{ __("Edit the text on the Patient Encounter form. Tick the box below to print it under the note.") }}</small>
+      </details>
+
       <footer class="assessment-footer">
         <span class="footer-status">{{ footerStatus }}</span>
+        <label v-if="canPrint && hasAdvice" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
+          <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
+          {{ __("Include patient advice") }}
+        </label>
         <button
           v-if="canPrint"
           type="button"
@@ -115,9 +126,38 @@ const props = defineProps({
   allowOnSubmitFields: { type: Array, default: () => [] },
   encounter: { type: String, default: "" },
   isFilled: { type: Boolean, default: false },
+  patientAdvice: { type: String, default: "" },
+  patientAdviceAr: { type: String, default: "" },
+  printPatientAdvice: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["request-edit", "save"])
+const emit = defineEmits(["request-edit", "save", "advice-toggled"])
+
+// Patient advice prints only when the doctor opts in - the box is a field on the
+// encounter (Allow on Submit), so the choice survives and shows on the form too.
+const hasAdvice = computed(() => Boolean(props.patientAdvice || props.patientAdviceAr))
+const includeAdvice = ref(Boolean(props.printPatientAdvice))
+const togglingAdvice = ref(false)
+watch(
+  () => props.printPatientAdvice,
+  (value) => {
+    includeAdvice.value = Boolean(value)
+  }
+)
+
+async function toggleAdvice(checked) {
+  togglingAdvice.value = true
+  try {
+    await frappe.db.set_value("Patient Encounter", props.encounter, "custom_derma_print_patient_advice", checked ? 1 : 0)
+    includeAdvice.value = checked
+    emit("advice-toggled", checked)
+  } catch (error) {
+    includeAdvice.value = !checked
+    frappe.msgprint(__("Could not update the print option."))
+  } finally {
+    togglingAdvice.value = false
+  }
+}
 
 const fieldsRef = ref(null)
 const isDirty = ref(false)
@@ -265,6 +305,42 @@ button:disabled {
   flex: 1;
   min-width: 0;
   font-size: 12px;
+  color: #64748b;
+}
+
+.advice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.advice-block {
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.advice-block summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+
+.advice-block pre {
+  white-space: pre-wrap;
+  font: inherit;
+  margin: 8px 0 0;
+}
+
+.advice-block small {
+  display: block;
+  margin-top: 6px;
   color: #64748b;
 }
 </style>

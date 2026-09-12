@@ -17,7 +17,7 @@ PRINT_FORMATS = {
 	STRUCTURED: "Derma Assessment Note (Structured)",
 }
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 3
+TEMPLATE_VERSION = 4
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """
@@ -36,6 +36,13 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     <td style="padding:6px 10px;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
   </tr></table>
   <div style="font-size:13px;">{{ derma_assessment_html(doc) }}</div>
+  {%- if doc.custom_derma_print_patient_advice and (doc.custom_derma_patient_advice or doc.custom_derma_patient_advice_ar) %}
+  <div style="font-size:13px;margin-top:18px;padding-top:12px;border-top:1px solid #e5e7eb;">
+    <h2 style="font-size:14px;color:#1a3a5c;margin:0 0 6px;">Patient Advice</h2>
+    {% if doc.custom_derma_patient_advice %}<div style="white-space:pre-wrap;">{{ doc.custom_derma_patient_advice | e }}</div>{% endif %}
+    {% if doc.custom_derma_patient_advice_ar %}<div dir="rtl" style="white-space:pre-wrap;margin-top:10px;">{{ doc.custom_derma_patient_advice_ar | e }}</div>{% endif %}
+  </div>
+  {%- endif %}
   <div style="margin-top:40px;font-size:12px;">
     <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ (practitioner and practitioner.practitioner_name) or '' }}<br>
       <span style="color:#666;">{{ (practitioner and practitioner.designation) or '' }}</span></div>
