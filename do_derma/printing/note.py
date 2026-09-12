@@ -5,9 +5,59 @@ existing print injection uses (`derma_assessment_html`), so it always prints the
 format the encounter is documented in - what the doctor sees is what prints.
 """
 
-import frappe
+import re
 
+import frappe
+from frappe.utils import cint, cstr
+from markupsafe import Markup, escape
+
+from do_derma import assessment
 from do_derma.assessment import HP, SOAP, STRUCTURED
+
+ARABIC = re.compile(r"[\u0600-\u06FF]")
+ADVICE_FIELDS = {"English": "custom_derma_patient_advice", "Arabic": "custom_derma_patient_advice_ar"}
+
+
+def advice_languages(doc, mode: str | None = None) -> list[str]:
+	"""Which advice versions print: the chosen language, Both, or Auto = the report's language."""
+	choice = cstr(doc.get("custom_derma_patient_advice_language")) or "Auto"
+	if choice == "Both":
+		return ["English", "Arabic"]
+	if choice in ADVICE_FIELDS:
+		return [choice]
+	mode = mode or assessment.get_assessment_mode(doc)
+	fields = assessment.MODE_FIELDS.get(mode) or [row["fieldname"] for row in assessment.get_layout(mode) if row.get("is_value_field")]
+	report = " ".join(cstr(doc.get(f)) for f in fields if isinstance(doc.get(f), str))
+	return ["Arabic"] if ARABIC.search(report) else ["English"]
+
+
+def derma_patient_advice_html(doc, mode: str | None = None) -> Markup:
+	"""Jinja global. The Patient Advice block, or empty unless the doctor opted in."""
+	try:
+		encounter = doc if hasattr(doc, "get") else frappe.get_doc("Patient Encounter", doc)
+		if not cint(encounter.get("custom_derma_print_patient_advice")):
+			return Markup("")
+		blocks = []
+		for language in advice_languages(encounter, mode):
+			text = cstr(encounter.get(ADVICE_FIELDS[language])).strip()
+			if not text:  # the chosen version is blank - fall back to the other one rather than print nothing
+				other = "Arabic" if language == "English" else "English"
+				text = cstr(encounter.get(ADVICE_FIELDS[other])).strip()
+				language = other
+			if text and (language, text) not in blocks:
+				blocks.append((language, text))
+		if not blocks:
+			return Markup("")
+		html = ['<div class="derma-patient-advice" style="font-size:13px;margin-top:18px;padding-top:12px;border-top:1px solid #e5e7eb;">']
+		html.append('<h2 style="font-size:14px;color:#1a3a5c;margin:0 0 6px;">Patient Advice</h2>')
+		for language, text in blocks:
+			rtl = ' dir="rtl"' if language == "Arabic" else ""
+			html.append(f'<div{rtl} style="white-space:pre-wrap;margin-top:6px;">{escape(text)}</div>')
+		html.append("</div>")
+		return Markup("".join(html))
+	except Exception:
+		frappe.log_error(title="Derma patient advice print failed", message=frappe.get_traceback())
+		return Markup("")
 
 PRINT_FORMAT = "Derma Assessment Note"  # prints whichever format the visit is documented in
 # One print per report type - never mixed. The chart's Print button picks by the open tab.
@@ -17,7 +67,7 @@ PRINT_FORMATS = {
 	STRUCTURED: "Derma Assessment Note (Structured)",
 }
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 4
+TEMPLATE_VERSION = 5
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """
@@ -36,13 +86,7 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     <td style="padding:6px 10px;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
   </tr></table>
   <div style="font-size:13px;">{{ derma_assessment_html(doc) }}</div>
-  {%- if doc.custom_derma_print_patient_advice and (doc.custom_derma_patient_advice or doc.custom_derma_patient_advice_ar) %}
-  <div style="font-size:13px;margin-top:18px;padding-top:12px;border-top:1px solid #e5e7eb;">
-    <h2 style="font-size:14px;color:#1a3a5c;margin:0 0 6px;">Patient Advice</h2>
-    {% if doc.custom_derma_patient_advice %}<div style="white-space:pre-wrap;">{{ doc.custom_derma_patient_advice | e }}</div>{% endif %}
-    {% if doc.custom_derma_patient_advice_ar %}<div dir="rtl" style="white-space:pre-wrap;margin-top:10px;">{{ doc.custom_derma_patient_advice_ar | e }}</div>{% endif %}
-  </div>
-  {%- endif %}
+  {{ derma_patient_advice_html(doc) }}
   <div style="margin-top:40px;font-size:12px;">
     <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ (practitioner and practitioner.practitioner_name) or '' }}<br>
       <span style="color:#666;">{{ (practitioner and practitioner.designation) or '' }}</span></div>
@@ -55,7 +99,9 @@ def template_for(mode: str | None) -> str:
 	"""The letter template pinned to one report type, or the documented-format one."""
 	if not mode:
 		return TEMPLATE
-	return TEMPLATE.replace("derma_assessment_html(doc)", f'derma_assessment_html(doc, "{mode}")')
+	return TEMPLATE.replace("derma_assessment_html(doc)", f'derma_assessment_html(doc, "{mode}")').replace(
+		"derma_patient_advice_html(doc)", f'derma_patient_advice_html(doc, "{mode}")'
+	)
 
 
 def ensure_assessment_print_format() -> str:

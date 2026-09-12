@@ -58,6 +58,20 @@
           <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
           {{ __("Include patient advice") }}
         </label>
+        <select
+          v-if="canPrint && hasAdvice && includeAdvice"
+          class="advice-language"
+          data-test="assessment-advice-language"
+          :value="adviceLanguage"
+          :disabled="togglingAdvice"
+          :title="__('Which advice prints: Auto follows the language the report is written in')"
+          @change="setAdviceLanguage($event.target.value)"
+        >
+          <option value="Auto">{{ __("Auto (report language)") }}</option>
+          <option value="English">{{ __("English") }}</option>
+          <option value="Arabic">{{ __("Arabic") }}</option>
+          <option value="Both">{{ __("Both") }}</option>
+        </select>
         <button
           v-if="canPrint"
           type="button"
@@ -129,9 +143,10 @@ const props = defineProps({
   patientAdvice: { type: String, default: "" },
   patientAdviceAr: { type: String, default: "" },
   printPatientAdvice: { type: Boolean, default: false },
+  patientAdviceLanguage: { type: String, default: "Auto" },
 })
 
-const emit = defineEmits(["request-edit", "save", "advice-toggled"])
+const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language"])
 
 // Patient advice prints only when the doctor opts in - the box is a field on the
 // encounter (Allow on Submit), so the choice survives and shows on the form too.
@@ -144,6 +159,29 @@ watch(
     includeAdvice.value = Boolean(value)
   }
 )
+// Auto = the language the report is written in; English / Arabic / Both override it.
+const adviceLanguage = ref(props.patientAdviceLanguage || "Auto")
+watch(
+  () => props.patientAdviceLanguage,
+  (value) => {
+    adviceLanguage.value = value || "Auto"
+  }
+)
+
+async function setAdviceLanguage(value) {
+  const previous = adviceLanguage.value
+  adviceLanguage.value = value
+  togglingAdvice.value = true
+  try {
+    await frappe.db.set_value("Patient Encounter", props.encounter, "custom_derma_patient_advice_language", value)
+    emit("advice-language", value)
+  } catch (error) {
+    adviceLanguage.value = previous
+    frappe.msgprint(__("Could not update the advice language."))
+  } finally {
+    togglingAdvice.value = false
+  }
+}
 
 async function toggleAdvice(checked) {
   togglingAdvice.value = true
@@ -315,6 +353,14 @@ button:disabled {
   font-size: 12px;
   color: #334155;
   cursor: pointer;
+}
+
+.advice-language {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: #ffffff;
 }
 
 .advice-block {
