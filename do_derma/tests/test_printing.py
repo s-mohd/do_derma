@@ -505,6 +505,44 @@ class TestPrintedEncounter(PrintingTestBase):
 		frappe.db.set_value("Patient Encounter", encounter.name, "custom_derma_print_patient_advice", 1)
 		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=fmt)
 		self.assertIn("Patient Advice", printed)
-		self.assertIn("Apply the cream &lt;b&gt;twice&lt;/b&gt; a day.", printed)
-		self.assertIn("ضعي الكريم مرتين يومياً.", printed)
+		self.assertIn("Apply the cream &lt;b&gt;twice&lt;/b&gt; a day.", printed)  # Auto + English report = English only
+		self.assertNotIn("ضعي الكريم مرتين يومياً.", printed)
 		self.assertIn("Topical steroid twice daily", printed)
+
+	def test_advice_language_follows_the_report_or_the_doctor(self):
+		encounter = self._soap_encounter(
+			custom_derma_soap_plan="كريم موضعي مرتين يومياً",
+			custom_derma_patient_advice="Apply the cream twice a day.",
+			custom_derma_patient_advice_ar="ضعي الكريم مرتين يومياً.",
+			custom_derma_print_patient_advice=1,
+		)
+		fmt = note.PRINT_FORMATS[assessment.SOAP]
+
+		self.assertEqual(note.advice_languages(encounter), ["Arabic"])  # Auto: the report is Arabic
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=fmt)
+		self.assertIn("ضعي الكريم مرتين يومياً.", printed)
+		self.assertNotIn("Apply the cream twice a day.", printed)
+
+		for choice, present, absent in (
+			("English", "Apply the cream twice a day.", "ضعي الكريم مرتين يومياً."),
+			("Arabic", "ضعي الكريم مرتين يومياً.", "Apply the cream twice a day."),
+		):
+			frappe.db.set_value("Patient Encounter", encounter.name, "custom_derma_patient_advice_language", choice)
+			printed = frappe.get_print("Patient Encounter", encounter.name, print_format=fmt)
+			self.assertIn(present, printed, choice)
+			self.assertNotIn(absent, printed, choice)
+
+		frappe.db.set_value("Patient Encounter", encounter.name, "custom_derma_patient_advice_language", "Both")
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=fmt)
+		self.assertIn("Apply the cream twice a day.", printed)
+		self.assertIn("ضعي الكريم مرتين يومياً.", printed)
+
+	def test_blank_chosen_version_falls_back_to_the_other(self):
+		encounter = self._soap_encounter(
+			custom_derma_soap_plan="Topical steroid twice daily",
+			custom_derma_patient_advice_ar="ضعي الكريم مرتين يومياً.",
+			custom_derma_print_patient_advice=1,
+			custom_derma_patient_advice_language="English",
+		)
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=note.PRINT_FORMATS[assessment.SOAP])
+		self.assertIn("ضعي الكريم مرتين يومياً.", printed)
