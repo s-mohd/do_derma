@@ -79,3 +79,7 @@ All require a logged-in user with a clinical role and Voice AI enabled.
 ## Tests
 
 `bench --site <test site> run-tests --app do_derma --module do_derma.tests.test_voice` (and `test_hp_mode`, `test_documents`, `test_ai_ops`). `test_voice_all_formats` covers the Structured mapping, `set_derma_assessment_all` and print-format seeding. External calls are mocked; PDF rendering uses a blank PDF.
+
+## Deploying to the hosted demo
+
+`scripts/deploy-demo.sh` rsyncs this checkout to the demo bench, runs `bench build --app do_derma --production` and `bench --site <site> migrate`, restarts `bench-web:` and smoke-tests the Patient Advice print block. Server details come from the environment or `~/.config/soulvd/derma-deploy.env` (`DERMA_DEPLOY_HOST`, `DERMA_DEPLOY_KEY`, `DERMA_DEPLOY_SITE`); nothing server-specific is committed.
