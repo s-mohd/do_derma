@@ -7,10 +7,10 @@ Ambient scribe, three note formats, AI letters and a usage ledger, all inside th
 | Where | What |
 |---|---|
 | Assessment tab, top strip | **Dictate** records the visit from any microphone (picker when more than one). Live level meter: *No sound / Low – bring the mic closer / Good level / Too loud – move the mic away*. Warning + toast after 6 s of silence. Recording stops itself at the configured maximum. |
-| After **Stop** | Transcript → AI note. One dictation drafts all three formats (Structured, SOAP, H&P) and saves them together on the encounter immediately (still a draft); the panel opens for editing. Diagnosis + ICD‑10 chip, collapsible Arabic note and WhatsApp follow-up (EN/AR, Copy). |
+| After **Stop** | Transcript → AI note. One dictation drafts all three formats (Structured, SOAP, H&P) and saves them together on the encounter immediately (still a draft); the panel opens for editing. Diagnosis + ICD‑10 chip, collapsible Arabic note and WhatsApp follow-up (EN/AR, Copy). The follow-up is also saved on the encounter as **Patient Advice** (EN + AR, editable on the Patient Encounter form) and shown in a collapsible block on the Assessment tab. |
 | Format toggle | **Structured / SOAP / H&P**. The format on screen stays selected after dictation; switching afterwards shows each one already drafted. H&P = Chief Complaint, History of Presenting Complaint, Past Medical History, Examination Findings, Assessment, Management Plan. |
 | **Adjust** box | "Ask the AI to adjust the note" – rewrites the active format per the instruction and saves as draft. |
-| **Print** (Assessment footer, once filled) | Prints the active format on the clinic letterhead through Print Format **Derma Assessment Note** (patient bar, note, clinician sign-off). Browser print or PDF from the print view. |
+| **Print** (Assessment footer, once filled) | Prints the active format on the clinic letterhead through Print Format **Derma Assessment Note** (patient bar, note, clinician sign-off). Browser print or PDF from the print view. **Include patient advice** (checkbox beside Print, stored as *Include Patient Advice in Print* on the encounter, off by default) appends the Patient Advice block (EN + AR) under the note - optional, exactly like the after-visit message on health.soulvd.com. |
 | Review tab, **AI Documents** | Medical Report, Referral Letter (asks addressee), Patient Education, Patient Explainer. Each becomes a *Patient Official Document* (Draft) with English + Arabic body. **Issue** renders the letterhead PDF (page 1 EN, page 2 AR). |
 
 ### Note style

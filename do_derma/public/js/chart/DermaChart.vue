@@ -139,6 +139,10 @@
                   :allow-on-submit-fields="assessmentEditableOnSubmitFields"
                   :encounter="assessmentPanel.encounter || ''"
                   :is-filled="Boolean(assessmentPanel.isFilled)"
+                  :patient-advice="assessmentPanel.patientAdvice"
+                  :patient-advice-ar="assessmentPanel.patientAdviceAr"
+                  :print-patient-advice="assessmentPanel.printPatientAdvice"
+                  @advice-toggled="(value) => (assessmentPanel.printPatientAdvice = value)"
                   @request-edit="assessmentPanel.editing = true"
                   @save="saveAssessment"
                 />
@@ -706,6 +710,9 @@ const assessmentPanel = reactive({
   soapValues: {},
   hpLayout: [],
   hpValues: {},
+  patientAdvice: "",
+  patientAdviceAr: "",
+  printPatientAdvice: false,
   contextValues: {},
 })
 
@@ -1963,6 +1970,9 @@ function applyAssessmentResponse(message) {
   assessmentPanel.soapValues = message.soap_values || {}
   assessmentPanel.hpLayout = message.hp_layout || []
   assessmentPanel.hpValues = message.hp_values || {}
+  assessmentPanel.patientAdvice = message.patient_advice || ""
+  assessmentPanel.patientAdviceAr = message.patient_advice_ar || ""
+  assessmentPanel.printPatientAdvice = Boolean(message.print_patient_advice)
   assessmentPanel.contextValues = message.context_values || {}
   assessmentPanel.editing = false
 }
