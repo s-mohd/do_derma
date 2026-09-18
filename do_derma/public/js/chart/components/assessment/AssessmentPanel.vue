@@ -45,8 +45,33 @@
         {{ otherFormatNote }}
       </p>
 
+      <details v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
+        <summary>{{ __("Patient advice") }}</summary>
+        <pre v-if="patientAdvice">{{ patientAdvice }}</pre>
+        <pre v-if="patientAdviceAr" dir="rtl">{{ patientAdviceAr }}</pre>
+        <small>{{ __("Edit the text on the Patient Encounter form. Tick the box below to print it under the note.") }}</small>
+      </details>
+
       <footer class="assessment-footer">
         <span class="footer-status">{{ footerStatus }}</span>
+        <label v-if="canPrint && hasAdvice" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
+          <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
+          {{ __("Include patient advice") }}
+        </label>
+        <select
+          v-if="canPrint && hasAdvice && includeAdvice"
+          class="advice-language"
+          data-test="assessment-advice-language"
+          :value="adviceLanguage"
+          :disabled="togglingAdvice"
+          :title="__('Which advice prints: Auto follows the language the report is written in')"
+          @change="setAdviceLanguage($event.target.value)"
+        >
+          <option value="Auto">{{ __("Auto (report language)") }}</option>
+          <option value="English">{{ __("English") }}</option>
+          <option value="Arabic">{{ __("Arabic") }}</option>
+          <option value="Both">{{ __("Both") }}</option>
+        </select>
         <button
           v-if="canPrint"
           type="button"
@@ -115,9 +140,62 @@ const props = defineProps({
   allowOnSubmitFields: { type: Array, default: () => [] },
   encounter: { type: String, default: "" },
   isFilled: { type: Boolean, default: false },
+  patientAdvice: { type: String, default: "" },
+  patientAdviceAr: { type: String, default: "" },
+  printPatientAdvice: { type: Boolean, default: false },
+  patientAdviceLanguage: { type: String, default: "Auto" },
 })
 
-const emit = defineEmits(["request-edit", "save"])
+const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language"])
+
+// Patient advice prints only when the doctor opts in - the box is a field on the
+// encounter (Allow on Submit), so the choice survives and shows on the form too.
+const hasAdvice = computed(() => Boolean(props.patientAdvice || props.patientAdviceAr))
+const includeAdvice = ref(Boolean(props.printPatientAdvice))
+const togglingAdvice = ref(false)
+watch(
+  () => props.printPatientAdvice,
+  (value) => {
+    includeAdvice.value = Boolean(value)
+  }
+)
+// Auto = the language the report is written in; English / Arabic / Both override it.
+const adviceLanguage = ref(props.patientAdviceLanguage || "Auto")
+watch(
+  () => props.patientAdviceLanguage,
+  (value) => {
+    adviceLanguage.value = value || "Auto"
+  }
+)
+
+async function setAdviceLanguage(value) {
+  const previous = adviceLanguage.value
+  adviceLanguage.value = value
+  togglingAdvice.value = true
+  try {
+    await frappe.db.set_value("Patient Encounter", props.encounter, "custom_derma_patient_advice_language", value)
+    emit("advice-language", value)
+  } catch (error) {
+    adviceLanguage.value = previous
+    frappe.msgprint(__("Could not update the advice language."))
+  } finally {
+    togglingAdvice.value = false
+  }
+}
+
+async function toggleAdvice(checked) {
+  togglingAdvice.value = true
+  try {
+    await frappe.db.set_value("Patient Encounter", props.encounter, "custom_derma_print_patient_advice", checked ? 1 : 0)
+    includeAdvice.value = checked
+    emit("advice-toggled", checked)
+  } catch (error) {
+    includeAdvice.value = !checked
+    frappe.msgprint(__("Could not update the print option."))
+  } finally {
+    togglingAdvice.value = false
+  }
+}
 
 const fieldsRef = ref(null)
 const isDirty = ref(false)
@@ -265,6 +343,50 @@ button:disabled {
   flex: 1;
   min-width: 0;
   font-size: 12px;
+  color: #64748b;
+}
+
+.advice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.advice-language {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: #ffffff;
+}
+
+.advice-block {
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.advice-block summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #334155;
+}
+
+.advice-block pre {
+  white-space: pre-wrap;
+  font: inherit;
+  margin: 8px 0 0;
+}
+
+.advice-block small {
+  display: block;
+  margin-top: 6px;
   color: #64748b;
 }
 </style>

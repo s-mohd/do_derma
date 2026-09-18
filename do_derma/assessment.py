@@ -9,7 +9,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, cstr
 
 from do_derma.settings import SETTINGS_DOCTYPE, get_settings_doc
 
@@ -206,6 +206,10 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 		"soap_values": soap_values,
 		"hp_layout": hp_layout,
 		"hp_values": hp_values,
+		"patient_advice": cstr(encounter_doc.get("custom_derma_patient_advice")),
+		"patient_advice_ar": cstr(encounter_doc.get("custom_derma_patient_advice_ar")),
+		"print_patient_advice": cint(encounter_doc.get("custom_derma_print_patient_advice")),
+		"patient_advice_language": cstr(encounter_doc.get("custom_derma_patient_advice_language")) or "Auto",
 		"context_values": {
 			"patient": encounter_doc.get("patient"),
 			"appointment": encounter_doc.get("appointment"),
@@ -231,6 +235,10 @@ def empty_assessment() -> dict[str, Any]:
 		"soap_values": {},
 		"hp_layout": get_hp_layout(),
 		"hp_values": {},
+		"patient_advice": "",
+		"patient_advice_ar": "",
+		"print_patient_advice": 0,
+		"patient_advice_language": "Auto",
 		"context_values": {},
 	}
 

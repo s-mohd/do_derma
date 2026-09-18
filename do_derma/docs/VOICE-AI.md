@@ -7,10 +7,10 @@ Ambient scribe, three note formats, AI letters and a usage ledger, all inside th
 | Where | What |
 |---|---|
 | Assessment tab, top strip | **Dictate** records the visit from any microphone (picker when more than one). Live level meter: *No sound / Low – bring the mic closer / Good level / Too loud – move the mic away*. Warning + toast after 6 s of silence. Recording stops itself at the configured maximum. |
-| After **Stop** | Transcript → AI note. One dictation drafts all three formats (Structured, SOAP, H&P) and saves them together on the encounter immediately (still a draft); the panel opens for editing. Diagnosis + ICD‑10 chip, collapsible Arabic note and WhatsApp follow-up (EN/AR, Copy). |
+| After **Stop** | Transcript → AI note. One dictation drafts all three formats (Structured, SOAP, H&P) and saves them together on the encounter immediately (still a draft); the panel opens for editing. Diagnosis + ICD‑10 chip, collapsible Arabic note and WhatsApp follow-up (EN/AR, Copy). The follow-up is also saved on the encounter as **Patient Advice** (EN + AR, editable on the Patient Encounter form) and shown in a collapsible block on the Assessment tab. |
 | Format toggle | **Structured / SOAP / H&P**. The format on screen stays selected after dictation; switching afterwards shows each one already drafted. H&P = Chief Complaint, History of Presenting Complaint, Past Medical History, Examination Findings, Assessment, Management Plan. |
 | **Adjust** box | "Ask the AI to adjust the note" – rewrites the active format per the instruction and saves as draft. |
-| **Print** (Assessment footer, once filled) | Prints the active format on the clinic letterhead through Print Format **Derma Assessment Note** (patient bar, note, clinician sign-off). Browser print or PDF from the print view. |
+| **Print** (Assessment footer, once filled) | Prints the active format on the clinic letterhead through Print Format **Derma Assessment Note** (patient bar, note, clinician sign-off). Browser print or PDF from the print view. **Include patient advice** (checkbox beside Print, stored as *Include Patient Advice in Print* on the encounter, off by default) appends the Patient Advice block under the note - optional, exactly like the after-visit message on health.soulvd.com. A language picker beside it (*Patient Advice Language* on the encounter) chooses what prints: **Auto** (default) follows the language the report is written in (Arabic script in the note → Arabic advice, otherwise English), or **English** / **Arabic** / **Both**. A blank version falls back to the other. |
 | Review tab, **AI Documents** | Medical Report, Referral Letter (asks addressee), Patient Education, Patient Explainer. Each becomes a *Patient Official Document* (Draft) with English + Arabic body. **Issue** renders the letterhead PDF (page 1 EN, page 2 AR). |
 
 ### Note style
@@ -79,3 +79,7 @@ All require a logged-in user with a clinical role and Voice AI enabled.
 ## Tests
 
 `bench --site <test site> run-tests --app do_derma --module do_derma.tests.test_voice` (and `test_hp_mode`, `test_documents`, `test_ai_ops`). `test_voice_all_formats` covers the Structured mapping, `set_derma_assessment_all` and print-format seeding. External calls are mocked; PDF rendering uses a blank PDF.
+
+## Deploying to the hosted demo
+
+`scripts/deploy-demo.sh` rsyncs this checkout to the demo bench, runs `bench build --app do_derma --production` and `bench --site <site> migrate`, restarts `bench-web:` and smoke-tests the Patient Advice print block. Server details come from the environment or `~/.config/soulvd/derma-deploy.env` (`DERMA_DEPLOY_HOST`, `DERMA_DEPLOY_KEY`, `DERMA_DEPLOY_SITE`); nothing server-specific is committed.

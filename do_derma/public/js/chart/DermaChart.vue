@@ -139,6 +139,12 @@
                   :allow-on-submit-fields="assessmentEditableOnSubmitFields"
                   :encounter="assessmentPanel.encounter || ''"
                   :is-filled="Boolean(assessmentPanel.isFilled)"
+                  :patient-advice="assessmentPanel.patientAdvice"
+                  :patient-advice-ar="assessmentPanel.patientAdviceAr"
+                  :print-patient-advice="assessmentPanel.printPatientAdvice"
+                  :patient-advice-language="assessmentPanel.patientAdviceLanguage"
+                  @advice-toggled="(value) => (assessmentPanel.printPatientAdvice = value)"
+                  @advice-language="(value) => (assessmentPanel.patientAdviceLanguage = value)"
                   @request-edit="assessmentPanel.editing = true"
                   @save="saveAssessment"
                 />
@@ -706,6 +712,10 @@ const assessmentPanel = reactive({
   soapValues: {},
   hpLayout: [],
   hpValues: {},
+  patientAdvice: "",
+  patientAdviceAr: "",
+  printPatientAdvice: false,
+  patientAdviceLanguage: "Auto",
   contextValues: {},
 })
 
@@ -1963,6 +1973,10 @@ function applyAssessmentResponse(message) {
   assessmentPanel.soapValues = message.soap_values || {}
   assessmentPanel.hpLayout = message.hp_layout || []
   assessmentPanel.hpValues = message.hp_values || {}
+  assessmentPanel.patientAdvice = message.patient_advice || ""
+  assessmentPanel.patientAdviceAr = message.patient_advice_ar || ""
+  assessmentPanel.printPatientAdvice = Boolean(message.print_patient_advice)
+  assessmentPanel.patientAdviceLanguage = message.patient_advice_language || "Auto"
   assessmentPanel.contextValues = message.context_values || {}
   assessmentPanel.editing = false
 }

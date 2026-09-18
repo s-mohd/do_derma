@@ -40,6 +40,13 @@ HP_ONLY = "eval:doc.custom_derma_assessment_mode=='HP'"
 COMPLETION_OVERRIDE_FIELD = "custom_derma_completion_override_reason"
 # Raw transcript from the voice scribe, kept for audit next to the SOAP fields.
 VOICE_TRANSCRIPT_FIELD = "custom_derma_voice_transcript"
+# Patient advice = the after-visit message the scribe drafts (EN + AR). Printed on the
+# note only when the doctor ticks the box - the same optional block health.soulvd.com has.
+PATIENT_ADVICE_FIELD = "custom_derma_patient_advice"
+PATIENT_ADVICE_AR_FIELD = "custom_derma_patient_advice_ar"
+PRINT_PATIENT_ADVICE_FIELD = "custom_derma_print_patient_advice"
+PATIENT_ADVICE_LANGUAGE_FIELD = "custom_derma_patient_advice_language"
+PATIENT_ADVICE_LANGUAGES = "Auto\nEnglish\nArabic\nBoth"  # Auto = the language the report is written in
 MODE_FIELD = "custom_derma_assessment_mode"
 PRACTITIONER_DEFAULT_FIELD = "custom_derma_default_assessment_mode"
 
@@ -149,6 +156,44 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"no_copy": 1,
 			"hidden": 1,
 			"description": "Raw speech-to-text of the recorded consultation, kept for audit.",
+		},
+		{
+			"fieldname": PATIENT_ADVICE_FIELD,
+			"fieldtype": "Small Text",
+			"label": "Patient Advice",
+			"insert_after": VOICE_TRANSCRIPT_FIELD,
+			"allow_on_submit": 1,
+			"no_copy": 1,
+			"description": "After-visit advice for the patient in plain English, drafted by the voice scribe. Editable.",
+		},
+		{
+			"fieldname": PATIENT_ADVICE_AR_FIELD,
+			"fieldtype": "Small Text",
+			"label": "Patient Advice (Arabic)",
+			"insert_after": PATIENT_ADVICE_FIELD,
+			"allow_on_submit": 1,
+			"no_copy": 1,
+		},
+		{
+			"fieldname": PRINT_PATIENT_ADVICE_FIELD,
+			"fieldtype": "Check",
+			"label": "Include Patient Advice in Print",
+			"insert_after": PATIENT_ADVICE_AR_FIELD,
+			"allow_on_submit": 1,
+			"no_copy": 1,
+			"description": "When ticked, the printed assessment note ends with the patient advice block.",
+		},
+		{
+			"fieldname": PATIENT_ADVICE_LANGUAGE_FIELD,
+			"fieldtype": "Select",
+			"label": "Patient Advice Language",
+			"options": PATIENT_ADVICE_LANGUAGES,
+			"default": "Auto",
+			"insert_after": PRINT_PATIENT_ADVICE_FIELD,
+			"allow_on_submit": 1,
+			"no_copy": 1,
+			"depends_on": f"eval:doc.{PRINT_PATIENT_ADVICE_FIELD}",
+			"description": "Which advice prints: Auto follows the language the report is written in.",
 		},
 	],
 	# do_health owns this child table; do_derma adds the column that carries the badge legend
