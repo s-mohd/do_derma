@@ -154,9 +154,10 @@
                       <strong>{{ __("Drawings") }}</strong>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
-                    <button type="button" class="primary small" data-test="annotate-consultation" @click="openAnnotationStudio({ annotation: null })">
-                      <span aria-hidden="true">✎</span>
-                      {{ __("Annotate Consultation") }}
+                    <button type="button" class="primary small" data-test="annotate-consultation" :disabled="annotationStudioBusy" @click="openAnnotationStudio({ annotation: null })">
+                      <span v-if="annotationStudioBusy" class="chart-spinner" aria-hidden="true"></span>
+                      <span v-else aria-hidden="true">✎</span>
+                      {{ annotationStudioBusy ? __("Opening...") : __("Annotate Consultation") }}
                     </button>
                   </header>
                   <div v-if="annotations.length" class="chart-annotation-list">
@@ -181,6 +182,7 @@
                         class="chart-annotation-edit"
                         data-test="annotation-resume"
                         :title="__('Edit')"
+                        :disabled="annotationStudioBusy"
                         @click="openAnnotationStudio({ annotation })"
                       >
                         <span aria-hidden="true">✎</span>
@@ -584,7 +586,6 @@ import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
 import PhotosPanel from "./components/photos/PhotosPanel.vue"
 import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import MarkResponseChips from "./components/MarkResponseChips.vue"
-import { openDermaAnnotationStudio } from "./annotation/DermaAnnotationStudio.jsx"
 import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
 import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
@@ -666,6 +667,8 @@ const loading = ref(false)
 const loadError = ref("")
 const syncingBillables = ref(false)
 const completingSession = ref(false)
+// The studio arrives over the network on first use, so the buttons that open it say so.
+const annotationStudioBusy = ref(false)
 const { isBroken, markBroken } = useBrokenImages()
 // A completion the clinician has started but not yet confirmed. Guards re-entry without
 // claiming the button's busy label.
@@ -1666,17 +1669,38 @@ function loadBodyTemplate(template = selectedBodyTemplate.value) {
   selectedBodyTemplate.value = template
 }
 
-function openAnnotationStudio(anchor = {}) {
+/** Excalidraw and React ship as their own bundle so they stay out of the chart's first load. */
+async function loadAnnotationStudio() {
+  await frappe.require("derma_annotation_studio.bundle.jsx")
+  // frappe.assets resolves even when the script fails to load, so an absent global is the only signal.
+  if (!window.do_derma?.openAnnotationStudio) {
+    throw new Error("derma_annotation_studio.bundle.jsx did not register do_derma.openAnnotationStudio")
+  }
+  return window.do_derma.openAnnotationStudio
+}
+
+async function openAnnotationStudio(anchor = {}) {
   if (!encounter.value.name) {
     frappe.msgprint(__("A Patient Encounter is required before saving annotation."))
     return
+  }
+  if (annotationStudioBusy.value) return
+  annotationStudioBusy.value = true
+  let openStudio
+  try {
+    openStudio = await loadAnnotationStudio()
+  } catch (error) {
+    frappe.msgprint(__("The drawing tools could not be loaded. Check your connection and try again."))
+    throw error
+  } finally {
+    annotationStudioBusy.value = false
   }
   const clinicalProcedure = anchor.clinicalProcedure || ""
   // `annotation: null` is an explicit "start a fresh drawing" - only an absent key falls
   // back to resuming the anchor's newest one.
   const opened =
     anchor.annotation !== undefined ? anchor.annotation : latestAnnotationForAnchor(clinicalProcedure)
-  openDermaAnnotationStudio({
+  openStudio({
     context: {
       patient: patient.value.name,
       patientName: patient.value.patient_name || patient.value.name,
