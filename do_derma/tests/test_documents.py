@@ -102,6 +102,15 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 			html = letter.get_form_preview()["html"]
 			self.assertEqual("English body" in html, has_english, language)
 			self.assertEqual("نص عربي" in html, has_arabic, language)
+			self.assertEqual("رسالة توضيحية للمريض" in html, has_arabic, language)
+
+	def test_sign_off_block_only_when_the_body_does_not_sign(self):
+		letter = self._letter_for(self._doctor("Consultant"))
+		name = frappe.db.get_value("Healthcare Practitioner", letter.practitioner, "practitioner_name")
+		values = letter.get_values()
+		self.assertEqual(letter.get_form_preview()["html"].count(name), 2)
+		letter.values_json = json.dumps({**values, "body": f"Warm regards,\n{name}\nConsultant"})
+		self.assertEqual(letter.get_form_preview()["html"].count(name), 2)
 
 	def test_generate_creates_a_draft_official_document(self):
 		with self._enabled(), self._llm(REPORT) as post:

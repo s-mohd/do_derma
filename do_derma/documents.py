@@ -23,10 +23,10 @@ from do_derma.schema import VOICE_TRANSCRIPT_FIELD
 TEMPLATE_PREFIX = "Derma AI "
 HISTORY_LIMIT = 5
 KINDS: dict[str, dict[str, str]] = {
-	"report": {"title": "Medical Report", "document_type": "Medical Report"},
-	"referral": {"title": "Referral Letter", "document_type": "Referral Letter"},
-	"education": {"title": "Patient Education Material", "document_type": "Patient Education Material"},
-	"explainer": {"title": "Patient Explainer Letter", "document_type": "Patient Explainer Letter"},
+	"report": {"title": "Medical Report", "title_ar": "تقرير طبي", "document_type": "Medical Report"},
+	"referral": {"title": "Referral Letter", "title_ar": "رسالة تحويل", "document_type": "Referral Letter"},
+	"education": {"title": "Patient Education Material", "title_ar": "مواد تثقيفية للمريض", "document_type": "Patient Education Material"},
+	"explainer": {"title": "Patient Explainer Letter", "title_ar": "رسالة توضيحية للمريض", "document_type": "Patient Explainer Letter"},
 }
 
 DOC_COMMON = """You are SOULVD Health, the clinical documentation assistant of {clinic}, a clinic in {country}.
@@ -103,7 +103,7 @@ Warm regards,
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
 # become headings and "- " lines become bullets, everything else a paragraph.
-TEMPLATE_VERSION = 4
+TEMPLATE_VERSION = 5
 TEMPLATE_MARKER = "<!-- derma-ai-letter v"
 LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
@@ -132,14 +132,16 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     {% elif line.strip() %}<p style="margin:6px 0;">{{ line }}</p>{% endif %}
   {% endfor %}
   </div>
+  {% if practitioner and practitioner.practitioner_name not in (values.body or '') %}
   <div style="margin-top:40px;font-size:12px;">
-    <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ practitioner.practitioner_name if practitioner else '' }}<br>
-      <span style="color:#666;">{{ (practitioner and (practitioner.custom_specialty or practitioner.designation)) or '' }}</span></div>
+    <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ practitioner.practitioner_name }}<br>
+      <span style="color:#666;">{{ practitioner.custom_specialty or practitioner.designation or '' }}</span></div>
   </div>
+  {% endif %}
   {% endif %}
   {% if show_ar %}
   <div dir="rtl" style="{{ 'page-break-before:always;' if show_en else '' }}font-size:13px;padding-top:12px;">
-    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title }}</h1>
+    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title_ar or values.title }}</h1>
     {% for line in values.body_ar.split('\\n') %}
       {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:16px 0 6px;">{{ line[3:] }}</h2>
       {% elif line.startswith('- ') %}<div style="padding-right:16px;margin:2px 0;">&bull; {{ line[2:] }}</div>
@@ -181,7 +183,10 @@ def generate_document(kind: str, encounter: str, addressee: str | None = None) -
 			"encounter": encounter_doc.name,
 			"practitioner": encounter_doc.practitioner,
 			"company": encounter_doc.company,
-			"values_json": json.dumps({"title": spec["title"], "body": text, "body_ar": text_ar, "addressee": cstr(addressee), "language": "English"}),
+			"values_json": json.dumps(
+				{"title": spec["title"], "title_ar": spec["title_ar"], "body": text, "body_ar": text_ar, "addressee": cstr(addressee), "language": "English"},
+				ensure_ascii=False,
+			),
 		}
 	).insert()
 	return serialize_document(doc)
@@ -330,6 +335,7 @@ def visit_history(encounter_doc) -> list[dict[str, str]]:
 LETTER_VARIABLES = [
 	{"variable_name": "title", "variable_label": "Title", "variable_type": "Data", "is_required": 1},
 	{"variable_name": "body", "variable_label": "Body", "variable_type": "Data", "is_required": 1},
+	{"variable_name": "title_ar", "variable_label": "Title (Arabic)", "variable_type": "Data"},
 	{"variable_name": "body_ar", "variable_label": "Body (Arabic)", "variable_type": "Data"},
 	{"variable_name": "addressee", "variable_label": "Addressee", "variable_type": "Data"},
 	{
