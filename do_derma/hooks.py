@@ -56,5 +56,5 @@ jinja = {
 after_migrate = "do_derma.install.after_migrate"
 
 scheduler_events = {
-	"daily": ["do_derma.voice.purge_old_audio"],
+	"daily": ["do_derma.recordings.purge_old_audio"],
 }

@@ -25,7 +25,7 @@ from typing import Any
 import frappe
 import requests
 from frappe import _
-from frappe.utils import add_days, cint, cstr, date_diff, getdate, nowdate
+from frappe.utils import cint, cstr, date_diff, getdate, nowdate
 
 from do_derma.assessment import HP_FIELDS, SOAP_FIELDS
 from do_derma.schema import PATIENT_ADVICE_AR_FIELD, PATIENT_ADVICE_FIELD
@@ -210,21 +210,6 @@ def wav_seconds(data: bytes) -> float:
 	except Exception:
 		pass
 	return round(len(data) / 32000, 1)
-
-
-def purge_old_audio() -> int:
-	"""Daily job: delete consultation recordings older than Derma Settings.audio_retention_days (0 = keep)."""
-	days = cint(_setting("audio_retention_days", 0))
-	if days <= 0:
-		return 0
-	files = frappe.get_all(
-		"File",
-		filters={"attached_to_doctype": "Patient Encounter", "file_name": ["like", "consultation-%.wav"], "creation": ["<", add_days(nowdate(), -days)]},
-		pluck="name",
-	)
-	for name in files:
-		frappe.delete_doc("File", name, ignore_permissions=True, delete_permanently=True)
-	return len(files)
 
 
 # --------------------------------------------------------------- transcribe

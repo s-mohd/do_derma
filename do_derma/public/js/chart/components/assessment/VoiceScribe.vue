@@ -268,15 +268,13 @@ async function transcribe(blob) {
   return (data.message?.text || "").trim()
 }
 
-// Keep the recording on the encounter for audit - private File. Returns whether an upload started.
+// The server keeps the recording (hospital storage folder or private File). Returns whether an upload started.
 function attachAudio(blob, encounter) {
   if (!encounter) return false
   const form = new FormData()
-  form.append("file", blob, `consultation-${Date.now()}.wav`)
-  form.append("is_private", "1")
-  form.append("doctype", "Patient Encounter")
-  form.append("docname", encounter)
-  fetch("/api/method/upload_file", {
+  form.append("audio", blob, "consultation.wav")
+  form.append("encounter", encounter)
+  fetch("/api/method/do_derma.recordings.save_recording", {
     method: "POST",
     headers: { "X-Frappe-CSRF-Token": window.frappe?.csrf_token || "", Accept: "application/json" },
     body: form,

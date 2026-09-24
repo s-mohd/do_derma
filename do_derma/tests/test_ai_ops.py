@@ -107,12 +107,3 @@ class TestAiOperations(DermaTestHelpers, IntegrationTestCase):
 		company = frappe.db.get_value("Company", self.encounter.company, "company_name")
 		self.assertIn(company, voice.note_system_prompt(self.encounter.company))
 		self.assertNotIn("DermaOne", voice.note_system_prompt(self.encounter.company))
-
-	def test_purge_deletes_only_old_consultation_audio(self):
-		with patch.object(voice, "_setting", side_effect=lambda name, default=None: {"audio_retention_days": 30}.get(name, default)):
-			old = frappe.get_doc({"doctype": "File", "file_name": "consultation-1.wav", "content": b"RIFF", "attached_to_doctype": "Patient Encounter", "attached_to_name": self.encounter.name, "is_private": 1}).insert(ignore_permissions=True)
-			frappe.db.set_value("File", old.name, "creation", "2020-01-01 00:00:00", update_modified=False)
-			fresh = frappe.get_doc({"doctype": "File", "file_name": "consultation-2.wav", "content": b"RIFF", "attached_to_doctype": "Patient Encounter", "attached_to_name": self.encounter.name, "is_private": 1}).insert(ignore_permissions=True)
-			self.assertEqual(voice.purge_old_audio(), 1)
-		self.assertFalse(frappe.db.exists("File", old.name))
-		self.assertTrue(frappe.db.exists("File", fresh.name))

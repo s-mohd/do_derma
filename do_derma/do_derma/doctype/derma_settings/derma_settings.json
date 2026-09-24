@@ -20,6 +20,7 @@
   "stt_model",
   "max_recording_minutes",
   "audio_retention_days",
+  "recording_storage_path",
   "ai_creates_clinical_masters",
   "voice_column",
   "llm_base_url",
@@ -157,7 +158,14 @@
    "label": "Keep Audio (days)",
    "default": "0",
    "depends_on": "enable_voice_scribe",
-   "description": "0 keeps recordings forever. Otherwise the nightly job deletes consultation audio older than this; transcripts and notes stay."
+   "description": "0 keeps recordings forever. Otherwise the nightly job deletes consultation audio older than this (in the Recording Storage Folder too); transcripts and notes stay."
+  },
+  {
+   "fieldname": "recording_storage_path",
+   "fieldtype": "Data",
+   "label": "Recording Storage Folder",
+   "depends_on": "enable_voice_scribe",
+   "description": "Absolute folder on the hospital server (a local disk or a mounted NAS), e.g. /mnt/recordings. Each recording is saved as <folder>/<patient>/<date>/consultation-<visit>-<time>.wav and the path is noted on the visit. Leave empty to keep recordings as private files on the visit."
   },
   {
    "fieldname": "ai_creates_clinical_masters",
@@ -172,7 +180,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-09 14:00:00",
+ "modified": "2026-09-24 15:00:00",
  "modified_by": "Administrator",
  "module": "Do Derma",
  "name": "Derma Settings",
