@@ -107,3 +107,8 @@ class TestAiOperations(DermaTestHelpers, IntegrationTestCase):
 		company = frappe.db.get_value("Company", self.encounter.company, "company_name")
 		self.assertIn(company, voice.note_system_prompt(self.encounter.company))
 		self.assertNotIn("DermaOne", voice.note_system_prompt(self.encounter.company))
+
+	def test_ai_jobs_run_on_the_short_queue(self):
+		with patch.object(voice.frappe, "enqueue") as enqueue:
+			voice.enqueue_ai_job("do_derma.voice.note_job", transcript="x")
+		self.assertEqual(enqueue.call_args.kwargs["queue"], "short")

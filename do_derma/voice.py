@@ -152,10 +152,13 @@ def has_workers() -> bool:
 
 
 def enqueue_ai_job(method: str, **kwargs: Any) -> dict[str, str]:
-	"""Run `method` in the long queue (or inline when nothing would pick it up); poll with job_status."""
+	"""Run `method` in the short queue (or inline when nothing would pick it up); poll with job_status.
+
+	Not the long queue: on a clinic ERP it also carries stock reposting and backups, and a doctor
+	waiting on a note must not queue behind them."""
 	job = frappe.generate_hash(length=16)
 	_set_job(job, {"status": "pending"})
-	frappe.enqueue(method, queue="long", timeout=900, now=frappe.in_test or not has_workers(), job=job, **kwargs)
+	frappe.enqueue(method, queue="short", timeout=600, now=frappe.in_test or not has_workers(), job=job, **kwargs)
 	return {"job": job}
 
 

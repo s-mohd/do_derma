@@ -98,6 +98,8 @@ import VoiceWaveform from "./VoiceWaveform.vue"
 
 // Seconds of silence before the doctor is told the mic is not picking anything up.
 const SILENCE_WARN_SEC = 6
+// While recording, every ~45 s of audio is transcribed in the background, so Stop only waits for the tail.
+const LIVE_SEGMENT_SEC = 45
 
 const __ = window.__ || ((txt) => txt)
 
@@ -140,6 +142,8 @@ const silenceWarned = ref(false)
 const recorder = createVoiceRecorder()
 let ticker = null
 let meterTicker = null
+let liveTicker = null
+let live = { from: 0, pieces: [], failed: false }
 
 const isCapturing = computed(() => state.value === "recording" || state.value === "paused")
 const meterZone = computed(() => {
@@ -173,10 +177,23 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  clearInterval(ticker)
-  clearInterval(meterTicker)
+  stopTickers()
   recorder.cancel()
 })
+
+function stopTickers() {
+  clearInterval(ticker)
+  clearInterval(meterTicker)
+  clearInterval(liveTicker)
+}
+
+// A failed piece is not retried here: Stop then transcribes the whole recording instead.
+function transcribePiece(blob) {
+  return transcribe(blob).catch(() => {
+    live.failed = true
+    return ""
+  })
+}
 
 async function startRecording() {
   error.value = ""
@@ -184,7 +201,14 @@ async function startRecording() {
   try {
     await recorder.start(deviceId.value)
     rememberDeviceId(deviceId.value)
+    live = { from: 0, pieces: [], failed: false }
     state.value = "recording"
+    liveTicker = setInterval(() => {
+      const segment = state.value === "recording" && recorder.nextSegment(live.from, LIVE_SEGMENT_SEC)
+      if (!segment) return
+      live.from = segment.to
+      live.pieces.push(transcribePiece(segment.blob))
+    }, 2000)
     ticker = setInterval(() => {
       const s = recorder.elapsedSec()
       clock.value = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`
@@ -217,16 +241,17 @@ async function togglePause() {
 }
 
 async function stopRecording() {
-  clearInterval(ticker)
-  clearInterval(meterTicker)
+  stopTickers()
   state.value = "transcribing"
   let blob
   let saved = false
   try {
-    ;({ blob } = await recorder.stop())
+    let tail
+    ;({ blob, tail } = await recorder.stop(live.from))
     // Saved before transcription so a failed transcript or note never loses the recording.
     saved = attachAudio(blob, props.context.encounter)
-    const text = await transcribe(blob)
+    const parts = await Promise.all([...live.pieces, transcribePiece(tail)])
+    const text = live.failed ? await transcribe(blob) : parts.join(" ").replace(/\s+/g, " ").trim()
     if (!text) throw new Error(__("Nothing was heard. Check the microphone and try again."))
     state.value = "generating"
     const queued = await frappe.call({ method: "do_derma.voice.queue_note", args: { ...props.context, transcript: text } })
@@ -239,16 +264,16 @@ async function stopRecording() {
   }
 }
 
-// The note is written by a background job; poll every 3 s (up to 5 min).
+// The note is written by a background job; poll every second (up to 5 min).
 async function waitForJob(job) {
   if (!job) throw new Error(__("The note job was not started."))
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     const status = await frappe.call({ method: "do_derma.voice.job_status", args: { job } })
     const m = status.message || {}
     if (m.status === "done") return m.result
     if (m.status === "failed") throw new Error(m.error || __("The AI note failed."))
     if (m.status === "unknown") throw new Error(__("The note job expired."))
-    await new Promise((r) => setTimeout(r, 3000))
+    await new Promise((r) => setTimeout(r, 1000))
   }
   throw new Error(__("The AI is taking too long. Try again in a minute."))
 }
@@ -297,8 +322,7 @@ function serverMessage(data) {
 }
 
 function fail(message) {
-  clearInterval(ticker)
-  clearInterval(meterTicker)
+  stopTickers()
   recorder.cancel()
   error.value = String(message).replace(/<[^>]+>/g, "")
   state.value = "failed"
