@@ -14,35 +14,43 @@
         </svg>
         {{ state === "idle" ? __("Dictate") : __("Record again") }}
       </button>
-      <button v-else-if="state === 'recording'" type="button" class="voice-stop small" data-test="voice-stop" @click="stopRecording">
-        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
-        {{ __("Stop") }} · {{ clock }}
-      </button>
+      <template v-else-if="isCapturing">
+        <button type="button" class="voice-stop small" :data-paused="state === 'paused'" data-test="voice-stop" @click="stopRecording">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+          {{ __("Stop") }} · {{ clock }}
+        </button>
+        <button type="button" class="ghost small voice-pause" data-test="voice-pause" @click="togglePause">
+          <svg v-if="state === 'paused'" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor"><path d="M7 5l12 7-12 7z" /></svg>
+          <svg v-else viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+          {{ state === "paused" ? __("Resume") : __("Pause") }}
+        </button>
+      </template>
       <button v-else type="button" class="ghost small" disabled>
         <span class="voice-spinner" aria-hidden="true"></span>
         {{ state === "transcribing" ? __("Transcribing...") : __("Writing note...") }}
       </button>
-      <div v-if="state === 'recording'" class="voice-meter" :data-zone="meterZone" data-test="voice-meter" :title="meterHint">
-        <span v-for="n in METER_BARS" :key="n" class="voice-bar" :class="{ on: n <= litBars }"></span>
-        <em>{{ meterHint }}</em>
-      </div>
+      <VoiceWaveform v-if="isCapturing" :peaks="recorder.waveform" :paused="state === 'paused'" />
 
-      <select v-if="microphones.length > 1 && state !== 'recording'" v-model="deviceId" class="voice-mic" :title="__('Microphone')" data-test="voice-mic">
+      <select v-if="microphones.length > 1 && !isCapturing" v-model="deviceId" class="voice-mic" :title="__('Microphone')" data-test="voice-mic">
         <option v-for="mic in microphones" :key="mic.deviceId" :value="mic.deviceId">{{ mic.label || __("Microphone") }}</option>
       </select>
 
       <small class="voice-hint">
         <template v-if="state === 'idle'">{{ __("Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.") }}</template>
+        <template v-else-if="state === 'paused'">{{ __("Paused. Nothing is recorded until you press Resume.") }}</template>
         <template v-else-if="state === 'recording' && silenceWarning">
           <span class="voice-warning" data-test="voice-silence">{{ silenceWarning }}</span>
         </template>
-        <template v-else-if="state === 'recording'">{{ __("Recording. Speak naturally; press Stop when the visit ends.") }}</template>
+        <template v-else-if="state === 'recording'">
+          <span class="voice-level" :data-zone="meterZone" data-test="voice-meter">{{ meterHint }}</span>
+          · {{ __("Speak naturally; press Stop when the visit ends.") }}
+        </template>
         <template v-else-if="state === 'ready'">{{ __("Draft filled below. Edit anything, then Save.") }}</template>
         <template v-else-if="state === 'failed'">{{ error }}</template>
       </small>
     </div>
 
-    <form v-if="hasNote && state !== 'recording'" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
+    <form v-if="hasNote && !isCapturing" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
       <input v-model="instruction" type="text" :placeholder="__('Ask the AI to adjust the note, e.g. add a 2-week follow-up and mention sun protection')" :disabled="refining" />
       <button type="submit" class="ghost small" :disabled="refining || instruction.trim().length < 3">
         <span v-if="refining" class="voice-spinner" aria-hidden="true"></span>{{ refining ? __("Adjusting...") : __("Adjust") }}
@@ -86,8 +94,8 @@ import {
   rememberDeviceId,
   rememberedDeviceId,
 } from "../../voice/voice_recorder.js"
+import VoiceWaveform from "./VoiceWaveform.vue"
 
-const METER_BARS = 12
 // Seconds of silence before the doctor is told the mic is not picking anything up.
 const SILENCE_WARN_SEC = 6
 
@@ -119,7 +127,7 @@ async function refine() {
   }
 }
 
-const state = ref("idle") // idle | recording | transcribing | generating | ready | failed
+const state = ref("idle") // idle | recording | paused | transcribing | generating | ready | failed
 const error = ref("")
 const result = ref(null)
 const clock = ref("0:00")
@@ -133,7 +141,7 @@ const recorder = createVoiceRecorder()
 let ticker = null
 let meterTicker = null
 
-const litBars = computed(() => Math.min(METER_BARS, Math.round((meter.value.level / (GOOD_RMS * 2)) * METER_BARS)))
+const isCapturing = computed(() => state.value === "recording" || state.value === "paused")
 const meterZone = computed(() => {
   const { level, peak } = meter.value
   if (peak >= LOUD_PEAK) return "loud"
@@ -198,13 +206,26 @@ async function startRecording() {
   }
 }
 
+async function togglePause() {
+  if (state.value === "paused") {
+    await recorder.resume()
+    state.value = "recording"
+  } else {
+    recorder.pause()
+    state.value = "paused"
+  }
+}
+
 async function stopRecording() {
   clearInterval(ticker)
   clearInterval(meterTicker)
   state.value = "transcribing"
   let blob
+  let saved = false
   try {
     ;({ blob } = await recorder.stop())
+    // Saved before transcription so a failed transcript or note never loses the recording.
+    saved = attachAudio(blob, props.context.encounter)
     const text = await transcribe(blob)
     if (!text) throw new Error(__("Nothing was heard. Check the microphone and try again."))
     state.value = "generating"
@@ -212,7 +233,7 @@ async function stopRecording() {
     result.value = await waitForJob(queued.message?.job)
     emit("fill", result.value)
     state.value = "ready"
-    attachAudio(blob, result.value?.encounter || props.context.encounter)
+    if (!saved) attachAudio(blob, result.value?.encounter)
   } catch (err) {
     fail(err?.message || err?._server_messages || __("Voice note failed."))
   }
@@ -247,9 +268,9 @@ async function transcribe(blob) {
   return (data.message?.text || "").trim()
 }
 
-// Keep the recording on the encounter for audit - private File, best effort.
+// Keep the recording on the encounter for audit - private File. Returns whether an upload started.
 function attachAudio(blob, encounter) {
-  if (!encounter) return
+  if (!encounter) return false
   const form = new FormData()
   form.append("file", blob, `consultation-${Date.now()}.wav`)
   form.append("is_private", "1")
@@ -259,7 +280,12 @@ function attachAudio(blob, encounter) {
     method: "POST",
     headers: { "X-Frappe-CSRF-Token": window.frappe?.csrf_token || "", Accept: "application/json" },
     body: form,
-  }).catch(() => {})
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(String(response.status))
+    })
+    .catch(() => window.frappe?.show_alert?.({ message: __("The recording could not be saved to the visit."), indicator: "orange" }, 8))
+  return true
 }
 
 function serverMessage(data) {
