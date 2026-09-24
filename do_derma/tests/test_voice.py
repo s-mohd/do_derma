@@ -49,9 +49,9 @@ class TestPrompt(IntegrationTestCase):
 			"patient says itchy hands",
 			patient={"name": "Amina", "age": 34, "gender": "Female"},
 			previous="Last visit (2026-08-01): acne | Plan: doxycycline",
-			clinician="Dr. Nedhal",
+			clinician="Dr. Abdulla Sadeq",
 		)
-		for needle in ("Name: Amina", "Age: 34", "Gender: Female", "Dr. Nedhal", "doxycycline", "itchy hands"):
+		for needle in ("Name: Amina", "Age: 34", "Gender: Female", "Dr. Abdulla Sadeq", "doxycycline", "itchy hands"):
 			self.assertIn(needle, prompt)
 
 

@@ -23,7 +23,7 @@ def blank_pdf() -> bytes:
 	return buffer.getvalue()
 
 
-REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Nedhal\nDermatologist"
+REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Abdulla Sadeq\nDermatologist"
 
 
 class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
