@@ -59,6 +59,21 @@ def derma_patient_advice_html(doc, mode: str | None = None) -> Markup:
 		frappe.log_error(title="Derma patient advice print failed", message=frappe.get_traceback())
 		return Markup("")
 
+def derma_diagnosis_html(doc) -> Markup:
+	"""Jinja global. The diagnosis and ICD-10 code the voice scribe drafted, or empty."""
+	encounter = doc if hasattr(doc, "get") else frappe.get_doc("Patient Encounter", doc)
+	diagnosis = cstr(encounter.get("custom_derma_ai_diagnosis")).strip()
+	icd10 = cstr(encounter.get("custom_derma_icd10")).strip()
+	if not (diagnosis or icd10):
+		return Markup("")
+	parts = [f"<b>Diagnosis:</b> {escape(diagnosis)}" if diagnosis else "", f"<b>ICD-10:</b> {escape(icd10)}" if icd10 else ""]
+	return Markup(
+		'<div class="derma-diagnosis" style="font-size:13px;margin:0 0 14px;padding:8px 12px;border-left:3px solid #1a3a5c;background:#f5f7fa;">'
+		+ " &nbsp;·&nbsp; ".join(p for p in parts if p)
+		+ "</div>"
+	)
+
+
 PRINT_FORMAT = "Derma Assessment Note"  # prints whichever format the visit is documented in
 # One print per report type - never mixed. The chart's Print button picks by the open tab.
 PRINT_FORMATS = {
@@ -67,7 +82,7 @@ PRINT_FORMATS = {
 	STRUCTURED: "Derma Assessment Note (Structured)",
 }
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 5
+TEMPLATE_VERSION = 6
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """
@@ -85,11 +100,12 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     <td style="padding:6px 10px;"><b>Visit:</b> {{ frappe.utils.formatdate(doc.encounter_date) }}</td>
     <td style="padding:6px 10px;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
   </tr></table>
+  {{ derma_diagnosis_html(doc) }}
   <div style="font-size:13px;">{{ derma_assessment_html(doc) }}</div>
   {{ derma_patient_advice_html(doc) }}
   <div style="margin-top:40px;font-size:12px;">
     <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ (practitioner and practitioner.practitioner_name) or '' }}<br>
-      <span style="color:#666;">{{ (practitioner and practitioner.designation) or '' }}</span></div>
+      <span style="color:#666;">{{ (practitioner and (practitioner.custom_specialty or practitioner.designation)) or '' }}</span></div>
   </div>
 </div>
 """

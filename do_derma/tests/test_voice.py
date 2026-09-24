@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from do_derma import voice
+from do_derma import assessment, voice
 from do_derma.assessment import HP_FIELDS, SOAP_FIELDS
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
@@ -104,6 +104,10 @@ class TestGenerateNote(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(saved[voice.PATIENT_ADVICE_FIELD], NOTE["followup_en"])
 		self.assertEqual(saved[voice.PATIENT_ADVICE_AR_FIELD], NOTE["followup_ar"])
 		self.assertEqual(saved["custom_derma_print_patient_advice"], 0)  # opt-in, never printed by default
+		reloaded = assessment.read_assessment(frappe.get_doc("Patient Encounter", self.encounter.name))
+		self.assertEqual(reloaded["ai_diagnosis"], NOTE["diagnosis"])
+		self.assertEqual(reloaded["icd10"], NOTE["icd10"])
+		self.assertEqual(reloaded["note_ar"], NOTE["soap_ar"])
 
 	def test_unparseable_reply_raises(self):
 		fake = MagicMock(status_code=200)

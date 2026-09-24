@@ -57,27 +57,27 @@
       </button>
     </form>
 
-    <div v-if="result" class="voice-result" data-test="voice-result">
+    <div v-if="summary && ['idle', 'ready', 'failed'].includes(state)" class="voice-result" data-test="voice-result">
       <div class="voice-result-head">
-        <b>{{ result.diagnosis || __("No diagnosis suggested") }}</b>
-        <code v-if="result.icd10">{{ result.icd10 }}</code>
+        <b>{{ summary.diagnosis || __("No diagnosis suggested") }}</b>
+        <code v-if="summary.icd10">{{ summary.icd10 }}</code>
       </div>
-      <details v-if="result.followup_en || result.followup_ar">
+      <details v-if="summary.followup_en || summary.followup_ar">
         <summary>{{ __("WhatsApp follow-up for the patient") }}</summary>
         <div class="voice-followups">
-          <div v-if="result.followup_en">
-            <pre>{{ result.followup_en }}</pre>
-            <button type="button" class="ghost small" @click="copy(result.followup_en)">{{ __("Copy English") }}</button>
+          <div v-if="summary.followup_en">
+            <pre>{{ summary.followup_en }}</pre>
+            <button type="button" class="ghost small" @click="copy(summary.followup_en)">{{ __("Copy English") }}</button>
           </div>
-          <div v-if="result.followup_ar" dir="rtl">
-            <pre>{{ result.followup_ar }}</pre>
-            <button type="button" class="ghost small" @click="copy(result.followup_ar)">{{ __("نسخ العربية") }}</button>
+          <div v-if="summary.followup_ar" dir="rtl">
+            <pre>{{ summary.followup_ar }}</pre>
+            <button type="button" class="ghost small" @click="copy(summary.followup_ar)">{{ __("نسخ العربية") }}</button>
           </div>
         </div>
       </details>
-      <details v-if="result.soap_ar">
+      <details v-if="summary.soap_ar">
         <summary>{{ __("Arabic note") }}</summary>
-        <pre dir="rtl">{{ result.soap_ar }}</pre>
+        <pre dir="rtl">{{ summary.soap_ar }}</pre>
       </details>
     </div>
   </section>
@@ -108,6 +108,8 @@ const props = defineProps({
   context: { type: Object, required: true },
   maxMinutes: { type: Number, default: 20 },
   hasNote: { type: Boolean, default: false },
+  // The diagnosis, ICD-10, follow-up and Arabic note saved on the encounter by an earlier dictation.
+  saved: { type: Object, default: null },
 })
 const emit = defineEmits(["fill", "refined"])
 
@@ -146,6 +148,7 @@ let liveTicker = null
 let live = { from: 0, pieces: [], failed: false }
 
 const isCapturing = computed(() => state.value === "recording" || state.value === "paused")
+const summary = computed(() => result.value || (props.saved?.diagnosis || props.saved?.icd10 ? props.saved : null))
 const meterZone = computed(() => {
   const { level, peak } = meter.value
   if (peak >= LOUD_PEAK) return "loud"

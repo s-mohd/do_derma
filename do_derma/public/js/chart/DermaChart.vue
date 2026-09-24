@@ -117,6 +117,7 @@
                   :context="contextArgs()"
                   :max-minutes="data.voice_scribe?.max_recording_minutes || 20"
                   :has-note="assessmentPanel.isFilled"
+                  :saved="savedVoiceSummary"
                   @fill="applyVoiceNote"
                   @refined="applyRefinedNote"
                 />
@@ -719,6 +720,9 @@ const assessmentPanel = reactive({
   patientAdviceAr: "",
   printPatientAdvice: false,
   patientAdviceLanguage: "Auto",
+  aiDiagnosis: "",
+  icd10: "",
+  noteAr: "",
   contextValues: {},
 })
 
@@ -2001,6 +2005,9 @@ function applyAssessmentResponse(message) {
   assessmentPanel.patientAdviceAr = message.patient_advice_ar || ""
   assessmentPanel.printPatientAdvice = Boolean(message.print_patient_advice)
   assessmentPanel.patientAdviceLanguage = message.patient_advice_language || "Auto"
+  assessmentPanel.aiDiagnosis = message.ai_diagnosis || ""
+  assessmentPanel.icd10 = message.icd10 || ""
+  assessmentPanel.noteAr = message.note_ar || ""
   assessmentPanel.contextValues = message.context_values || {}
   assessmentPanel.editing = false
 }
@@ -2058,6 +2065,15 @@ async function applyVoiceNote(note) {
   }
   assessmentPanel.editing = true
 }
+
+// What the voice scribe drafted last time, reloaded from the encounter.
+const savedVoiceSummary = computed(() => ({
+  diagnosis: assessmentPanel.aiDiagnosis,
+  icd10: assessmentPanel.icd10,
+  soap_ar: assessmentPanel.noteAr,
+  followup_en: assessmentPanel.patientAdvice,
+  followup_ar: assessmentPanel.patientAdviceAr,
+}))
 
 // Only the active tab offers the switch: an inactive Assessment tab keeps its
 // plain hint, so a navigation click can never land on a format segment.
