@@ -23,7 +23,7 @@ def blank_pdf() -> bytes:
 	return buffer.getvalue()
 
 
-REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Abdulla Sadeq\nDermatologist"
+REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Abdulla Sadeq\nConsultant"
 
 
 class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
@@ -60,6 +60,15 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 		prompt = documents.build_document_prompt("referral", context)
 		self.assertIn("ADDRESSEE (referral recipient): Dr. Salman", prompt)
 		self.assertIn("DOCUMENT REQUESTED: Referral Letter", prompt)
+
+	def test_sign_off_uses_the_encounter_doctors_own_specialty(self):
+		practitioner = self.encounter.practitioner
+		original = frappe.db.get_value("Healthcare Practitioner", practitioner, ["custom_specialty", "designation"], as_dict=True)
+		self.addCleanup(frappe.db.set_value, "Healthcare Practitioner", practitioner, original)
+		frappe.db.set_value("Healthcare Practitioner", practitioner, {"custom_specialty": "Consultant", "designation": None})
+		self.assertEqual(documents.build_document_context(self.encounter)["doctor_title"], "Consultant")
+		frappe.db.set_value("Healthcare Practitioner", practitioner, "custom_specialty", None)
+		self.assertEqual(documents.build_document_context(self.encounter)["doctor_title"], "")
 
 	def test_generate_creates_a_draft_official_document(self):
 		with self._enabled(), self._llm(REPORT) as post:

@@ -49,10 +49,11 @@ class TestPrompt(IntegrationTestCase):
 			"patient says itchy hands",
 			patient={"name": "Amina", "age": 34, "gender": "Female"},
 			previous="Last visit (2026-08-01): acne | Plan: doxycycline",
-			clinician="Dr. Abdulla Sadeq",
+			clinician={"name": "Dr. Abdulla Sadeq", "title": "Consultant"},
 		)
-		for needle in ("Name: Amina", "Age: 34", "Gender: Female", "Dr. Abdulla Sadeq", "doxycycline", "itchy hands"):
+		for needle in ("Name: Amina", "Age: 34", "Gender: Female", "CLINICIAN: Dr. Abdulla Sadeq (Consultant)", "doxycycline", "itchy hands"):
 			self.assertIn(needle, prompt)
+		self.assertNotIn("dermatologist", voice.build_note_prompt("itchy hands", clinician={"name": "Dr. A", "title": ""}))
 
 
 class TestGenerateNote(DermaTestHelpers, IntegrationTestCase):

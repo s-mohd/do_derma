@@ -85,6 +85,13 @@ def clinic_context(company: str | None = None) -> dict[str, str]:
 	return {"clinic": row.get("company_name") or company or "the clinic", "country": row.get("country") or "the region"}
 
 
+def practitioner_context(practitioner: str | None) -> dict[str, str]:
+	"""Name and title the encounter's own doctor signs with: Specialty, else Designation, never a default."""
+	fields = ["practitioner_name", "custom_specialty", "designation"]
+	row = (frappe.db.get_value("Healthcare Practitioner", practitioner, fields, as_dict=True) if practitioner else None) or {}
+	return {"name": cstr(row.get("practitioner_name")), "title": cstr(row.get("custom_specialty") or row.get("designation"))}
+
+
 def fill_clinic(prompt: str, company: str | None = None) -> str:
 	"""Substitute {clinic}/{country}; prompts also contain JSON braces, so no str.format."""
 	context = clinic_context(company)
@@ -293,9 +300,7 @@ def generate_note(transcript: str, encounter: str | None = None, appointment: st
 		transcript,
 		patient=patient_context(encounter_doc.patient),
 		previous=_previous_visit_summary(encounter_doc),
-		clinician=frappe.db.get_value("Healthcare Practitioner", encounter_doc.practitioner, "practitioner_name")
-		if encounter_doc.practitioner
-		else None,
+		clinician=practitioner_context(encounter_doc.practitioner),
 	)
 	raw, usage = chat_complete_with_usage(note_system_prompt(encounter_doc.company), prompt)
 	parsed = safe_parse_json(raw)
@@ -526,10 +531,11 @@ def structured_values_from_ai(parsed: Any) -> dict[str, Any]:
 	return values
 
 
-def build_note_prompt(transcript: str, patient: dict[str, Any] | None = None, previous: str | None = None, clinician: str | None = None) -> str:
+def build_note_prompt(transcript: str, patient: dict[str, Any] | None = None, previous: str | None = None, clinician: dict[str, str] | None = None) -> str:
 	parts = ["CONSULTATION TYPE: General dermatology consultation (Derma Chart visit)"]
-	if clinician:
-		parts.append(f"CLINICIAN: {clinician} (dermatologist)")
+	if clinician and clinician.get("name"):
+		title = f" ({clinician['title']})" if clinician.get("title") else ""
+		parts.append(f"CLINICIAN: {clinician['name']}{title}")
 	bits = []
 	for label, key in (("Name", "name"), ("Age", "age"), ("Gender", "gender")):
 		if patient and patient.get(key):
