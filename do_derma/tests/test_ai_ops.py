@@ -94,6 +94,9 @@ class TestAiOperations(DermaTestHelpers, IntegrationTestCase):
 			out = documents.generate_document("education", self.encounter.name)
 		self.assertEqual(out["body_ar"], "## الأعراض\n- حكة")
 		self.assertEqual(self._usage_rows("Document")[0].prompt_tokens, 120)
+		letter = frappe.get_doc("Patient Official Document", out["name"])
+		letter.values_json = json.dumps({**letter.get_values(), "language": "Both"})
+		letter.save(ignore_permissions=True)
 		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=b"%PDF-1.4\n%%EOF\n"), patch("frappe.core.doctype.file.file.File.check_content", return_value=None):
 			issued = documents.issue_document(out["name"])
 		html = frappe.db.get_value("Patient Official Document", issued["name"], "rendered_html_snapshot")

@@ -70,6 +70,39 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 		frappe.db.set_value("Healthcare Practitioner", practitioner, "custom_specialty", None)
 		self.assertEqual(documents.build_document_context(self.encounter)["doctor_title"], "")
 
+	def _doctor(self, specialty):
+		return (
+			frappe.get_doc({"doctype": "Healthcare Practitioner", "first_name": f"Doc{frappe.generate_hash(length=6)}", "status": "Active", "custom_specialty": specialty})
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _letter_for(self, practitioner):
+		encounter = self._make_encounter(self._make_patient())
+		frappe.db.set_value("Patient Encounter", encounter.name, "practitioner", practitioner)
+		fake = MagicMock(status_code=200)
+		fake.json.return_value = {"choices": [{"message": {"content": json.dumps({"text": "English body", "text_ar": "نص عربي"})}}]}
+		with self._enabled(), patch.object(voice.requests, "post", return_value=fake):
+			return frappe.get_doc("Patient Official Document", documents.generate_document("explainer", encounter.name)["name"])
+
+	def test_every_doctor_signs_their_own_letter_in_english_by_default(self):
+		for specialty in ("Consultant Dermatologist", "Consultant Vascular & Transplant Surgeon"):
+			letter = self._letter_for(self._doctor(specialty))
+			html = letter.get_form_preview()["html"]
+			self.assertIn(frappe.db.get_value("Healthcare Practitioner", letter.practitioner, "practitioner_name"), html)
+			self.assertIn(specialty, html)
+			self.assertIn("English body", html)
+			self.assertNotIn('dir="rtl"', html)
+
+	def test_letter_language_option_selects_the_pages(self):
+		letter = self._letter_for(self._doctor("Consultant"))
+		values = letter.get_values()
+		for language, has_english, has_arabic in (("Arabic", False, True), ("Both", True, True), ("English", True, False)):
+			letter.values_json = json.dumps({**values, "language": language})
+			html = letter.get_form_preview()["html"]
+			self.assertEqual("English body" in html, has_english, language)
+			self.assertEqual("نص عربي" in html, has_arabic, language)
+
 	def test_generate_creates_a_draft_official_document(self):
 		with self._enabled(), self._llm(REPORT) as post:
 			out = documents.generate_document("report", self.encounter.name)
