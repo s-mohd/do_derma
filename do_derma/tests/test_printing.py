@@ -509,6 +509,18 @@ class TestPrintedEncounter(PrintingTestBase):
 		self.assertNotIn("ضعي الكريم مرتين يومياً.", printed)
 		self.assertIn("Topical steroid twice daily", printed)
 
+	def test_diagnosis_and_icd10_print_with_the_note(self):
+		note.ensure_assessment_print_format()
+		encounter = self._soap_encounter(
+			custom_derma_soap_plan="Topical steroid twice daily",
+			custom_derma_ai_diagnosis="Irritant contact dermatitis",
+			custom_derma_icd10="L24.0",
+		)
+		printed = frappe.get_print("Patient Encounter", encounter.name, print_format=note.PRINT_FORMATS[assessment.SOAP])
+		self.assertIn("Irritant contact dermatitis", printed)
+		self.assertIn("L24.0", printed)
+		self.assertLess(printed.index("L24.0"), printed.index("Topical steroid twice daily"))
+
 	def test_advice_language_follows_the_report_or_the_doctor(self):
 		encounter = self._soap_encounter(
 			custom_derma_soap_plan="كريم موضعي مرتين يومياً",

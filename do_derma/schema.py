@@ -47,6 +47,10 @@ PATIENT_ADVICE_AR_FIELD = "custom_derma_patient_advice_ar"
 PRINT_PATIENT_ADVICE_FIELD = "custom_derma_print_patient_advice"
 PATIENT_ADVICE_LANGUAGE_FIELD = "custom_derma_patient_advice_language"
 PATIENT_ADVICE_LANGUAGES = "Auto\nEnglish\nArabic\nBoth"  # Auto = the language the report is written in
+# The voice scribe's diagnosis, ICD-10 code and Arabic note, kept so they survive a reload and print.
+AI_DIAGNOSIS_FIELD = "custom_derma_ai_diagnosis"
+ICD10_FIELD = "custom_derma_icd10"
+NOTE_AR_FIELD = "custom_derma_note_ar"
 MODE_FIELD = "custom_derma_assessment_mode"
 PRACTITIONER_DEFAULT_FIELD = "custom_derma_default_assessment_mode"
 
@@ -194,6 +198,29 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"no_copy": 1,
 			"depends_on": f"eval:doc.{PRINT_PATIENT_ADVICE_FIELD}",
 			"description": "Which advice prints: Auto follows the language the report is written in.",
+		},
+		{
+			"fieldname": AI_DIAGNOSIS_FIELD,
+			"fieldtype": "Small Text",
+			"label": "Diagnosis (AI summary)",
+			"insert_after": PATIENT_ADVICE_LANGUAGE_FIELD,
+			"no_copy": 1,
+			"description": "Diagnosis drafted by the voice scribe; printed with the assessment note.",
+		},
+		{
+			"fieldname": ICD10_FIELD,
+			"fieldtype": "Data",
+			"label": "ICD-10 Code",
+			"insert_after": AI_DIAGNOSIS_FIELD,
+			"no_copy": 1,
+		},
+		{
+			"fieldname": NOTE_AR_FIELD,
+			"fieldtype": "Long Text",
+			"label": "Arabic Note",
+			"insert_after": ICD10_FIELD,
+			"no_copy": 1,
+			"description": "Arabic version of the note drafted by the voice scribe.",
 		},
 	],
 	# do_health owns this child table; do_derma adds the column that carries the badge legend

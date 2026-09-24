@@ -28,7 +28,7 @@ from frappe import _
 from frappe.utils import cint, cstr, date_diff, getdate, nowdate
 
 from do_derma.assessment import HP_FIELDS, SOAP_FIELDS
-from do_derma.schema import PATIENT_ADVICE_AR_FIELD, PATIENT_ADVICE_FIELD
+from do_derma.schema import AI_DIAGNOSIS_FIELD, ICD10_FIELD, NOTE_AR_FIELD, PATIENT_ADVICE_AR_FIELD, PATIENT_ADVICE_FIELD
 from do_derma.schema import VOICE_TRANSCRIPT_FIELD as TRANSCRIPT_FIELD
 from do_derma.settings import get_settings_doc
 
@@ -303,13 +303,17 @@ def generate_note(transcript: str, encounter: str | None = None, appointment: st
 		frappe.db.set_value("Patient Encounter", encounter_doc.name, TRANSCRIPT_FIELD, transcript, update_modified=False)
 	# The after-visit advice is kept on the encounter so it can be edited and, when the
 	# doctor ticks the box, printed under the note. A blank reply never wipes an edit.
-	advice = {
-		field: cstr(parsed.get(key)).strip()
-		for field, key in ((PATIENT_ADVICE_FIELD, "followup_en"), (PATIENT_ADVICE_AR_FIELD, "followup_ar"))
-		if meta.has_field(field) and cstr(parsed.get(key)).strip()
-	}
-	if advice:
-		frappe.db.set_value("Patient Encounter", encounter_doc.name, advice, update_modified=False)
+	# The diagnosis, ICD-10 code and Arabic note are kept the same way, so they survive a reload.
+	pairs = (
+		(PATIENT_ADVICE_FIELD, "followup_en"),
+		(PATIENT_ADVICE_AR_FIELD, "followup_ar"),
+		(AI_DIAGNOSIS_FIELD, "diagnosis"),
+		(ICD10_FIELD, "icd10"),
+		(NOTE_AR_FIELD, "soap_ar"),
+	)
+	kept = {field: cstr(parsed.get(key)).strip() for field, key in pairs if meta.has_field(field) and cstr(parsed.get(key)).strip()}
+	if kept:
+		frappe.db.set_value("Patient Encounter", encounter_doc.name, kept, update_modified=False)
 
 	return {
 		"encounter": encounter_doc.name,

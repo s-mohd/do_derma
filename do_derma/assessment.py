@@ -210,6 +210,9 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 		"patient_advice_ar": cstr(encounter_doc.get("custom_derma_patient_advice_ar")),
 		"print_patient_advice": cint(encounter_doc.get("custom_derma_print_patient_advice")),
 		"patient_advice_language": cstr(encounter_doc.get("custom_derma_patient_advice_language")) or "Auto",
+		"ai_diagnosis": cstr(encounter_doc.get("custom_derma_ai_diagnosis")),
+		"icd10": cstr(encounter_doc.get("custom_derma_icd10")),
+		"note_ar": cstr(encounter_doc.get("custom_derma_note_ar")),
 		"context_values": {
 			"patient": encounter_doc.get("patient"),
 			"appointment": encounter_doc.get("appointment"),
@@ -239,6 +242,9 @@ def empty_assessment() -> dict[str, Any]:
 		"patient_advice_ar": "",
 		"print_patient_advice": 0,
 		"patient_advice_language": "Auto",
+		"ai_diagnosis": "",
+		"icd10": "",
+		"note_ar": "",
 		"context_values": {},
 	}
 
