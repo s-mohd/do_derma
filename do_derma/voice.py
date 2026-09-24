@@ -25,7 +25,7 @@ from typing import Any
 import frappe
 import requests
 from frappe import _
-from frappe.utils import add_days, cint, cstr, date_diff, getdate, nowdate
+from frappe.utils import cint, cstr, date_diff, getdate, nowdate
 
 from do_derma.assessment import HP_FIELDS, SOAP_FIELDS
 from do_derma.schema import PATIENT_ADVICE_AR_FIELD, PATIENT_ADVICE_FIELD
@@ -83,6 +83,13 @@ def clinic_context(company: str | None = None) -> dict[str, str]:
 	company = company or frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
 	row = (frappe.db.get_value("Company", company, ["company_name", "country"], as_dict=True) if company else None) or {}
 	return {"clinic": row.get("company_name") or company or "the clinic", "country": row.get("country") or "the region"}
+
+
+def practitioner_context(practitioner: str | None) -> dict[str, str]:
+	"""Name and title the encounter's own doctor signs with: Specialty, else Designation, never a default."""
+	fields = ["practitioner_name", "custom_specialty", "designation"]
+	row = (frappe.db.get_value("Healthcare Practitioner", practitioner, fields, as_dict=True) if practitioner else None) or {}
+	return {"name": cstr(row.get("practitioner_name")), "title": cstr(row.get("custom_specialty") or row.get("designation"))}
 
 
 def fill_clinic(prompt: str, company: str | None = None) -> str:
@@ -145,10 +152,13 @@ def has_workers() -> bool:
 
 
 def enqueue_ai_job(method: str, **kwargs: Any) -> dict[str, str]:
-	"""Run `method` in the long queue (or inline when nothing would pick it up); poll with job_status."""
+	"""Run `method` in the short queue (or inline when nothing would pick it up); poll with job_status.
+
+	Not the long queue: on a clinic ERP it also carries stock reposting and backups, and a doctor
+	waiting on a note must not queue behind them."""
 	job = frappe.generate_hash(length=16)
 	_set_job(job, {"status": "pending"})
-	frappe.enqueue(method, queue="long", timeout=900, now=frappe.in_test or not has_workers(), job=job, **kwargs)
+	frappe.enqueue(method, queue="short", timeout=600, now=frappe.in_test or not has_workers(), job=job, **kwargs)
 	return {"job": job}
 
 
@@ -203,21 +213,6 @@ def wav_seconds(data: bytes) -> float:
 	except Exception:
 		pass
 	return round(len(data) / 32000, 1)
-
-
-def purge_old_audio() -> int:
-	"""Daily job: delete consultation recordings older than Derma Settings.audio_retention_days (0 = keep)."""
-	days = cint(_setting("audio_retention_days", 0))
-	if days <= 0:
-		return 0
-	files = frappe.get_all(
-		"File",
-		filters={"attached_to_doctype": "Patient Encounter", "file_name": ["like", "consultation-%.wav"], "creation": ["<", add_days(nowdate(), -days)]},
-		pluck="name",
-	)
-	for name in files:
-		frappe.delete_doc("File", name, ignore_permissions=True, delete_permanently=True)
-	return len(files)
 
 
 # --------------------------------------------------------------- transcribe
@@ -293,9 +288,7 @@ def generate_note(transcript: str, encounter: str | None = None, appointment: st
 		transcript,
 		patient=patient_context(encounter_doc.patient),
 		previous=_previous_visit_summary(encounter_doc),
-		clinician=frappe.db.get_value("Healthcare Practitioner", encounter_doc.practitioner, "practitioner_name")
-		if encounter_doc.practitioner
-		else None,
+		clinician=practitioner_context(encounter_doc.practitioner),
 	)
 	raw, usage = chat_complete_with_usage(note_system_prompt(encounter_doc.company), prompt)
 	parsed = safe_parse_json(raw)
@@ -526,10 +519,11 @@ def structured_values_from_ai(parsed: Any) -> dict[str, Any]:
 	return values
 
 
-def build_note_prompt(transcript: str, patient: dict[str, Any] | None = None, previous: str | None = None, clinician: str | None = None) -> str:
+def build_note_prompt(transcript: str, patient: dict[str, Any] | None = None, previous: str | None = None, clinician: dict[str, str] | None = None) -> str:
 	parts = ["CONSULTATION TYPE: General dermatology consultation (Derma Chart visit)"]
-	if clinician:
-		parts.append(f"CLINICIAN: {clinician} (dermatologist)")
+	if clinician and clinician.get("name"):
+		title = f" ({clinician['title']})" if clinician.get("title") else ""
+		parts.append(f"CLINICIAN: {clinician['name']}{title}")
 	bits = []
 	for label, key in (("Name", "name"), ("Age", "age"), ("Gender", "gender")):
 		if patient and patient.get(key):

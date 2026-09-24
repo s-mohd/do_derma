@@ -23,18 +23,18 @@ from do_derma.schema import VOICE_TRANSCRIPT_FIELD
 TEMPLATE_PREFIX = "Derma AI "
 HISTORY_LIMIT = 5
 KINDS: dict[str, dict[str, str]] = {
-	"report": {"title": "Medical Report", "document_type": "Medical Report"},
-	"referral": {"title": "Referral Letter", "document_type": "Referral Letter"},
-	"education": {"title": "Patient Education Material", "document_type": "Patient Education Material"},
-	"explainer": {"title": "Patient Explainer Letter", "document_type": "Patient Explainer Letter"},
+	"report": {"title": "Medical Report", "title_ar": "تقرير طبي", "document_type": "Medical Report"},
+	"referral": {"title": "Referral Letter", "title_ar": "رسالة تحويل", "document_type": "Referral Letter"},
+	"education": {"title": "Patient Education Material", "title_ar": "مواد تثقيفية للمريض", "document_type": "Patient Education Material"},
+	"explainer": {"title": "Patient Explainer Letter", "title_ar": "رسالة توضيحية للمريض", "document_type": "Patient Explainer Letter"},
 }
 
-DOC_COMMON = """You are SOULVD Health, the clinical documentation assistant of {clinic}, a dermatology clinic in {country}.
+DOC_COMMON = """You are SOULVD Health, the clinical documentation assistant of {clinic}, a clinic in {country}.
 
 GROUNDING RULES (mandatory):
 - Use ONLY the consultation note, patient data, prior-visit summaries and transcript you are given. Never invent findings, medications, doses, dates, results, or history. Where information is missing, omit the line or write "Not documented".
 - Professional, clear English. No markdown other than "## " for the headings named below and "- " for list lines. No tables, no bold, no code fences.
-- Use the clinician name, clinician title and clinic name exactly as passed in for any sign-off.
+- Use the clinician name, clinician title and clinic name exactly as passed in for any sign-off. If the clinician title is blank, sign with the name only - never invent a title or specialty.
 - Also produce text_ar: a faithful Arabic version of the same document (same structure and headings, translated; clinical Arabic as used in {country}; patient-facing letters in warm plain Arabic).
 - Respond with ONLY a valid JSON object, no commentary: {"text": "...", "text_ar": "..."}"""
 
@@ -103,7 +103,7 @@ Warm regards,
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
 # become headings and "- " lines become bullets, everything else a paragraph.
-TEMPLATE_VERSION = 2
+TEMPLATE_VERSION = 5
 TEMPLATE_MARKER = "<!-- derma-ai-letter v"
 LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
@@ -114,6 +114,10 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     </td>
     <td style="vertical-align:bottom;text-align:right;font-size:12px;color:#666;">{{ today }}</td>
   </tr></table>
+  {% set language = values.language or 'English' %}
+  {% set show_en = language != 'Arabic' or not values.body_ar %}
+  {% set show_ar = language in ('Arabic', 'Both') and values.body_ar %}
+  {% if show_en %}
   <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title }}</h1>
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
     <td style="padding:6px 10px;"><b>Patient:</b> {{ patient.patient_name if patient else '' }}</td>
@@ -128,13 +132,16 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     {% elif line.strip() %}<p style="margin:6px 0;">{{ line }}</p>{% endif %}
   {% endfor %}
   </div>
+  {% if practitioner and practitioner.practitioner_name not in (values.body or '') %}
   <div style="margin-top:40px;font-size:12px;">
-    <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ practitioner.practitioner_name if practitioner else '' }}<br>
-      <span style="color:#666;">{{ (practitioner and practitioner.designation) or '' }}</span></div>
+    <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ practitioner.practitioner_name }}<br>
+      <span style="color:#666;">{{ practitioner.custom_specialty or practitioner.designation or '' }}</span></div>
   </div>
-  {% if values.body_ar %}
-  <div dir="rtl" style="page-break-before:always;font-size:13px;padding-top:12px;">
-    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title }}</h1>
+  {% endif %}
+  {% endif %}
+  {% if show_ar %}
+  <div dir="rtl" style="{{ 'page-break-before:always;' if show_en else '' }}font-size:13px;padding-top:12px;">
+    <h1 style="font-size:20px;color:#1a3a5c;margin:0 0 14px;">{{ values.title_ar or values.title }}</h1>
     {% for line in values.body_ar.split('\\n') %}
       {% if line.startswith('## ') %}<h2 style="font-size:14px;color:#1a3a5c;margin:16px 0 6px;">{{ line[3:] }}</h2>
       {% elif line.startswith('- ') %}<div style="padding-right:16px;margin:2px 0;">&bull; {{ line[2:] }}</div>
@@ -176,7 +183,10 @@ def generate_document(kind: str, encounter: str, addressee: str | None = None) -
 			"encounter": encounter_doc.name,
 			"practitioner": encounter_doc.practitioner,
 			"company": encounter_doc.company,
-			"values_json": json.dumps({"title": spec["title"], "body": text, "body_ar": text_ar, "addressee": cstr(addressee)}),
+			"values_json": json.dumps(
+				{"title": spec["title"], "title_ar": spec["title_ar"], "body": text, "body_ar": text_ar, "addressee": cstr(addressee), "language": "English"},
+				ensure_ascii=False,
+			),
 		}
 	).insert()
 	return serialize_document(doc)
@@ -240,17 +250,13 @@ def template_name(kind: str) -> str:
 
 
 def build_document_context(encounter_doc, addressee: str | None = None) -> dict[str, Any]:
-	practitioner = (
-		frappe.db.get_value("Healthcare Practitioner", encounter_doc.practitioner, ["practitioner_name", "designation"], as_dict=True)
-		if encounter_doc.practitioner
-		else None
-	) or {}
+	practitioner = voice.practitioner_context(encounter_doc.practitioner)
 	patient = voice.patient_context(encounter_doc.patient)
 	patient["mrn"] = encounter_doc.patient
 	return {
 		"patient": patient,
-		"doctor": practitioner.get("practitioner_name") or "",
-		"doctor_title": practitioner.get("designation") or "Dermatologist",
+		"doctor": practitioner["name"],
+		"doctor_title": practitioner["title"],
 		"clinic": voice.clinic_context(encounter_doc.company)["clinic"],
 		"visit_date": cstr(encounter_doc.encounter_date),
 		"addressee": cstr(addressee),
@@ -326,6 +332,33 @@ def visit_history(encounter_doc) -> list[dict[str, str]]:
 	return history
 
 
+LETTER_VARIABLES = [
+	{"variable_name": "title", "variable_label": "Title", "variable_type": "Data", "is_required": 1},
+	{"variable_name": "body", "variable_label": "Body", "variable_type": "Data", "is_required": 1},
+	{"variable_name": "title_ar", "variable_label": "Title (Arabic)", "variable_type": "Data"},
+	{"variable_name": "body_ar", "variable_label": "Body (Arabic)", "variable_type": "Data"},
+	{"variable_name": "addressee", "variable_label": "Addressee", "variable_type": "Data"},
+	{
+		"variable_name": "language",
+		"variable_label": "Language",
+		"variable_type": "Select",
+		"select_options": "English\nArabic\nBoth",
+		"default_value": "English",
+	},
+]
+
+
+def upgrade_template(name: str) -> None:
+	"""Replace our older template source and add any letter variable it lacks."""
+	template = frappe.get_doc("Patient Print Template", name)
+	template.template_source_code = template.template_html = LETTER_TEMPLATE
+	existing = {row.variable_name for row in template.variables}
+	for row in LETTER_VARIABLES:
+		if row["variable_name"] not in existing:
+			template.append("variables", row)
+	template.save(ignore_permissions=True)
+
+
 def ensure_document_templates() -> list[str]:
 	"""Seed one print template per kind. Idempotent; a clinic's edits are kept."""
 	if not frappe.db.exists("DocType", "Patient Print Template"):
@@ -338,7 +371,7 @@ def ensure_document_templates() -> list[str]:
 			# Our own older version is upgraded; a clinic-edited template (marker removed) is kept.
 			source = existing.template_source_code or ""
 			if TEMPLATE_MARKER in source and f"{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->" not in source:
-				frappe.db.set_value("Patient Print Template", existing.name, {"template_source_code": LETTER_TEMPLATE, "template_html": LETTER_TEMPLATE})
+				upgrade_template(existing.name)
 				created.append(f"{title} (upgraded)")
 			continue
 		frappe.get_doc(
@@ -351,12 +384,7 @@ def ensure_document_templates() -> list[str]:
 				"template_editor_mode": "HTML / Jinja",
 				"template_source_code": LETTER_TEMPLATE,
 				"template_html": LETTER_TEMPLATE,
-				"variables": [
-					{"variable_name": "title", "variable_label": "Title", "variable_type": "Data", "is_required": 1},
-					{"variable_name": "body", "variable_label": "Body", "variable_type": "Data", "is_required": 1},
-					{"variable_name": "body_ar", "variable_label": "Body (Arabic)", "variable_type": "Data"},
-					{"variable_name": "addressee", "variable_label": "Addressee", "variable_type": "Data"},
-				],
+				"variables": LETTER_VARIABLES,
 			}
 		).insert(ignore_permissions=True)
 		created.append(title)

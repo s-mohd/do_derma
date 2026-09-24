@@ -23,7 +23,7 @@ def blank_pdf() -> bytes:
 	return buffer.getvalue()
 
 
-REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Nedhal\nDermatologist"
+REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Abdulla Sadeq\nConsultant"
 
 
 class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
@@ -60,6 +60,57 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 		prompt = documents.build_document_prompt("referral", context)
 		self.assertIn("ADDRESSEE (referral recipient): Dr. Salman", prompt)
 		self.assertIn("DOCUMENT REQUESTED: Referral Letter", prompt)
+
+	def test_sign_off_uses_the_encounter_doctors_own_specialty(self):
+		practitioner = self.encounter.practitioner
+		original = frappe.db.get_value("Healthcare Practitioner", practitioner, ["custom_specialty", "designation"], as_dict=True)
+		self.addCleanup(frappe.db.set_value, "Healthcare Practitioner", practitioner, original)
+		frappe.db.set_value("Healthcare Practitioner", practitioner, {"custom_specialty": "Consultant", "designation": None})
+		self.assertEqual(documents.build_document_context(self.encounter)["doctor_title"], "Consultant")
+		frappe.db.set_value("Healthcare Practitioner", practitioner, "custom_specialty", None)
+		self.assertEqual(documents.build_document_context(self.encounter)["doctor_title"], "")
+
+	def _doctor(self, specialty):
+		return (
+			frappe.get_doc({"doctype": "Healthcare Practitioner", "first_name": f"Doc{frappe.generate_hash(length=6)}", "status": "Active", "custom_specialty": specialty})
+			.insert(ignore_permissions=True)
+			.name
+		)
+
+	def _letter_for(self, practitioner):
+		encounter = self._make_encounter(self._make_patient())
+		frappe.db.set_value("Patient Encounter", encounter.name, "practitioner", practitioner)
+		fake = MagicMock(status_code=200)
+		fake.json.return_value = {"choices": [{"message": {"content": json.dumps({"text": "English body", "text_ar": "نص عربي"})}}]}
+		with self._enabled(), patch.object(voice.requests, "post", return_value=fake):
+			return frappe.get_doc("Patient Official Document", documents.generate_document("explainer", encounter.name)["name"])
+
+	def test_every_doctor_signs_their_own_letter_in_english_by_default(self):
+		for specialty in ("Consultant Dermatologist", "Consultant Vascular & Transplant Surgeon"):
+			letter = self._letter_for(self._doctor(specialty))
+			html = letter.get_form_preview()["html"]
+			self.assertIn(frappe.db.get_value("Healthcare Practitioner", letter.practitioner, "practitioner_name"), html)
+			self.assertIn(specialty, html)
+			self.assertIn("English body", html)
+			self.assertNotIn('dir="rtl"', html)
+
+	def test_letter_language_option_selects_the_pages(self):
+		letter = self._letter_for(self._doctor("Consultant"))
+		values = letter.get_values()
+		for language, has_english, has_arabic in (("Arabic", False, True), ("Both", True, True), ("English", True, False)):
+			letter.values_json = json.dumps({**values, "language": language})
+			html = letter.get_form_preview()["html"]
+			self.assertEqual("English body" in html, has_english, language)
+			self.assertEqual("نص عربي" in html, has_arabic, language)
+			self.assertEqual("رسالة توضيحية للمريض" in html, has_arabic, language)
+
+	def test_sign_off_block_only_when_the_body_does_not_sign(self):
+		letter = self._letter_for(self._doctor("Consultant"))
+		name = frappe.db.get_value("Healthcare Practitioner", letter.practitioner, "practitioner_name")
+		values = letter.get_values()
+		self.assertEqual(letter.get_form_preview()["html"].count(name), 2)
+		letter.values_json = json.dumps({**values, "body": f"Warm regards,\n{name}\nConsultant"})
+		self.assertEqual(letter.get_form_preview()["html"].count(name), 2)
 
 	def test_generate_creates_a_draft_official_document(self):
 		with self._enabled(), self._llm(REPORT) as post:

@@ -30,11 +30,204 @@
   --derma-text-deepest: #111827;
 }
 
+/* The chart is light-only: pin Frappe's dark-mode variables to their v16 light values. */
+[data-theme="dark"] .dental-chart-page.derma-chart-page {
+  --alert-bg-danger: #fff7f7;
+  --alert-bg-info: #f7fbfd;
+  --alert-bg-success: #e4f5e9;
+  --alert-bg-warning: #fffcef;
+  --alert-text-danger: #cc2929;
+  --alert-text-info: #0070cc;
+  --alert-text-success: #278f5e;
+  --alert-text-warning: #ab6e05;
+  --appreciation-bg: #e4f5e9;
+  --appreciation-color: #30a66d;
+  --awesomebar-focus-bg: white;
+  --awesomplete-hover-bg: #f3f3f3;
+  --bg-blue: #edf6fd;
+  --bg-color: white;
+  --bg-cyan: #f5fbfc;
+  --bg-dark-blue: #c9e7fc;
+  --bg-dark-gray: #c7c7c7;
+  --bg-darkgrey: #c7c7c7;
+  --bg-gray: #f3f3f3;
+  --bg-green: #e4f5e9;
+  --bg-grey: #f3f3f3;
+  --bg-light-blue: #f7fbfd;
+  --bg-light-gray: #f3f3f3;
+  --bg-orange: #fff1e7;
+  --bg-pink: #fff7fc;
+  --bg-purple: #f9f0ff;
+  --bg-red: #fff0f0;
+  --bg-yellow: #fff7d3;
+  --border-color: #ededed;
+  --border-primary: #171717;
+  --btn-default-bg: #f3f3f3;
+  --btn-default-hover-bg: #e2e2e2;
+  --btn-ghost-hover-bg: #ededed;
+  --btn-group-border-color: #e2e2e2;
+  --btn-primary: #171717;
+  --card-bg: white;
+  --charts-axis-line-color: #f4f5f6;
+  --charts-dataset-circle-stroke: #ffffff;
+  --charts-dataset-circle-stroke-width: 2px;
+  --charts-label-color: #313b44;
+  --charts-legend-label: #313b44;
+  --charts-stroke-width: 2px;
+  --charts-tooltip-bg: #ffffff;
+  --charts-tooltip-label: #313b44;
+  --charts-tooltip-title: #313b44;
+  --charts-tooltip-value: #192734;
+  --checkbox-color: #000000;
+  --checkbox-disabled-gradient: linear-gradient( 180deg, #f8f8f8 -124.51%, #f8f8f8 100% );
+  --checkbox-focus-shadow: 0px 0px 0px 2px #c9c9c9;
+  --checkbox-gradient: linear-gradient(180deg, #171717 -124.51%, #171717 100%);
+  --control-bg: #f3f3f3;
+  --control-bg-on-gray: #ededed;
+  --criticism-bg: #fff0f0;
+  --criticism-color: #cc2929;
+  --dark-border-color: #e2e2e2;
+  --date-active-bg: #171717;
+  --date-active-text: #f3f3f3;
+  --date-range-bg: #f3f3f3;
+  --diff-added: #daf0e1;
+  --diff-changed: #e3f1fd;
+  --diff-removed: #fcd7d7;
+  --disabled-control-bg: #f8f8f8;
+  --disabled-text-color: #7c7c7c;
+  --error-bg: #fff7f7;
+  --error-border: #eb9091;
+  --fg-color: white;
+  --fg-hover-color: #f3f3f3;
+  --gray-700: #525252;
+  --gray-800: #383838;
+  --heading-color: #171717;
+  --highlight-color: #f8f8f8;
+  --highlight-shadow: 1px 1px 10px #f7fbfd, 0px 0px 4px #007be0;
+  --icon-fill: transparent;
+  --icon-stroke: #383838;
+  --ink-amber-2: #e79913;
+  --ink-amber-3: #db7706;
+  --ink-blue-2: #0289f7;
+  --ink-blue-3: #007be0;
+  --ink-blue-link: #73bbf6;
+  --ink-cyan-1: #3bbde5;
+  --ink-gray-1: #ededed;
+  --ink-gray-2: #e2e2e2;
+  --ink-gray-3: #c7c7c7;
+  --ink-gray-4: #999999;
+  --ink-gray-5: #7c7c7c;
+  --ink-gray-6: #525252;
+  --ink-gray-7: #525252;
+  --ink-gray-8: #383838;
+  --ink-gray-9: #171717;
+  --ink-green-2: #46b37e;
+  --ink-green-3: #278f5e;
+  --ink-pink-1: #e34aa6;
+  --ink-red-2: #f79596;
+  --ink-red-3: #e03636;
+  --ink-red-4: #cc2929;
+  --ink-violet-1: #6846e3;
+  --ink-white: initial;
+  --input-disabled-bg: #ededed;
+  --invert-neutral: #000000;
+  --left-arrow-svg: url("data: image/svg+xml;utf8, <svg width='6' height='8' viewBox='0 0 6 8' fill='none' xmlns='http://www.w3.org/2000/svg'><path d='M7.5 9.5L4 6l3.5-3.5' stroke='%231F272E' stroke-linecap='round' stroke-linejoin='round'></path></svg>");
+  --modal-bg: white;
+  --neutral: #ffffff;
+  --outline-amber-1: #fbdb73;
+  --outline-amber-2: #fbcc55;
+  --outline-blue-1: #a7d7fd;
+  --outline-gray-1: #ededed;
+  --outline-gray-2: #e2e2e2;
+  --outline-gray-3: #c7c7c7;
+  --outline-gray-4: #999999;
+  --outline-gray-modals: #ededed;
+  --outline-green-1: #a6efc0;
+  --outline-green-2: #86e0a8;
+  --outline-orange-1: #f4b07f;
+  --outline-red-1: #fdc2c2;
+  --outline-red-2: #f79596;
+  --outline-red-3: #e03636;
+  --outline-white: initial;
+  --placeholder-color: #f8f8f8;
+  --popover-bg: white;
+  --progress-bar-bg: #171717;
+  --right-arrow-svg: url("data: image/svg+xml;utf8, <svg width='6' height='8' viewBox='0 0 6 8' fill='none' xmlns='http://www.w3.org/2000/svg'><path d='M1.25 7.5L4.75 4L1.25 0.5' stroke='%231F272E' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  --scrollbar-thumb-color: #c7c7c7;
+  --scrollbar-track-color: #ededed;
+  --shadow-base: 0px 0px 1px rgba(0, 0, 0, .45), 0px 1px 2px rgba(0, 0, 0, .1);
+  --shadow-inset: inset 0px -1px 0px #e2e2e2;
+  --sidebar-select-color: #f3f3f3;
+  --skeleton-bg: #f3f3f3;
+  --star-fill: initial;
+  --subtle-accent: #f8f8f8;
+  --subtle-fg: #f3f3f3;
+  --surface-amber-1: #fdfaed;
+  --surface-amber-2: #fff7d3;
+  --surface-amber-3: #db7706;
+  --surface-blue-1: #f2f9ff;
+  --surface-blue-2: #e6f4ff;
+  --surface-blue-3: #007be0;
+  --surface-cards: initial;
+  --surface-cyan-1: #ddf7ff;
+  --surface-gray-1: #f8f8f8;
+  --surface-gray-2: #f3f3f3;
+  --surface-gray-3: #ededed;
+  --surface-gray-4: #e2e2e2;
+  --surface-gray-5: #525252;
+  --surface-gray-6: #383838;
+  --surface-gray-7: #171717;
+  --surface-green-1: #f2fdf4;
+  --surface-green-2: #e4faeb;
+  --surface-green-3: #278f5e;
+  --surface-menu-bar: #f8f8f8;
+  --surface-modal: #ffffff;
+  --surface-orange-1: #ffefe4;
+  --surface-pink-1: #fde8f5;
+  --surface-red-1: #fff7f7;
+  --surface-red-2: #ffe7e7;
+  --surface-red-3: #ffd8d8;
+  --surface-red-4: #fdc2c2;
+  --surface-red-5: #cc2929;
+  --surface-red-6: #b52a2a;
+  --surface-red-7: #941f1f;
+  --surface-selected: initial;
+  --surface-violet-1: #f0ebff;
+  --surface-white: #ffffff;
+  --switch-bg: #e2e2e2;
+  --table-border-color: #ededed;
+  --text-color: #383838;
+  --text-dark: white;
+  --text-light: #7c7c7c;
+  --text-muted: #525252;
+  --text-neutral: #171717;
+  --text-on-blue: #0070cc;
+  --text-on-cyan: #267a94;
+  --text-on-dark-blue: #005ca3;
+  --text-on-dark-gray: #383838;
+  --text-on-darkgrey: #383838;
+  --text-on-gray: #525252;
+  --text-on-green: #16794c;
+  --text-on-grey: #525252;
+  --text-on-light-blue: #007be0;
+  --text-on-light-gray: #383838;
+  --text-on-orange: #bd3e0c;
+  --text-on-pink: #9c2671;
+  --text-on-purple: #6e399d;
+  --text-on-red: #b52a2a;
+  --text-on-yellow: #ab6e05;
+  --timeline-badge-bg: #f3f3f3;
+  --timeline-badge-color: #171717;
+  --toast-bg: white;
+  --yellow-highlight-color: #fffcef;
+}
+
 .dental-chart-page.derma-chart-page {
   min-height: calc(100vh - 96px);
   padding: 12px 16px 24px;
   background: #f3f7f9;
   color: var(--derma-text-deep);
+  color-scheme: light;
 }
 
 .derma-encounter-header {
@@ -5035,44 +5228,41 @@ body.derma-annotation-open .modal-backdrop {
   gap: 10px;
 }
 
-.voice-meter {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 22px;
-  padding: 0 4px;
+.voice-waveform {
+  flex: 1 1 240px;
+  min-width: 160px;
+  height: 30px;
+  border-radius: 6px;
+  background: #f4f4f5;
+  --wave-bar: #ef4444;
+  --wave-head: #dc2626;
 }
-.voice-meter .voice-bar {
-  width: 4px;
+.voice-waveform[data-paused="true"] {
+  --wave-bar: #a1a1aa;
+  --wave-head: #71717a;
+}
+.voice-waveform canvas {
+  display: block;
+  width: 100%;
   height: 100%;
-  border-radius: 2px;
-  background: var(--derma-bg-muted);
-  transform: scaleY(0.25);
-  transform-origin: bottom;
-  transition: transform 80ms linear, background 120ms;
 }
-.voice-meter .voice-bar.on {
-  transform: scaleY(1);
-  background: #16a34a;
+.voice-scribe .voice-level {
+  font-weight: 600;
+  color: #15803d;
 }
-.voice-meter[data-zone="quiet"] .voice-bar.on,
-.voice-meter[data-zone="low"] .voice-bar.on {
-  background: #f59e0b;
+.voice-scribe .voice-level[data-zone="low"] {
+  color: #b45309;
 }
-.voice-meter[data-zone="loud"] .voice-bar.on {
-  background: #dc2626;
-}
-.voice-meter em {
-  font-style: normal;
-  font-size: 11px;
-  color: var(--derma-text-muted);
-  margin-left: 6px;
-  align-self: center;
-  white-space: nowrap;
-}
-.voice-meter[data-zone="loud"] em,
-.voice-meter[data-zone="quiet"] em {
+.voice-scribe .voice-level[data-zone="quiet"],
+.voice-scribe .voice-level[data-zone="loud"] {
   color: #b91c1c;
+}
+.voice-scribe .voice-stop[data-paused="true"] {
+  animation: none;
+}
+.voice-scribe[data-state="recording"] .voice-hint,
+.voice-scribe[data-state="paused"] .voice-hint {
+  flex-basis: 100%;
 }
 .voice-scribe .voice-warning {
   color: #b45309;

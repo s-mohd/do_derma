@@ -94,6 +94,9 @@ class TestAiOperations(DermaTestHelpers, IntegrationTestCase):
 			out = documents.generate_document("education", self.encounter.name)
 		self.assertEqual(out["body_ar"], "## الأعراض\n- حكة")
 		self.assertEqual(self._usage_rows("Document")[0].prompt_tokens, 120)
+		letter = frappe.get_doc("Patient Official Document", out["name"])
+		letter.values_json = json.dumps({**letter.get_values(), "language": "Both"})
+		letter.save(ignore_permissions=True)
 		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=b"%PDF-1.4\n%%EOF\n"), patch("frappe.core.doctype.file.file.File.check_content", return_value=None):
 			issued = documents.issue_document(out["name"])
 		html = frappe.db.get_value("Patient Official Document", issued["name"], "rendered_html_snapshot")
@@ -105,11 +108,7 @@ class TestAiOperations(DermaTestHelpers, IntegrationTestCase):
 		self.assertIn(company, voice.note_system_prompt(self.encounter.company))
 		self.assertNotIn("DermaOne", voice.note_system_prompt(self.encounter.company))
 
-	def test_purge_deletes_only_old_consultation_audio(self):
-		with patch.object(voice, "_setting", side_effect=lambda name, default=None: {"audio_retention_days": 30}.get(name, default)):
-			old = frappe.get_doc({"doctype": "File", "file_name": "consultation-1.wav", "content": b"RIFF", "attached_to_doctype": "Patient Encounter", "attached_to_name": self.encounter.name, "is_private": 1}).insert(ignore_permissions=True)
-			frappe.db.set_value("File", old.name, "creation", "2020-01-01 00:00:00", update_modified=False)
-			fresh = frappe.get_doc({"doctype": "File", "file_name": "consultation-2.wav", "content": b"RIFF", "attached_to_doctype": "Patient Encounter", "attached_to_name": self.encounter.name, "is_private": 1}).insert(ignore_permissions=True)
-			self.assertEqual(voice.purge_old_audio(), 1)
-		self.assertFalse(frappe.db.exists("File", old.name))
-		self.assertTrue(frappe.db.exists("File", fresh.name))
+	def test_ai_jobs_run_on_the_short_queue(self):
+		with patch.object(voice.frappe, "enqueue") as enqueue:
+			voice.enqueue_ai_job("do_derma.voice.note_job", transcript="x")
+		self.assertEqual(enqueue.call_args.kwargs["queue"], "short")
