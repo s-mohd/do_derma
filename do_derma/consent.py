@@ -66,7 +66,7 @@ def get_selected_procedures(values: dict[str, Any]) -> list[dict[str, Any]]:
 def validate_procedures(
 	procedures: list[dict[str, Any]], patient: str, encounter: str, encounter_field: str | None
 ) -> None:
-	"""Every procedure must be a live one from this patient's visit."""
+	"""Every procedure must be a live one from this patient's visit; fills each row's procedure_template from the database."""
 	if not procedures:
 		frappe.throw(_("Select at least one procedure for this consent."), frappe.ValidationError)
 	filters: dict[str, Any] = {
@@ -93,7 +93,7 @@ def get_render_context(doc, procedures: list[dict[str, Any]]) -> dict[str, Any]:
 	"""Keys used by both do_health's Consent Form and do_dental's Encounter Consent templates."""
 	patient = frappe.get_cached_doc("Patient", doc.patient).as_dict() if doc.get("patient") else frappe._dict()
 	names = [row["display_name"] for row in procedures if row.get("display_name")]
-	joined = ", ".join(names) or doc.get("procedure_template")
+	joined = ", ".join(names) or doc.get("procedure_template") or ""
 	return {
 		"doc": doc,
 		"patient": patient,
