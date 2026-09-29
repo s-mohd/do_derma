@@ -4,7 +4,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cint, cstr, escape_html, format_datetime, get_fullname, now_datetime
+from frappe.utils import cint, cstr, escape_html, format_datetime, get_fullname, now_datetime, strip_html_tags
 
 from do_derma.schema import SIGNATURE_WAIVED_FIELD, WAIVER_REASON_FIELD
 
@@ -155,7 +155,7 @@ def get_waiver_reason(values: dict[str, Any]) -> str | None:
 	"""The waiver reason when the payload skips the signature, else None."""
 	if not cint(values.get("signature_waived")):
 		return None
-	reason = cstr(values.get("waiver_reason")).strip()
+	reason = strip_html_tags(cstr(values.get("waiver_reason"))).strip()
 	if not reason:
 		frappe.throw(_("Give a reason for skipping the signature."), frappe.ValidationError)
 	return reason

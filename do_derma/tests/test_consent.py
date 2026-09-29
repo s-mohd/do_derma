@@ -250,11 +250,18 @@ class TestWaivedConsent(ConsentHelpers, IntegrationTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "reason"):
 			self._waive([self.first], reason="   ")
 
-	def test_the_saved_document_names_the_waiver_escaped(self):
-		created = self._waive([self.first], reason="<b>Emergency</b>")
-		html = frappe.db.get_value(created["doctype"], created["name"], "rendered_html")
-		self.assertIn("&lt;b&gt;Emergency&lt;/b&gt;", html)
-		self.assertNotIn("<b>Emergency</b>", html)
+	def test_markup_in_a_reason_is_dropped(self):
+		created = self._waive([self.first], reason="Emergency <b>test</b>")
+		values = frappe.db.get_value(
+			created["doctype"], created["name"], ["custom_derma_waiver_reason", "rendered_html"], as_dict=True
+		)
+		self.assertEqual(values.custom_derma_waiver_reason, "Emergency test")
+		self.assertIn("Signature waived: Emergency test", values.rendered_html)
+		self.assertNotIn("&lt;", values.rendered_html)
+
+	def test_a_reason_that_is_only_markup_is_refused(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "reason"):
+			self._waive([self.first], reason="<b></b>")
 
 	def test_without_a_waiver_a_signature_is_still_required(self):
 		with self.assertRaises(frappe.ValidationError):
