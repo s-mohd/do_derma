@@ -11,7 +11,7 @@ from frappe import _
 from frappe.utils import cint, cstr, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
 
-from do_derma import assessment, previous_visits, reopen, voice
+from do_derma import assessment, consent, previous_visits, reopen, voice
 from do_derma.assessment import CHILD_INTERNAL_FIELDS
 from do_derma.config.marker_size import (
 	MARK_SIZE_FIELD,
@@ -3376,33 +3376,6 @@ def get_derma_anesthesia(encounter=None, appointment=None, patient=None):
 
 
 @frappe.whitelist()
-def get_derma_consents(encounter=None, appointment=None, patient=None):
-	_ensure_clinical_access()
-	doctype = "Encounter Consent" if _has_doctype("Encounter Consent") else "Consent Form"
-	if not _has_doctype(doctype):
-		return []
-	filters: dict[str, Any] = {}
-	if encounter and _has_field(doctype, "encounter"):
-		filters["encounter"] = encounter
-	if appointment and _has_field(doctype, "appointment"):
-		filters["appointment"] = appointment
-	if patient and _has_field(doctype, "patient"):
-		filters["patient"] = patient
-	if not filters:
-		return []
-	fields = _select_existing_fields(
-		doctype,
-		["name", "consent_form_template", "status", "signed_by", "signed_on", "modified", "docstatus"],
-	)
-	rows = frappe.get_all(
-		doctype, filters=filters, fields=fields, order_by="modified desc", limit_page_length=100
-	)
-	for row in rows:
-		row["doctype"] = doctype
-	return rows
-
-
-@frappe.whitelist()
 def create_derma_consent(payload=None):
 	_ensure_clinical_access()
 	values = _parse_payload(payload) or {}
@@ -3423,11 +3396,13 @@ def create_derma_consent(payload=None):
 		frappe.throw(_("No encounter found for this session."), frappe.DoesNotExistError)
 	_ensure_encounter_open(encounter)
 
-	doctype = "Encounter Consent" if _has_doctype("Encounter Consent") else "Consent Form"
-	if not _has_doctype(doctype):
+	consent_doctype = consent.ConsentDoctype()
+	if not consent_doctype.is_installed:
 		frappe.throw(_("Consent Form is not installed."))
+	procedures = consent.get_selected_procedures(values)
+	consent.validate_procedures(procedures, patient, encounter, _get_clinical_procedure_encounter_field())
 
-	doc = frappe.new_doc(doctype)
+	doc = frappe.new_doc(consent_doctype.name)
 	for fieldname, value in {
 		"patient": patient,
 		"encounter": encounter,
@@ -3438,48 +3413,13 @@ def create_derma_consent(payload=None):
 		"signed_by": values.get("signed_by"),
 		"relationship": values.get("relationship"),
 	}.items():
-		if value and _has_field(doctype, fieldname):
+		if value and _has_field(consent_doctype.name, fieldname):
 			doc.set(fieldname, value)
+	consent_doctype.set_procedures(doc, procedures)
 
-	procedure_items = values.get("procedure_items") or values.get("procedure_selection") or []
-	if doctype == "Encounter Consent" and _has_field(doctype, "procedure_items"):
-		for row in procedure_items:
-			if isinstance(row, str):
-				row = {"clinical_procedure": row}
-			if not isinstance(row, dict):
-				continue
-			doc.append(
-				"procedure_items",
-				{
-					"clinical_procedure": row.get("clinical_procedure") or row.get("value"),
-					"procedure_template": row.get("procedure_template"),
-					"display_name": row.get("display_name") or row.get("label"),
-					"teeth": row.get("teeth") or row.get("location") or "",
-				},
-			)
-	elif doctype == "Consent Form" and procedure_items:
-		first = procedure_items[0]
-		if isinstance(first, str):
-			first = {"clinical_procedure": first}
-		if isinstance(first, dict):
-			clinical_procedure = first.get("clinical_procedure") or first.get("value")
-			if clinical_procedure and _has_field(doctype, "clinical_procedure"):
-				doc.clinical_procedure = clinical_procedure
-			procedure_template = first.get("procedure_template")
-			if (
-				not procedure_template
-				and clinical_procedure
-				and _has_field("Clinical Procedure", "procedure_template")
-			):
-				procedure_template = frappe.db.get_value(
-					"Clinical Procedure", clinical_procedure, "procedure_template"
-				)
-			if procedure_template and _has_field(doctype, "procedure_template"):
-				doc.procedure_template = procedure_template
-
-	if doc.get("consent_form_template") and hasattr(doc, "render_template"):
-		doc.render_template()
-	if values.get("rendered_html") and _has_field(doctype, "rendered_html"):
+	if doc.get("consent_form_template"):
+		consent_doctype.render(doc, procedures)
+	if values.get("rendered_html") and _has_field(consent_doctype.name, "rendered_html"):
 		doc.rendered_html = values.get("rendered_html")
 
 	doc.insert(ignore_permissions=True)
@@ -3487,7 +3427,7 @@ def create_derma_consent(payload=None):
 		doc.submit()
 	return {
 		"name": doc.name,
-		"doctype": doctype,
+		"doctype": consent_doctype.name,
 		"rendered_html": doc.get("rendered_html"),
 		"status": doc.get("status"),
 		"docstatus": doc.docstatus,
@@ -3502,10 +3442,11 @@ def render_derma_consent_preview(payload=None):
 	consent_template = values.get("consent_form_template")
 	if not consent_template:
 		return {"rendered_html": ""}
-	doctype = "Encounter Consent" if _has_doctype("Encounter Consent") else "Consent Form"
-	if not _has_doctype(doctype):
+	consent_doctype = consent.ConsentDoctype()
+	if not consent_doctype.is_installed:
 		return {"rendered_html": ""}
-	doc = frappe.new_doc(doctype)
+	procedures = consent.get_selected_procedures(values)
+	doc = frappe.new_doc(consent_doctype.name)
 	for fieldname, value in {
 		"patient": values.get("patient"),
 		"encounter": values.get("encounter"),
@@ -3513,21 +3454,20 @@ def render_derma_consent_preview(payload=None):
 		"consent_form_template": consent_template,
 		"company": values.get("company") or frappe.defaults.get_user_default("Company"),
 	}.items():
-		if value and _has_field(doctype, fieldname):
+		if value and _has_field(consent_doctype.name, fieldname):
 			doc.set(fieldname, value)
-	if hasattr(doc, "render_template"):
-		try:
-			doc.render_template()
-		except Exception as exc:
-			# The renderer lives in the health app and trips over templates it cannot read.
-			# Name the template so an administrator can fix it instead of the clinician retrying.
-			frappe.log_error(frappe.get_traceback(), "Derma consent preview render failed")
-			return {
-				"rendered_html": "",
-				"error": _("Consent template {0} could not be rendered: {1}").format(
-					consent_template, str(exc) or exc.__class__.__name__
-				),
-			}
+	consent_doctype.set_procedures(doc, procedures)
+	try:
+		consent_doctype.render(doc, procedures)
+	except Exception as exc:
+		# Name the template so an administrator can fix it instead of the clinician retrying.
+		frappe.log_error(frappe.get_traceback(), "Derma consent preview render failed")
+		return {
+			"rendered_html": "",
+			"error": _("Consent template {0} could not be rendered: {1}").format(
+				consent_template, str(exc) or exc.__class__.__name__
+			),
+		}
 	return {"rendered_html": doc.get("rendered_html") or ""}
 
 
@@ -3536,11 +3476,9 @@ def get_derma_consent_html(name: str):
 	_ensure_clinical_access()
 	if not name:
 		frappe.throw(_("Consent is required."), frappe.ValidationError)
-	doctype = (
-		"Encounter Consent"
-		if _has_doctype("Encounter Consent") and frappe.db.exists("Encounter Consent", name)
-		else "Consent Form"
-	)
+	doctype = consent.ConsentDoctype().name
+	if not frappe.db.exists(doctype, name):
+		doctype = consent.CONSENT_FORM
 	doc = frappe.get_doc(doctype, name)
 	if not doc.get("rendered_html") and doc.get("consent_form_template") and hasattr(doc, "render_template"):
 		doc.render_template()

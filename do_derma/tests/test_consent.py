@@ -128,3 +128,45 @@ class TestConsentCoverage(ConsentHelpers, IntegrationTestCase):
 		self.assertEqual(context["procedure_names"], ["Laser", "Peel"])
 		self.assertEqual(context["procedure"], "Laser, Peel")
 		self.assertEqual(context["procedure_name"], "Laser, Peel")
+
+
+class TestCreateConsent(ConsentHelpers, IntegrationTestCase):
+	def _stored_procedures(self, name):
+		doc = frappe.get_doc(self.consent_doctype.name, name)
+		return [row.clinical_procedure for row in doc.get(self.consent_doctype.procedures_field)]
+
+	def test_one_consent_covers_every_selected_procedure(self):
+		created = self._create([self.first, self.second])
+		self.assertEqual(self._stored_procedures(created["name"]), [self.first.name, self.second.name])
+		self.assertEqual(created["docstatus"], 1)
+
+	def test_consent_form_keeps_the_first_procedure_on_its_own_link(self):
+		if self.consent_doctype.is_encounter_consent:
+			self.skipTest("Encounter Consent has no single procedure link.")
+		created = self._create([self.first, self.second])
+		self.assertEqual(
+			frappe.db.get_value(consent.CONSENT_FORM, created["name"], "clinical_procedure"), self.first.name
+		)
+
+	def test_a_procedure_picked_twice_is_stored_once(self):
+		created = self._create([self.first, self.first])
+		self.assertEqual(self._stored_procedures(created["name"]), [self.first.name])
+
+	def test_a_consent_needs_at_least_one_procedure(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._create([])
+
+	def test_a_procedure_from_another_visit_is_refused(self):
+		other = self._make_visit_procedure(self._make_encounter(self.patient))
+		with self.assertRaises(frappe.ValidationError):
+			self._create([self.first, other])
+
+	def test_renders_every_selected_procedure(self):
+		created = self._create([self.first, self.second])
+		html = frappe.db.get_value(created["doctype"], created["name"], "rendered_html")
+		self.assertIn(f"Shown {self.first.name};", html)
+		self.assertIn(f"Shown {self.second.name};", html)
+
+	def test_preview_renders_the_selected_procedures(self):
+		result = api.render_derma_consent_preview(payload=json.dumps(self._payload([self.first, self.second])))
+		self.assertIn(f"Shown {self.first.name};Shown {self.second.name};", result["rendered_html"])
