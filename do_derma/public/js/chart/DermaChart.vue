@@ -281,6 +281,7 @@
                     @create="createConsentFromPanel"
                     @send-whatsapp="sendConsentViaWhatsApp"
                     @cancel="consentPanel.open = false"
+                    @print-blank="(html) => printConsent(__('Consent Form'), html)"
                   />
                 </div>
               </div>
@@ -616,6 +617,7 @@ import { procedureDisplayName } from "../shared/procedure_label.js"
 import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
+import { printHtml } from "../shared/print_window.js"
 import { runDialogAction } from "../shared/dialog_progress.js"
 import { serverErrorText } from "../shared/error_text.js"
 
@@ -1655,23 +1657,13 @@ function printAnnotationReview(annotation) {
   const patientName = patient.value.patient_name || patient.value.name || ""
   // This document is hand-written HTML in a window with no autoescaping, so every
   // interpolated value is escaped here. `legend` is server-generated, escaped at generation.
-  const title = escapeHtml([patientName, label].filter(Boolean).join(" - "))
-  const printWindow = window.open("", "_blank")
-  if (!printWindow) {
-    frappe.show_alert({ message: __("Allow pop-ups to print the annotation."), indicator: "orange" })
-    return
-  }
-  printWindow.document.write(`<!doctype html>
-    <html><head><title>${title}</title></head>
-    <body style="font-family:sans-serif;margin:24px;">
-      <h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
+  printHtml(
+    [patientName, label].filter(Boolean).join(" - "),
+    `<h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
       <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
       ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:70vh;" alt="">` : ""}
-      <div style="margin-top:16px;">${legend}</div>
-    </body></html>`)
-  printWindow.document.close()
-  printWindow.focus()
-  setTimeout(() => printWindow.print(), 350)
+      <div style="margin-top:16px;">${legend}</div>`
+  )
 }
 
 function annotationPreview(annotation) {
@@ -2327,10 +2319,16 @@ function sendConsentViaWhatsApp() {
 async function openSignedConsent(row) {
   const name = row?.name || row
   if (!name) return
+  const title = row?.consent_form_template || __("Consent Form")
+  let printable = ""
   const dialog = new frappe.ui.Dialog({
-    title: row?.consent_form_template || __("Consent Form"),
+    title,
     size: "large",
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
+    primary_action_label: __("Print"),
+    primary_action() {
+      if (printable) printConsent(title, printable)
+    },
   })
   dialog.show()
   nameDialogControls(dialog)
@@ -2342,8 +2340,9 @@ async function openSignedConsent(row) {
     })
     const result = response.message || {}
     const meta = escapeHtml(consentMetaText({ ...row, ...result }))
+    printable = result.rendered_html || ""
     dialog.fields_dict.body.$wrapper.html(
-      `<p class="text-muted">${meta}</p><div class="consent-rendered-html">${result.rendered_html || __("No rendered content available.")}</div>`
+      `<p class="text-muted">${meta}</p><div class="consent-rendered-html">${printable || __("No rendered content available.")}</div>`
     )
   } catch (err) {
     dialog.fields_dict.body.$wrapper.html(
@@ -2352,8 +2351,22 @@ async function openSignedConsent(row) {
   }
 }
 
+/** Stored or previewed consent HTML, headed with who it is for so a paper copy can be filed. */
+function printConsent(title, html) {
+  const identity = [patient.value.patient_name, patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "", encounter.value.name]
+    .filter(Boolean)
+    .join(" · ")
+  printHtml(
+    [patient.value.patient_name, title].filter(Boolean).join(" - "),
+    `<p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(identity)}</p>${html}`
+  )
+}
+
 function consentMetaText(row = {}) {
-  return [row.status, row.signed_by, row.signed_on].filter(Boolean).join(" · ")
+  const status = row.custom_derma_signature_waived
+    ? `${__("Signature waived")}: ${row.custom_derma_waiver_reason || ""}`
+    : row.status
+  return [status, row.signed_by, row.signed_on].filter(Boolean).join(" · ")
 }
 
 function blockerListHtml(blockers) {

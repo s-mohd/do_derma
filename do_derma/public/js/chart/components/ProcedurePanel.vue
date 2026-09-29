@@ -226,7 +226,7 @@
                   data-test="procedure-consent-badge"
                   @click.stop="emit('open-consents', row)"
                 >
-                  {{ row.consents.length > 1 ? __("Consented ({0})", [row.consents.length]) : __("Consented") }}
+                  {{ consentBadgeLabel(row.consents) }}
                 </button>
                 <button
                   v-else-if="row.consent_required && row.docstatus !== 2"
@@ -993,6 +993,13 @@ let overrideOutsideHandler = null
 
 function getEditValue(row, key) {
   return edits.value[row.name]?.[key]
+}
+
+/** "Consented" when any consent was signed; waived-only coverage says so. */
+function consentBadgeLabel(consents) {
+  const isWaivedOnly = consents.every((consent) => consent.custom_derma_signature_waived)
+  const label = isWaivedOnly ? __("Consent waived") : __("Consented")
+  return consents.length > 1 ? `${label} (${consents.length})` : label
 }
 
 function isEditable(row) {

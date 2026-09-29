@@ -7,6 +7,15 @@
           {{ __("Cancel") }}
         </button>
         <button
+          type="button"
+          class="ghost"
+          data-test="consent-print-blank"
+          :disabled="!previewHtml || isPreviewStale"
+          @click="emitPrintBlank"
+        >
+          {{ __("Print blank") }}
+        </button>
+        <button
           v-if="enableWhatsappConsent"
           type="button"
           class="ghost"
@@ -54,6 +63,28 @@
           </fieldset>
         </div>
 
+        <div class="waiver-row" data-test="consent-waiver">
+          <label class="waiver-toggle">
+            <input v-model="waiver.enabled" type="checkbox" :disabled="readOnly" />
+            <span>{{ __("Skip digital signature") }}</span>
+          </label>
+          <template v-if="waiver.enabled">
+            <label v-for="option in WAIVER_REASONS" :key="option" class="waiver-option">
+              <input v-model="waiver.choice" type="radio" :value="option" :disabled="readOnly" />
+              <span>{{ __(option) }}</span>
+            </label>
+            <input
+              v-if="waiver.choice === OTHER_REASON"
+              v-model="waiver.other"
+              type="text"
+              class="form-control waiver-other"
+              data-test="consent-waiver-other"
+              :placeholder="__('Reason')"
+              :disabled="readOnly"
+            />
+          </template>
+        </div>
+
         <div class="document-grid">
           <div class="preview-column">
             <h4>{{ __("Consent Form") }}</h4>
@@ -63,11 +94,11 @@
               ref="previewBoxRef"
               class="preview-box"
               data-test="consent-preview"
-              :class="{ editable: hasEditableFields }"
+              :class="{ editable: hasEditableFields, 'signature-waived': waiver.enabled }"
               v-html="previewMarkup"
             ></div>
             <div
-              v-if="!previewLoading && previewHtml && !hasSignatureField"
+              v-if="!previewLoading && previewHtml && !hasSignatureField && !waiver.enabled"
               class="consent-signature-block"
               data-test="consent-fallback-signature"
             >
@@ -101,7 +132,12 @@ const props = defineProps({
   enableWhatsappConsent: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["request-preview", "create", "send-whatsapp", "cancel"])
+const emit = defineEmits(["request-preview", "create", "send-whatsapp", "cancel", "print-blank"])
+
+const SIGNATURE_LINE =
+  '<span style="display:inline-block;min-width:240px;height:40px;border-bottom:1px solid #111827;"></span>'
+const OTHER_REASON = "Other"
+const WAIVER_REASONS = ["Signed on paper", "Verbal", OTHER_REASON]
 
 const hosts = new Map()
 const controls = new Map()
@@ -117,6 +153,7 @@ const hasSignatureField = ref(true)
 const fallbackSignatureRef = ref(null)
 const formFieldValues = ref({})
 const selectedProcedures = ref([...props.preselected])
+const waiver = ref(emptyWaiver())
 const localValues = ref({
   consent_form_template: "",
   signed_by: "",
@@ -301,6 +338,7 @@ function resetDraft() {
   }
   controls.get("consent_form_template")?.set_value?.("")
   selectedProcedures.value = [...props.preselected]
+  waiver.value = emptyWaiver()
   nextTick(() => initializeEditablePreview())
 }
 
@@ -356,6 +394,7 @@ function emitCreate() {
     frappe.show_alert({ message: __("Select at least one procedure."), indicator: "orange" })
     return
   }
+  if (waiver.value.enabled) return emitWaivedCreate(values)
   if (!values.signed_by) {
     frappe.show_alert({ message: __("Patient name is required on the consent form."), indicator: "orange" })
     return
@@ -366,6 +405,30 @@ function emitCreate() {
   }
 
   emit("create", { ...values, rendered_html: collectRenderedHtml(values.signed_by) })
+}
+
+function emitWaivedCreate(values) {
+  const reason = waiver.value.choice === OTHER_REASON ? waiver.value.other.trim() : waiver.value.choice
+  if (!reason) {
+    frappe.show_alert({ message: __("Give a reason for skipping the signature."), indicator: "orange" })
+    return
+  }
+  emit("create", {
+    ...values,
+    signature: "",
+    signature_waived: 1,
+    waiver_reason: reason,
+    rendered_html: collectRenderedHtml("", { signature: false }),
+  })
+}
+
+function emitPrintBlank() {
+  if (!props.previewHtml || isPreviewStale.value) return
+  emit("print-blank", collectRenderedHtml("", { blank: true }))
+}
+
+function emptyWaiver() {
+  return { enabled: false, choice: WAIVER_REASONS[0], other: "" }
 }
 
 function emitSend() {
@@ -579,32 +642,33 @@ function teardownSignaturePad() {
   }
 }
 
-function collectRenderedHtml(signedBy = "") {
+/**
+ * The preview as a document. `signature` fills the signature slots with the drawn pad;
+ * `blank` leaves a line to sign on paper; neither (a waived consent) leaves them empty.
+ */
+function collectRenderedHtml(signedBy = "", { signature = true, blank = false } = {}) {
   const host = previewBoxRef.value
   if (!host) return props.previewHtml || ""
-  const signatureBlock =
-    !hasSignatureField.value && formFieldValues.value.signature
-      ? `<div class="consent-signature-block"><p>${__("Signed by")}: ${frappe.utils.escape_html(signedBy)}</p><img src="${formFieldValues.value.signature}" alt="${__("Signature")}"></div>`
-      : ""
-
+  const drawn = signature && !blank ? formFieldValues.value.signature : ""
   const clone = host.cloneNode(true)
   for (const field of clone.querySelectorAll("[data-consent-field]")) {
-    field.removeAttribute("contenteditable")
-    field.removeAttribute("role")
-    field.removeAttribute("tabindex")
-    field.removeAttribute("spellcheck")
-    const name = getFieldName(field)
-    if (name === "signature" && formFieldValues.value.signature) {
-      field.innerHTML = `<img src="${formFieldValues.value.signature}" alt="${__("Signature")}">`
-    }
+    for (const attribute of ["contenteditable", "role", "tabindex", "spellcheck"]) field.removeAttribute(attribute)
+    if (getFieldName(field) !== "signature") continue
+    if (blank) field.innerHTML = SIGNATURE_LINE
+    else if (drawn) field.innerHTML = `<img src="${drawn}" alt="${__("Signature")}">`
   }
-  for (const button of clone.querySelectorAll(".signature-clear")) {
-    button.remove()
+  for (const leftover of clone.querySelectorAll(".signature-clear, canvas")) leftover.remove()
+  return clone.innerHTML + appendedSignatureBlock(signedBy, drawn, blank)
+}
+
+/** Templates without a signature slot carry the signature after the document. */
+function appendedSignatureBlock(signedBy, drawn, blank) {
+  if (hasSignatureField.value) return ""
+  if (blank) {
+    return `<div class="consent-signature-block"><p>${__("Patient Signature")}: ${SIGNATURE_LINE}</p><p>${__("Date")}: ${SIGNATURE_LINE}</p></div>`
   }
-  for (const canvas of clone.querySelectorAll("canvas")) {
-    canvas.remove()
-  }
-  return clone.innerHTML + signatureBlock
+  if (!drawn) return ""
+  return `<div class="consent-signature-block"><p>${__("Signed by")}: ${frappe.utils.escape_html(signedBy)}</p><img src="${drawn}" alt="${__("Signature")}"></div>`
 }
 </script>
 
@@ -821,6 +885,36 @@ button:disabled {
   height: 90px;
   border: 1px dashed #cbd5e1;
   border-radius: 6px;
+}
+
+.waiver-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.waiver-toggle,
+.waiver-option {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+}
+
+.waiver-toggle {
+  font-weight: 700;
+}
+
+.waiver-other {
+  max-width: 280px;
+}
+
+.preview-box.signature-waived:deep(.consent-inline-signature) {
+  visibility: hidden;
 }
 
 .procedure-checklist {
