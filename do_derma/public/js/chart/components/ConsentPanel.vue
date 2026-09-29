@@ -1,5 +1,5 @@
 <template>
-  <section class="workspace-panel consent-panel" data-test="consent-panel">
+  <section ref="panelRef" class="workspace-panel consent-panel" data-test="consent-panel" @keydown.esc.stop="emitCancel">
     <header class="panel-header">
       <h3>{{ __("New Consent") }}</h3>
       <div class="actions">
@@ -20,7 +20,7 @@
           type="button"
           class="primary"
           data-test="consent-create"
-          :disabled="saving || sending || !canCreate"
+          :disabled="saving || sending || !canCreate || isPreviewStale"
           @click="emitCreate"
         >
           {{ saving ? __("Creating...") : __("Create") }}
@@ -74,7 +74,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 
 const __ = window.__ || ((txt) => txt)
 
@@ -101,6 +101,7 @@ const hostTeardownTimers = new Map()
 let renderQueued = false
 let previewTimer = null
 let signaturePadCleanup = null
+const panelRef = ref(null)
 const previewBoxRef = ref(null)
 const hasEditableFields = ref(false)
 const formFieldValues = ref({})
@@ -112,7 +113,9 @@ const localValues = ref({
   signature: "",
 })
 
+const previewPending = ref(false)
 const canCreate = computed(() => props.hasSessionContext && !props.readOnly)
+const isPreviewStale = computed(() => props.previewLoading || previewPending.value)
 const previewMarkup = computed(
   () => props.previewHtml || `<div class="text-muted">${__("Select a consent template.")}</div>`
 )
@@ -151,6 +154,10 @@ watch(
   },
   { immediate: true }
 )
+
+onMounted(() => {
+  panelRef.value?.querySelector("button:not(:disabled), input, [tabindex]")?.focus()
+})
 
 onBeforeUnmount(() => {
   clearTimeout(previewTimer)
@@ -220,23 +227,6 @@ function clearHostTeardownTimers() {
   hostTeardownTimers.clear()
 }
 
-function controlDef(fieldname) {
-  const readOnly = props.readOnly ? 1 : 0
-  if (fieldname === "consent_form_template") {
-    return {
-      fieldname,
-      fieldtype: "Link",
-      options: "Consent Form Template",
-      label: __("Consent Template"),
-      reqd: 1,
-      read_only: readOnly,
-      onchange: handleFieldChange,
-    }
-  }
-
-  return null
-}
-
 async function renderControls() {
   if (!props.hasSessionContext) {
     teardownAllControls()
@@ -245,37 +235,35 @@ async function renderControls() {
 
   await nextTick()
 
-  for (const fieldname of ["consent_form_template"]) {
-    const host = hosts.get(fieldname)
-    if (!host) continue
+  const host = hosts.get("consent_form_template")
+  if (!host) return
+  const existing = controls.get("consent_form_template")
+  if (existing && existing.__consentPanelHost === host) return
 
-    const existing = controls.get(fieldname)
-    if (existing && existing.__consentPanelHost === host) {
-      continue
-    }
+  if (existing) teardownControl("consent_form_template")
+  host.innerHTML = ""
 
-    if (existing) teardownControl(fieldname)
-    host.innerHTML = ""
+  const control = frappe.ui.form.make_control({
+    parent: host,
+    render_input: true,
+    only_input: false,
+    doc: { doctype: "Consent Form" },
+    df: {
+      fieldname: "consent_form_template",
+      fieldtype: "Link",
+      options: "Consent Form Template",
+      label: __("Consent Template"),
+      reqd: 1,
+      read_only: props.readOnly ? 1 : 0,
+      onchange: handleFieldChange,
+    },
+  })
 
-    const df = controlDef(fieldname)
-    if (!df) continue
+  control.__consentPanelHost = host
+  controls.set("consent_form_template", control)
 
-    const control = frappe.ui.form.make_control({
-      parent: host,
-      render_input: true,
-      only_input: false,
-      doc: { doctype: "Consent Form" },
-      df,
-    })
-
-    control.__consentPanelHost = host
-    controls.set(fieldname, control)
-
-    const value = localValues.value[fieldname]
-    if (value !== undefined && value !== null && value !== "") {
-      control.set_value?.(value)
-    }
-  }
+  const value = localValues.value.consent_form_template
+  if (value) control.set_value?.(value)
 }
 
 function syncControlReadOnly(fieldname = null) {
@@ -291,6 +279,7 @@ function syncControlReadOnly(fieldname = null) {
 
 function resetDraft() {
   clearTimeout(previewTimer)
+  previewPending.value = false
   teardownSignaturePad()
   formFieldValues.value = {}
   localValues.value = {
@@ -325,7 +314,9 @@ function readValues() {
 
 function handleFieldChange() {
   clearTimeout(previewTimer)
+  previewPending.value = true
   previewTimer = setTimeout(() => {
+    previewPending.value = false
     const values = readValues()
     emit("request-preview", {
       consent_form_template: values.consent_form_template,
@@ -344,7 +335,7 @@ function handleProcedureChange() {
 }
 
 function emitCreate() {
-  if (!canCreate.value || props.saving) return
+  if (!canCreate.value || props.saving || isPreviewStale.value) return
   const values = readValues()
   if (!values.consent_form_template) {
     frappe.show_alert({ message: __("Consent template is required."), indicator: "orange" })
@@ -616,12 +607,6 @@ function collectRenderedHtml() {
   margin: 0;
   font-size: 16px;
   color: #111827;
-}
-
-.panel-header .meta {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #64748b;
 }
 
 .actions {

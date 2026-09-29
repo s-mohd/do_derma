@@ -3923,8 +3923,7 @@
   grid-column: 1 / -1;
 }
 
-.annotation-history-table,
-.consent-list {
+.annotation-history-table {
   padding: 12px 14px;
   display: grid;
   gap: 8px;
@@ -3934,8 +3933,7 @@
   margin: 0;
 }
 
-.annotation-history-table button,
-.consent-list button {
+.annotation-history-table button {
   display: flex;
   justify-content: space-between;
   gap: 12px;

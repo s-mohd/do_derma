@@ -1102,7 +1102,9 @@ async function hydrateDermaSectionPreference() {
 
 async function setActiveSection(section, tab = "") {
   sectionChosenByUser.value = true
-  activeSection.value = normalizeDermaSection(section)
+  const next = normalizeDermaSection(section)
+  if (next !== activeSection.value) closeConsentPanel()
+  activeSection.value = next
   if (tab) activeWorkspaceTab.value = tab
   persistDermaSection(activeSection.value)
   await ensureSectionData(activeSection.value, tab)
@@ -1130,7 +1132,13 @@ function isSectionDegraded(section) {
   return labels.some((label) => failed.includes(label))
 }
 
+function closeConsentPanel() {
+  consentPanel.open = false
+  consentPanel.previewHtml = ""
+}
+
 async function load(context = props.context) {
+  closeConsentPanel()
   loading.value = true
   loadError.value = ""
   try {
@@ -2231,6 +2239,7 @@ function openProcedureConsents(row) {
         fieldtype: "Select",
         label: __("Consent"),
         reqd: 1,
+        default: consents[0].name,
         options: consents.map((item) => ({
           value: item.name,
           label: [item.consent_form_template || item.name, item.signed_on].filter(Boolean).join(" · "),
@@ -2247,8 +2256,11 @@ function openProcedureConsents(row) {
   nameDialogControls(dialog)
 }
 
+let consentPreviewSequence = 0
+
 async function requestConsentPreview(payload) {
   const procedureItems = buildConsentProcedureItems(payload?.procedure_selection)
+  const sequence = ++consentPreviewSequence
   consentPanel.previewLoading = true
   consentPanel.error = ""
   try {
@@ -2256,13 +2268,15 @@ async function requestConsentPreview(payload) {
       method: "do_derma.api.render_derma_consent_preview",
       args: { payload: { ...payload, ...contextArgs(), procedure_items: procedureItems } },
     })
+    if (sequence !== consentPreviewSequence) return
     const raw = response.message?.rendered_html || ""
     consentPanel.previewHtml = frappe?.utils?.unescape_html ? frappe.utils.unescape_html(raw) : raw
     consentPanel.error = response.message?.error || ""
   } catch (error) {
+    if (sequence !== consentPreviewSequence) return
     consentPanel.error = serverErrorText(error, __("Unable to render consent preview."))
   } finally {
-    consentPanel.previewLoading = false
+    if (sequence === consentPreviewSequence) consentPanel.previewLoading = false
   }
 }
 
