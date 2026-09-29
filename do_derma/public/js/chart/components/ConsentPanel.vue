@@ -66,6 +66,14 @@
               :class="{ editable: hasEditableFields }"
               v-html="previewMarkup"
             ></div>
+            <div
+              v-if="!previewLoading && previewHtml && !hasSignatureField"
+              class="consent-signature-block"
+              data-test="consent-fallback-signature"
+            >
+              <span class="label">{{ __("Patient Signature") }}</span>
+              <div ref="fallbackSignatureRef"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -104,6 +112,9 @@ let signaturePadCleanup = null
 const panelRef = ref(null)
 const previewBoxRef = ref(null)
 const hasEditableFields = ref(false)
+// Templates without a signature slot get the panel's own pad below the preview.
+const hasSignatureField = ref(true)
+const fallbackSignatureRef = ref(null)
 const formFieldValues = ref({})
 const selectedProcedures = ref([...props.preselected])
 const localValues = ref({
@@ -354,7 +365,7 @@ function emitCreate() {
     return
   }
 
-  emit("create", { ...values, rendered_html: collectRenderedHtml() })
+  emit("create", { ...values, rendered_html: collectRenderedHtml(values.signed_by) })
 }
 
 function emitSend() {
@@ -364,7 +375,7 @@ function emitSend() {
     frappe.show_alert({ message: __("Consent template is required."), indicator: "orange" })
     return
   }
-  emit("send-whatsapp", { ...values, rendered_html: collectRenderedHtml() })
+  emit("send-whatsapp", { ...values, rendered_html: collectRenderedHtml(values.signed_by) })
 }
 
 function emitCancel() {
@@ -382,6 +393,12 @@ function initializeEditablePreview() {
 
   const fields = Array.from(host.querySelectorAll("[data-consent-field]"))
   hasEditableFields.value = fields.length > 0
+  hasSignatureField.value = fields.some((field) => getFieldName(field) === "signature")
+  if (!hasSignatureField.value) {
+    nextTick(() => {
+      if (fallbackSignatureRef.value) setupInlineSignature(fallbackSignatureRef.value)
+    })
+  }
 
   for (const field of fields) {
     const name = getFieldName(field)
@@ -562,9 +579,13 @@ function teardownSignaturePad() {
   }
 }
 
-function collectRenderedHtml() {
+function collectRenderedHtml(signedBy = "") {
   const host = previewBoxRef.value
   if (!host) return props.previewHtml || ""
+  const signatureBlock =
+    !hasSignatureField.value && formFieldValues.value.signature
+      ? `<div class="consent-signature-block"><p>${__("Signed by")}: ${frappe.utils.escape_html(signedBy)}</p><img src="${formFieldValues.value.signature}" alt="${__("Signature")}"></div>`
+      : ""
 
   const clone = host.cloneNode(true)
   for (const field of clone.querySelectorAll("[data-consent-field]")) {
@@ -583,7 +604,7 @@ function collectRenderedHtml() {
   for (const canvas of clone.querySelectorAll("canvas")) {
     canvas.remove()
   }
-  return clone.innerHTML
+  return clone.innerHTML + signatureBlock
 }
 </script>
 
@@ -742,7 +763,8 @@ button:disabled {
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18);
 }
 
-.preview-box:deep(.consent-inline-signature) {
+.preview-box:deep(.consent-inline-signature),
+.consent-signature-block:deep(.consent-inline-signature) {
   position: relative;
   display: inline-flex;
   align-items: stretch;
@@ -753,19 +775,22 @@ button:disabled {
   cursor: crosshair;
 }
 
-.preview-box:deep(.consent-inline-signature canvas) {
+.preview-box:deep(.consent-inline-signature canvas),
+.consent-signature-block:deep(.consent-inline-signature canvas) {
   width: 100%;
   height: 100%;
   touch-action: none;
 }
 
-.preview-box:deep(.consent-inline-signature img) {
+.preview-box:deep(.consent-inline-signature img),
+.consent-signature-block:deep(.consent-inline-signature img) {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
 
-.preview-box:deep(.signature-clear) {
+.preview-box:deep(.signature-clear),
+.consent-signature-block:deep(.signature-clear) {
   position: absolute;
   top: 4px;
   right: 4px;
@@ -776,6 +801,26 @@ button:disabled {
   background: rgba(255, 255, 255, 0.92);
   color: #475569;
   font-size: 10px;
+}
+
+.consent-signature-block {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  margin-bottom: 14px;
+}
+
+.consent-signature-block .label {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.consent-signature-block:deep(.consent-inline-signature) {
+  width: 260px;
+  height: 90px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
 }
 
 .procedure-checklist {
