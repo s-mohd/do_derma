@@ -84,8 +84,16 @@ class TestConsentCoverage(ConsentHelpers, IntegrationTestCase):
 		self.assertEqual([row["name"] for row in coverage[self.second.name]], [created["name"]])
 		self.assertNotIn(third.name, coverage)
 
-	def test_an_unsigned_consent_covers_nothing(self):
-		self._create([self.first], signature="")
+	def test_a_draft_consent_covers_nothing(self):
+		frappe.get_doc(
+			{
+				"doctype": self.consent_doctype.name,
+				"patient": self.patient,
+				"signature": SIGNATURE,
+				"signed_by": "Test Patient",
+				self.consent_doctype.procedures_field: [{"clinical_procedure": self.first.name}],
+			}
+		).insert(ignore_permissions=True)
 		self.assertEqual(consent.get_consent_coverage([self.first.name]), {})
 
 	def test_a_cancelled_consent_covers_nothing(self):
