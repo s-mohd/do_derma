@@ -121,6 +121,21 @@ class TestConsentCoverage(ConsentHelpers, IntegrationTestCase):
 		self.assertEqual([row["name"] for row in coverage[self.first.name]], [legacy.name])
 		self.assertEqual(api.get_derma_consent_html(legacy.name)["rendered_html"], "<p>legacy</p>")
 
+	def test_a_legacy_consent_without_a_procedure_opens_unchanged(self):
+		if not frappe.db.exists("DocType", consent.CONSENT_FORM):
+			self.skipTest("Consent Form is not installed.")
+		legacy = frappe.get_doc(
+			{
+				"doctype": consent.CONSENT_FORM,
+				"patient": self.patient,
+				"rendered_html": "<p>old</p>",
+				"signature": SIGNATURE,
+				"signed_by": "Test Patient",
+			}
+		).insert(ignore_permissions=True)
+		legacy.submit()
+		self.assertEqual(api.get_derma_consent_html(legacy.name)["rendered_html"], "<p>old</p>")
+
 	def test_render_context_joins_the_procedure_names(self):
 		doc = frappe.new_doc(self.consent_doctype.name)
 		doc.patient = self.patient
@@ -153,13 +168,25 @@ class TestCreateConsent(ConsentHelpers, IntegrationTestCase):
 		self.assertEqual(self._stored_procedures(created["name"]), [self.first.name])
 
 	def test_a_consent_needs_at_least_one_procedure(self):
-		with self.assertRaises(frappe.ValidationError):
+		with self.assertRaisesRegex(frappe.ValidationError, "at least one procedure"):
 			self._create([])
 
 	def test_a_procedure_from_another_visit_is_refused(self):
 		other = self._make_visit_procedure(self._make_encounter(self.patient))
-		with self.assertRaises(frappe.ValidationError):
+		with self.assertRaisesRegex(frappe.ValidationError, "not part of this visit"):
 			self._create([self.first, other])
+
+	def test_a_procedure_of_another_patient_is_refused(self):
+		stranger = self._make_patient()
+		procedure = self._make_clinical_procedure(stranger)
+		procedure.db_set(api._get_clinical_procedure_encounter_field(), self.encounter.name)
+		with self.assertRaisesRegex(frappe.ValidationError, "not part of this visit"):
+			self._create([self.first, procedure])
+
+	def test_a_cancelled_procedure_is_refused(self):
+		self.second.db_set("docstatus", 2)
+		with self.assertRaisesRegex(frappe.ValidationError, "not part of this visit"):
+			self._create([self.first, self.second])
 
 	def test_renders_every_selected_procedure(self):
 		created = self._create([self.first, self.second])
