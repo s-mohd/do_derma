@@ -4,7 +4,9 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import cstr, now_datetime
+from frappe.utils import cint, cstr, escape_html, format_datetime, get_fullname, now_datetime
+
+from do_derma.schema import SIGNATURE_WAIVED_FIELD, WAIVER_REASON_FIELD
 
 ENCOUNTER_CONSENT = "Encounter Consent"
 CONSENT_FORM = "Consent Form"
@@ -36,6 +38,15 @@ class ConsentDoctype:
 		if procedures and not self.is_encounter_consent:
 			doc.clinical_procedure = procedures[0]["clinical_procedure"]
 			doc.procedure_template = procedures[0].get("procedure_template")
+
+	def waive_signature(self, doc, reason: str) -> None:
+		"""Record the waiver; the consent stays a draft because the health apps only submit signed ones."""
+		if not doc.meta.has_field(SIGNATURE_WAIVED_FIELD):
+			frappe.throw(_("Run bench migrate to enable skipping the signature."))
+		doc.set(SIGNATURE_WAIVED_FIELD, 1)
+		doc.set(WAIVER_REASON_FIELD, reason)
+		doc.rendered_html = (doc.get("rendered_html") or "") + get_waiver_html(reason)
+		doc.flags.ignore_mandatory = True
 
 	def render(self, doc, procedures: list[dict[str, Any]]) -> None:
 		if self.is_encounter_consent:
@@ -110,22 +121,54 @@ def get_render_context(doc, procedures: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def get_consent_coverage(procedure_names: list[str]) -> dict[str, list[dict[str, Any]]]:
-	"""Signed consents covering each procedure, from every consent shape installed."""
+	"""Signed or waived consents covering each procedure, from every consent shape installed."""
 	coverage: dict[str, list[dict[str, Any]]] = {}
 	if not procedure_names:
 		return coverage
 	for doctype, links in get_consent_links(procedure_names).items():
-		signed = frappe.get_all(
-			doctype,
-			filters={"name": ["in", list({parent for _procedure, parent in links})], "docstatus": 1},
-			fields=SUMMARY_FIELDS,
-		)
-		by_name = {row.name: {**row, "doctype": doctype} for row in signed}
+		by_name = {
+			row.name: {**row, "doctype": doctype}
+			for row in get_covering_consents(doctype, list({parent for _procedure, parent in links}))
+		}
 		for procedure, parent in sorted(links):
 			found = by_name.get(parent)
 			if found and found not in coverage.get(procedure, []):
 				coverage.setdefault(procedure, []).append(found)
 	return coverage
+
+
+def get_covering_consents(doctype: str, names: list[str]) -> list[dict[str, Any]]:
+	"""Submitted consents, plus drafts whose signature was waived."""
+	meta = frappe.get_meta(doctype)
+	has_waiver = meta.has_field(SIGNATURE_WAIVED_FIELD)
+	fields = SUMMARY_FIELDS + ([SIGNATURE_WAIVED_FIELD, WAIVER_REASON_FIELD] if has_waiver else [])
+	signed = frappe.get_all(doctype, filters={"name": ["in", names], "docstatus": 1}, fields=fields)
+	if not has_waiver:
+		return signed
+	waived = frappe.get_all(
+		doctype, filters={"name": ["in", names], "docstatus": 0, SIGNATURE_WAIVED_FIELD: 1}, fields=fields
+	)
+	return signed + waived
+
+
+def get_waiver_reason(values: dict[str, Any]) -> str | None:
+	"""The waiver reason when the payload skips the signature, else None."""
+	if not cint(values.get("signature_waived")):
+		return None
+	reason = cstr(values.get("waiver_reason")).strip()
+	if not reason:
+		frappe.throw(_("Give a reason for skipping the signature."), frappe.ValidationError)
+	return reason
+
+
+def get_waiver_html(reason: str) -> str:
+	"""The line a waived consent carries in place of a signature."""
+	return (
+		'<div class="consent-signature-block consent-waiver">'
+		f"<p>{escape_html(_('Signature waived'))}: {escape_html(reason)}</p>"
+		f"<p>{escape_html(_('Recorded by {0}, {1}').format(get_fullname(), format_datetime(now_datetime())))}</p>"
+		"</div>"
+	)
 
 
 def get_consent_links(procedure_names: list[str]) -> dict[str, set[tuple[str, str]]]:

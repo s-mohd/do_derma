@@ -224,3 +224,38 @@ class TestChartConsentState(ConsentHelpers, IntegrationTestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "signed consent covers"):
 			api.delete_clinical_procedure_entry("Clinical Procedure", self.first.name)
 		self.assertTrue(frappe.db.exists("Clinical Procedure", self.first.name))
+
+
+class TestWaivedConsent(ConsentHelpers, IntegrationTestCase):
+	def _waive(self, procedures, reason="Signed on paper"):
+		return self._create(
+			procedures, signature="", signed_by="", signature_waived=1, waiver_reason=reason
+		)
+
+	def test_a_waived_consent_is_kept_as_a_draft_with_its_reason(self):
+		created = self._waive([self.first], reason="Verbal")
+		doc = frappe.get_doc(created["doctype"], created["name"])
+		self.assertEqual(doc.docstatus, 0)
+		self.assertEqual(doc.custom_derma_signature_waived, 1)
+		self.assertEqual(doc.custom_derma_waiver_reason, "Verbal")
+
+	def test_a_waived_consent_covers_its_procedures(self):
+		created = self._waive([self.first, self.second])
+		coverage = consent.get_consent_coverage([self.first.name, self.second.name])
+		for procedure in (self.first.name, self.second.name):
+			self.assertEqual([row["name"] for row in coverage[procedure]], [created["name"]])
+			self.assertEqual(coverage[procedure][0]["custom_derma_signature_waived"], 1)
+
+	def test_a_waiver_needs_a_reason(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "reason"):
+			self._waive([self.first], reason="   ")
+
+	def test_the_saved_document_names_the_waiver_escaped(self):
+		created = self._waive([self.first], reason="<b>Emergency</b>")
+		html = frappe.db.get_value(created["doctype"], created["name"], "rendered_html")
+		self.assertIn("&lt;b&gt;Emergency&lt;/b&gt;", html)
+		self.assertNotIn("<b>Emergency</b>", html)
+
+	def test_without_a_waiver_a_signature_is_still_required(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._create([self.first], signature="", signed_by="")

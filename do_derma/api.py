@@ -3407,6 +3407,7 @@ def create_derma_consent(payload=None):
 		frappe.throw(_("Consent Form is not installed."))
 	procedures = consent.get_selected_procedures(values)
 	consent.validate_procedures(procedures, patient, encounter, _get_clinical_procedure_encounter_field())
+	waiver_reason = consent.get_waiver_reason(values)
 
 	doc = frappe.new_doc(consent_doctype.name)
 	for fieldname, value in {
@@ -3415,7 +3416,7 @@ def create_derma_consent(payload=None):
 		"appointment": appointment,
 		"consent_form_template": values.get("consent_form_template"),
 		"company": values.get("company") or frappe.defaults.get_user_default("Company"),
-		"signature": values.get("signature"),
+		"signature": None if waiver_reason else values.get("signature"),
 		"signed_by": values.get("signed_by"),
 		"relationship": values.get("relationship"),
 	}.items():
@@ -3427,6 +3428,8 @@ def create_derma_consent(payload=None):
 		consent_doctype.render(doc, procedures)
 	if values.get("rendered_html") and _has_field(consent_doctype.name, "rendered_html"):
 		doc.rendered_html = values.get("rendered_html")
+	if waiver_reason:
+		consent_doctype.waive_signature(doc, waiver_reason)
 
 	doc.insert(ignore_permissions=True)
 	if doc.meta.is_submittable and doc.get("signature") and doc.get("signed_by"):
