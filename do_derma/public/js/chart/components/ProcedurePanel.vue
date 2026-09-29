@@ -58,6 +58,15 @@
         </button>
         <button
           type="button"
+          class="ghost small"
+          data-test="procedure-new-consent"
+          :disabled="readOnly || !totalCount"
+          @click="emit('new-consent')"
+        >
+          {{ __("New Consent") }}
+        </button>
+        <button
+          type="button"
           class="primary small"
           data-test="procedure-new"
           :disabled="readOnly"
@@ -210,6 +219,25 @@
                 <span class="pill" :class="statusClass(row.status)">
                   {{ row.status || "Draft" }}
                 </span>
+                <button
+                  v-if="row.consents?.length"
+                  type="button"
+                  class="consent-badge consented"
+                  data-test="procedure-consent-badge"
+                  @click.stop="emit('open-consents', row)"
+                >
+                  {{ row.consents.length > 1 ? __("Consented ({0})", [row.consents.length]) : __("Consented") }}
+                </button>
+                <button
+                  v-else-if="row.consent_required && row.docstatus !== 2"
+                  type="button"
+                  class="consent-badge needed"
+                  data-test="procedure-consent-needed"
+                  :disabled="readOnly"
+                  @click.stop="emit('new-consent', row)"
+                >
+                  {{ __("Consent needed") }}
+                </button>
               </td>
               <td class="procedure-cell">
                 <span v-if="row.procedure_code" class="procedure-code">{{ row.procedure_code }}</span>
@@ -545,6 +573,8 @@ const emit = defineEmits([
   "create-lab-case",
   "open-lab-case",
   "reopen-procedure",
+  "new-consent",
+  "open-consents",
 ])
 
 const advancedFiltersOpen = ref(false)
@@ -2667,6 +2697,33 @@ function handleRowDoubleClick(row, event) {
   padding: 6px;
   line-height: 1;
   font-weight: 700;
+}
+
+.consent-badge {
+  display: block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.consent-badge.consented {
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.consent-badge.needed {
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.consent-badge:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .dental-chart-page .procedure-date-row td {
