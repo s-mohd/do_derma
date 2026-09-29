@@ -58,7 +58,7 @@
         </button>
         <button
           type="button"
-          class="ghost small"
+          class="primary small consent-action"
           data-test="procedure-new-consent"
           :disabled="readOnly || !totalCount"
           @click="emit('new-consent')"
@@ -1890,12 +1890,27 @@ function handleRowDoubleClick(row, event) {
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
 }
 
+/* Wraps rather than squeezing: the action buttons move to their own line before a label breaks. */
 .dental-chart-page .procedure-primary-toolbar {
-  display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(140px, 0.32fr) auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.dental-chart-page .procedure-primary-toolbar > .history-search {
+  flex: 1 1 260px;
+}
+
+.dental-chart-page .procedure-primary-toolbar > .panel-actions {
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.dental-chart-page .procedure-primary-toolbar button {
+  white-space: nowrap;
 }
 
 .dental-chart-page .status-filter-row {
@@ -1992,6 +2007,11 @@ function handleRowDoubleClick(row, event) {
   border-radius: 10px;
   padding: 6px 10px;
   cursor: pointer;
+}
+
+.dental-chart-page .panel-actions .primary.consent-action {
+  border-color: var(--derma-info);
+  background: var(--derma-info);
 }
 
 .dental-chart-page .panel-actions .session-badge {
@@ -2917,10 +2937,6 @@ function handleRowDoubleClick(row, event) {
 }
 
 @media (max-width: 768px) {
-  .dental-chart-page .procedure-primary-toolbar {
-    grid-template-columns: 1fr;
-  }
-
   .dental-chart-page .panel-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
