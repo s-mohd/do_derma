@@ -5636,3 +5636,19 @@ li[data-status="Issued"] .ai-doc-status {
   font-size: 13px;
   background: var(--derma-white);
 }
+
+.dental-chart-page .consent-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 16px;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.dental-chart-page .consent-overlay-card {
+  width: min(1100px, 100%);
+}
