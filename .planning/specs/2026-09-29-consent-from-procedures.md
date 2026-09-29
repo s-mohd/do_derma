@@ -70,7 +70,8 @@ Endpoints (names and payload keys unchanged):
 - Chart procedure rows (the payload behind `procedures` in `DermaChart.vue`) gain
   `consents: [{name, doctype, consent_form_template, signed_on}]` from `get_consent_coverage`,
   so badges need no extra request.
-- `get_derma_consents` and `get_derma_consent_html` stay; they switch to `ConsentDoctype`.
+- `get_derma_consent_html` stays and switches to `ConsentDoctype`. `get_derma_consents` is deleted:
+  its only caller was the Consent tab, and do_dental has its own `get_encounter_consents`.
 
 Deleting a procedure covered by a submitted consent must fail with a clear message. do_health
 configures `ignore_links_on_delete` around Clinical Procedure, so Frappe's link check may not
@@ -98,8 +99,9 @@ A Vue overlay rendered by `DermaChart.vue` hosting the reworked `ConsentPanel.vu
 `frappe.ui.Dialog` would put the interactive preview in a separate Vue app, cut off from chart
 state).
 
-1. Setup: consent template (existing Link control) and a procedure checklist of this visit's
-   procedures (name · status · region). Preselected: procedures needing consent that no signed
+1. Setup: consent template (existing Link control) and a plain Vue checkbox list of this visit's
+   procedures (name · status · region). It replaces Frappe's MultiSelectList and the click-event
+   workaround that kept its preview in sync. Preselected: procedures needing consent that no signed
    consent covers, or the single row when opened from its badge.
 2. Preview and sign: the existing preview, inline fields and signature pad, re-rendered on template
    or selection change.
@@ -139,10 +141,13 @@ do_health change to read `custom_derma_procedures`, deferred until needed.
 - Render context carries `procedures`, `procedure_names` and the joined `procedure`.
 - Chart procedure rows carry `consents`.
 
-`tests/test_encounter_tabs.py`: `consent` alias resolves to `procedures`; no Consent tab.
+`tests/test_encounter_tabs.py`: the existing preview-error test keeps passing unchanged (a missing
+template still returns an error naming it).
 
-Browser check on dermaone: New Consent from the header and from a row badge, two procedures,
-sign, create, both rows show Consented, the signed consent opens.
+Browser check on dermaone (the tabs and aliases live in the Vue component, out of reach of Python
+tests): no Consent tab; a stored `consent` section preference lands on Procedures; New Consent
+from the header and from a row badge; two procedures, sign, create; both rows show Consented; the
+signed consent opens; deleting a covered draft procedure shows the refusal.
 
 ## Out of scope
 
