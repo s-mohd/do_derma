@@ -1719,7 +1719,8 @@ def _get_derma_procedures(
 			"Clinical Procedure Template",
 			filters={"name": ["in", template_names]},
 			fields=_select_existing_fields(
-				"Clinical Procedure Template", ["name", "template", "custom_derma_category"]
+				"Clinical Procedure Template",
+				["name", "template", "custom_derma_category", "custom_derma_consent_required"],
 			),
 		)
 		template_map = {row.name: row for row in template_labels}
@@ -1728,8 +1729,13 @@ def _get_derma_procedures(
 			if template:
 				row["template_label"] = template.get("template") or template.get("name")
 				row["derma_category"] = template.get("custom_derma_category")
+				row["consent_required"] = cint(template.get("custom_derma_consent_required"))
 	if procedure_names:
 		_enrich_derma_procedure_rows(rows, procedure_names)
+	coverage = consent.get_consent_coverage(procedure_names)
+	for row in rows:
+		row.setdefault("consent_required", 0)
+		row["consents"] = coverage.get(row.get("name"), [])
 	return rows
 
 
@@ -3559,6 +3565,10 @@ def delete_clinical_procedure_entry(doctype: str, name: str):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 	if cint(doc.docstatus) != 0:
 		frappe.throw(_("Only draft procedures can be deleted. Cancel a submitted procedure instead."))
+	if consent.get_consent_coverage([name]).get(name):
+		frappe.throw(
+			_("A signed consent covers this procedure, so it cannot be deleted."), frappe.ValidationError
+		)
 	frappe.delete_doc(doctype, name, ignore_permissions=True)
 	return True
 

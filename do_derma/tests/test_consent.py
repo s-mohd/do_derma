@@ -170,3 +170,30 @@ class TestCreateConsent(ConsentHelpers, IntegrationTestCase):
 	def test_preview_renders_the_selected_procedures(self):
 		result = api.render_derma_consent_preview(payload=json.dumps(self._payload([self.first, self.second])))
 		self.assertIn(f"Shown {self.first.name};Shown {self.second.name};", result["rendered_html"])
+
+
+class TestChartConsentState(ConsentHelpers, IntegrationTestCase):
+	def _rows(self):
+		rows = api._get_derma_procedures(self.patient, encounter=self.encounter.name)
+		return {row["name"]: row for row in rows}
+
+	def test_rows_list_the_consents_covering_them(self):
+		created = self._create([self.first])
+		rows = self._rows()
+		self.assertEqual([row["name"] for row in rows[self.first.name]["consents"]], [created["name"]])
+		self.assertEqual(rows[self.second.name]["consents"], [])
+
+	def test_rows_say_whether_their_template_requires_consent(self):
+		fieldname = "custom_derma_consent_required"
+		template = self.first.procedure_template
+		previous = frappe.db.get_value("Clinical Procedure Template", template, fieldname)
+		self.addCleanup(frappe.db.set_value, "Clinical Procedure Template", template, fieldname, previous)
+		frappe.db.set_value("Clinical Procedure Template", template, fieldname, 1)
+
+		self.assertEqual(self._rows()[self.first.name]["consent_required"], 1)
+
+	def test_a_covered_procedure_cannot_be_deleted(self):
+		self._create([self.first])
+		with self.assertRaisesRegex(frappe.ValidationError, "signed consent covers"):
+			api.delete_clinical_procedure_entry("Clinical Procedure", self.first.name)
+		self.assertTrue(frappe.db.exists("Clinical Procedure", self.first.name))
