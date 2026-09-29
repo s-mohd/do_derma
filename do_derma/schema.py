@@ -410,6 +410,18 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"insert_after": "custom_derma_print_procedure_variables",
 		},
 	],
+	# One consent can cover several procedures. do_health's Consent Form links only one, so derma
+	# owns this table; clinical_procedure still holds the first row for do_health's own readers.
+	"Consent Form": [
+		{
+			"fieldname": "custom_derma_procedures",
+			"fieldtype": "Table",
+			"label": "Procedures",
+			"options": "Derma Consent Procedure",
+			"insert_after": "clinical_procedure",
+			"hidden": 1,
+		},
+	],
 	"Healthcare Practitioner": [
 		{
 			"fieldname": "custom_derma_default_assessment_mode",
