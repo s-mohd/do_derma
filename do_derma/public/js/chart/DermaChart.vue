@@ -2234,7 +2234,7 @@ function openProcedureConsents(row) {
         default: consents[0].name,
         options: consents.map((item) => ({
           value: item.name,
-          label: [item.consent_form_template || item.name, item.signed_on].filter(Boolean).join(" · "),
+          label: [item.consent_form_template || item.name, formatDateTime(item.signed_on)].filter(Boolean).join(" · "),
         })),
       },
     ],
@@ -2366,7 +2366,7 @@ function consentMetaText(row = {}) {
   const status = row.custom_derma_signature_waived
     ? `${__("Signature waived")}: ${row.custom_derma_waiver_reason || ""}`
     : row.status
-  return [status, row.signed_by, row.signed_on].filter(Boolean).join(" · ")
+  return [status, row.signed_by, formatDateTime(row.signed_on)].filter(Boolean).join(" · ")
 }
 
 function blockerListHtml(blockers) {
@@ -2693,6 +2693,13 @@ function rowTimestamp(row) {
 function formatDate(value) {
   if (!value) return ""
   return window.frappe?.datetime?.str_to_user?.(value) || String(value).slice(0, 10)
+}
+
+/** User date format plus hours and minutes, without seconds. */
+function formatDateTime(value) {
+  if (!value) return ""
+  const text = String(value)
+  return [formatDate(text.slice(0, 10)), text.slice(11, 16)].filter(Boolean).join(" ")
 }
 
 </script>
