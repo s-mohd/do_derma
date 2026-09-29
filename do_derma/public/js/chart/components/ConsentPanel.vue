@@ -1,13 +1,17 @@
 <template>
   <section class="workspace-panel consent-panel" data-test="consent-panel">
     <header class="panel-header">
+      <h3>{{ __("New Consent") }}</h3>
       <div class="actions">
+        <button type="button" class="ghost" data-test="consent-cancel" :disabled="saving" @click="emitCancel">
+          {{ __("Cancel") }}
+        </button>
         <button
           v-if="enableWhatsappConsent"
           type="button"
           class="ghost"
           data-test="consent-send-whatsapp"
-          :disabled="loading || saving || sending || !canCreate"
+          :disabled="saving || sending || !canCreate"
           @click="emitSend"
         >
           {{ sending ? __("Sending...") : __("Send via WhatsApp") }}
@@ -16,7 +20,7 @@
           type="button"
           class="primary"
           data-test="consent-create"
-          :disabled="loading || saving || sending || !canCreate"
+          :disabled="saving || sending || !canCreate"
           @click="emitCreate"
         >
           {{ saving ? __("Creating...") : __("Create") }}
@@ -26,15 +30,28 @@
 
     <p v-if="error" class="error-text">{{ error }}</p>
 
-    <div v-if="loading" class="empty-state">{{ __("Loading consents...") }}</div>
-    <div v-else-if="!hasSessionContext" class="empty-state">
+    <div v-if="!hasSessionContext" class="empty-state">
       {{ __("Consents are visit-scoped. Select or start an appointment session first.") }}
     </div>
     <div v-else>
       <div class="consent-workspace">
         <div class="setup-row">
           <div class="field-host" data-test="consent-template-host" :ref="(el) => bindHost('consent_form_template', el)"></div>
-          <div class="field-host" :ref="(el) => bindHost('procedure_selection', el)"></div>
+          <fieldset class="procedure-checklist" data-test="consent-procedures">
+            <legend>{{ __("Procedures") }}</legend>
+            <label v-for="option in procedureOptions" :key="option.value" class="procedure-option">
+              <input
+                v-model="selectedProcedures"
+                type="checkbox"
+                :value="option.value"
+                :disabled="readOnly"
+                @change="handleProcedureChange"
+              />
+              <span class="name">{{ option.label }}</span>
+              <span v-if="option.description" class="meta">{{ option.description }}</span>
+            </label>
+            <p v-if="!procedureOptions.length" class="text-muted">{{ __("No procedures on this visit.") }}</p>
+          </fieldset>
         </div>
 
         <div class="document-grid">
@@ -50,23 +67,6 @@
               v-html="previewMarkup"
             ></div>
           </div>
-
-          <div class="history-column">
-            <h4>{{ __("Existing Consents") }}</h4>
-            <div v-if="consents.length" class="consent-list">
-              <div v-for="row in consents" :key="row.name" class="consent-row" data-test="consent-row">
-                <button type="button" class="consent-row-main" @click="$emit('open-consent', row)">
-                  <span class="name">{{ row.consent_form_template || row.name }}</span>
-                  <span class="meta">{{ consentMeta(row) }}</span>
-                </button>
-                <div v-if="enableWhatsappConsent && canManageRemote(row)" class="consent-row-actions" data-test="consent-remote-actions">
-                  <button type="button" class="ghost" :disabled="sending" @click="$emit('resend-consent', row)">{{ __("Resend") }}</button>
-                  <button type="button" class="ghost danger" :disabled="sending" @click="$emit('cancel-consent', row)">{{ __("Cancel") }}</button>
-                </div>
-              </div>
-            </div>
-            <div v-else class="preview-box text-muted">{{ __("No consents yet.") }}</div>
-          </div>
         </div>
       </div>
     </div>
@@ -79,14 +79,12 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 const __ = window.__ || ((txt) => txt)
 
 const props = defineProps({
-  loading: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
   sending: { type: Boolean, default: false },
   error: { type: String, default: "" },
   hasSessionContext: { type: Boolean, default: false },
-  encounterName: { type: String, default: "" },
-  consents: { type: Array, default: () => [] },
   procedureOptions: { type: Array, default: () => [] },
+  preselected: { type: Array, default: () => [] },
   previewHtml: { type: String, default: "" },
   previewLoading: { type: Boolean, default: false },
   defaultSignedBy: { type: String, default: "" },
@@ -95,7 +93,7 @@ const props = defineProps({
   enableWhatsappConsent: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["request-preview", "create", "send-whatsapp", "open-consent", "resend-consent", "cancel-consent"])
+const emit = defineEmits(["request-preview", "create", "send-whatsapp", "cancel"])
 
 const hosts = new Map()
 const controls = new Map()
@@ -106,9 +104,9 @@ let signaturePadCleanup = null
 const previewBoxRef = ref(null)
 const hasEditableFields = ref(false)
 const formFieldValues = ref({})
+const selectedProcedures = ref([...props.preselected])
 const localValues = ref({
   consent_form_template: "",
-  procedure_selection: [],
   signed_by: "",
   relationship: "",
   signature: "",
@@ -128,14 +126,6 @@ watch(
 watch(
   () => props.readOnly,
   () => syncControlReadOnly()
-)
-
-watch(
-  () => props.procedureOptions,
-  () => {
-    syncProcedureOptions()
-  },
-  { deep: true }
 )
 
 watch(
@@ -244,17 +234,6 @@ function controlDef(fieldname) {
     }
   }
 
-  if (fieldname === "procedure_selection") {
-    return {
-      fieldname,
-      fieldtype: "MultiSelectList",
-      label: __("Procedures"),
-      read_only: readOnly,
-      get_data: () => props.procedureOptions || [],
-      onchange: handleProcedureChange,
-    }
-  }
-
   return null
 }
 
@@ -266,7 +245,7 @@ async function renderControls() {
 
   await nextTick()
 
-  for (const fieldname of ["consent_form_template", "procedure_selection"]) {
+  for (const fieldname of ["consent_form_template"]) {
     const host = hosts.get(fieldname)
     if (!host) continue
 
@@ -292,17 +271,11 @@ async function renderControls() {
     control.__consentPanelHost = host
     controls.set(fieldname, control)
 
-    if (fieldname === "procedure_selection") {
-      bindProcedureChangeEvents(control)
-    }
-
     const value = localValues.value[fieldname]
     if (value !== undefined && value !== null && value !== "") {
       control.set_value?.(value)
     }
   }
-
-  syncProcedureOptions()
 }
 
 function syncControlReadOnly(fieldname = null) {
@@ -316,60 +289,24 @@ function syncControlReadOnly(fieldname = null) {
   }
 }
 
-function normalizeSelection(value) {
-  if (Array.isArray(value)) return value.filter(Boolean)
-  if (!value) return []
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value)
-      if (Array.isArray(parsed)) return parsed.filter(Boolean)
-    } catch (e) {
-      /* fall through */
-    }
-    return value
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean)
-  }
-  return []
-}
-
-function syncProcedureOptions() {
-  const field = controls.get("procedure_selection")
-  if (!field) return
-  const options = props.procedureOptions || []
-  const values = normalizeSelection(field.get_value ? field.get_value() : localValues.value.procedure_selection)
-  field._options = options
-  field._selected_values = field._options.filter((opt) => values.includes(opt.value))
-  if (field.set_selectable_items) {
-    field.set_selectable_items(field._options)
-  }
-}
-
 function resetDraft() {
   clearTimeout(previewTimer)
   teardownSignaturePad()
   formFieldValues.value = {}
   localValues.value = {
     consent_form_template: "",
-    procedure_selection: [],
     signed_by: props.defaultSignedBy || "",
     relationship: "",
     signature: "",
   }
   controls.get("consent_form_template")?.set_value?.("")
-  const procedureControl = controls.get("procedure_selection")
-  if (procedureControl) {
-    procedureControl._selected_values = []
-    procedureControl.set_value?.([])
-    procedureControl.refresh?.()
-  }
+  selectedProcedures.value = [...props.preselected]
   nextTick(() => initializeEditablePreview())
 }
 
 function readValues() {
   const consentTemplate = controls.get("consent_form_template")?.get_value?.() || ""
-  const selection = normalizeSelection(controls.get("procedure_selection")?.get_value?.())
+  const selection = [...selectedProcedures.value]
   const inlineValues = formFieldValues.value || {}
   const signedBy = inlineValues.signed_by || inlineValues.patient_name || props.defaultSignedBy || ""
   const relationship = inlineValues.relationship || ""
@@ -398,8 +335,7 @@ function handleFieldChange() {
 }
 
 function handleProcedureChange() {
-  // Procedure placeholders come from the selected procedure rows. Discard the
-  // previous rendered value so the refreshed server preview can replace it.
+  // Drop rendered procedure text so the refreshed preview replaces it.
   const nextValues = { ...(formFieldValues.value || {}) }
   delete nextValues.procedure
   delete nextValues.procedures
@@ -407,28 +343,15 @@ function handleProcedureChange() {
   handleFieldChange()
 }
 
-function bindProcedureChangeEvents(control) {
-  const wrapper = control?.$list_wrapper
-  if (!wrapper?.on) return
-
-  // Frappe's MultiSelectList writes an empty model value for each toggle, so
-  // its normal onchange callback stops firing after the first selection.
-  // Listen to its actual selection actions to keep the preview synchronized.
-  wrapper.on(
-    "click.consentPreview",
-    ".selectable-item, .clear-selections, .select-all-options",
-    () => setTimeout(handleProcedureChange, 0)
-  )
-  wrapper.on("keydown.consentPreview", "input", (event) => {
-    if (event.key === "Enter") setTimeout(handleProcedureChange, 0)
-  })
-}
-
 function emitCreate() {
-  if (!canCreate.value || props.loading || props.saving) return
+  if (!canCreate.value || props.saving) return
   const values = readValues()
   if (!values.consent_form_template) {
     frappe.show_alert({ message: __("Consent template is required."), indicator: "orange" })
+    return
+  }
+  if (!values.procedure_selection.length) {
+    frappe.show_alert({ message: __("Select at least one procedure."), indicator: "orange" })
     return
   }
   if (!values.signed_by) {
@@ -444,13 +367,18 @@ function emitCreate() {
 }
 
 function emitSend() {
-  if (!canCreate.value || props.loading || props.saving || props.sending) return
+  if (!canCreate.value || props.saving || props.sending) return
   const values = readValues()
   if (!values.consent_form_template) {
     frappe.show_alert({ message: __("Consent template is required."), indicator: "orange" })
     return
   }
   emit("send-whatsapp", { ...values, rendered_html: collectRenderedHtml() })
+}
+
+function emitCancel() {
+  if (!formFieldValues.value.signature) return emit("cancel")
+  frappe.confirm(__("Discard this signed consent draft?"), () => emit("cancel"))
 }
 
 function initializeEditablePreview() {
@@ -666,16 +594,6 @@ function collectRenderedHtml() {
   }
   return clone.innerHTML
 }
-
-function consentMeta(row) {
-  const request = row.remote_request || {}
-  const parts = [row.status, row.signed_by, row.signed_on, request.expires_on ? `${__("Expires")} ${request.expires_on}` : ""].filter(Boolean)
-  return parts.join(" · ") || "—"
-}
-
-function canManageRemote(row) {
-  return row?.docstatus === 0 && ["Pending Signature", "Expired", "Delivery Failed"].includes(row?.status)
-}
 </script>
 
 <style scoped>
@@ -688,7 +606,7 @@ function canManageRemote(row) {
 
 .panel-header {
   display: flex;
-  justify-content: end;
+  justify-content: space-between;
   align-items: flex-start;
   gap: 10px;
   margin-bottom: 10px;
@@ -754,8 +672,7 @@ button:disabled {
 }
 
 .consent-workspace,
-.preview-column,
-.history-column {
+.preview-column {
   min-width: 0;
 }
 
@@ -773,14 +690,9 @@ button:disabled {
 
 .document-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
-}
-
-.history-column {
-  position: sticky;
-  top: 12px;
 }
 
 .field-host:deep(.frappe-control) {
@@ -799,8 +711,7 @@ button:disabled {
   border-radius: 7px;
 }
 
-.preview-column h4,
-.history-column h4 {
+.preview-column h4 {
   margin: 0 0 8px;
   color: #475569;
   font-size: 12px;
@@ -882,51 +793,33 @@ button:disabled {
   font-size: 10px;
 }
 
-.consent-list {
+.procedure-checklist {
   display: grid;
-  gap: 8px;
-}
-
-.consent-row {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-  width: 100%;
-  background: #fff;
-  border-color: #dbe3ee;
-  border-radius: 7px;
-  padding: 8px 10px;
-}
-
-.consent-row-main {
-  display: grid;
-  gap: 2px;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 0 10px;
   padding: 0;
   border: 0;
-  background: transparent;
-  text-align: left;
 }
 
-.consent-row-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
+.procedure-checklist legend {
+  margin-bottom: 4px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 800;
 }
 
-.consent-row-actions button {
-  min-height: 28px;
-  padding: 3px 9px;
-  font-size: 12px;
-}
-
-.consent-row-actions .danger { color: #b42318; }
-
-.consent-row .name {
-  font-weight: 600;
+.procedure-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
   color: #0f172a;
 }
 
-.consent-row .meta {
+.procedure-option .meta {
+  grid-column: 2;
   font-size: 12px;
   color: #64748b;
 }
@@ -935,10 +828,6 @@ button:disabled {
   .setup-row,
   .document-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .history-column {
-    position: static;
   }
 }
 </style>
