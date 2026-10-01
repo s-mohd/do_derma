@@ -84,7 +84,8 @@ const reviewedText = computed(() => {
   if (!date) return __("History not yet reviewed")
   return __("Reviewed {0}").replace("{0}", window.frappe?.datetime?.str_to_user?.(date) || date)
 })
-const hasHistoryDrawer = computed(() => typeof window.do_health?.openMedicalHistoryPanel === "function")
+// do_health loads before the chart, so one check at setup is enough.
+const hasHistoryDrawer = typeof window.do_health?.openMedicalHistoryPanel === "function"
 
 function openHistory() {
   window.do_health.openMedicalHistoryPanel(props.patient)
@@ -98,6 +99,7 @@ function openHistory() {
   border-radius: var(--chart-radius);
   box-shadow: var(--chart-shadow);
   overflow: hidden;
+  margin-bottom: 14px;
 }
 
 .clinical-strip-columns {

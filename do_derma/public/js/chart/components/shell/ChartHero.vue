@@ -35,6 +35,7 @@
               @click="$emit('alert-action', alert)"
             >
               <b>{{ alert.label }}</b>
+              <small v-if="alert.detail">{{ alert.detail }}</small>
             </button>
           </div>
         </div>
@@ -51,7 +52,7 @@
         <small>{{ [visitType, practitionerName].filter(Boolean).join(" · ") }}</small>
         <small>{{ insuranceLabel }}</small>
         <button
-          v-if="hasSessionContext"
+          v-if="hasSessionContext && !isCompleted"
           type="button"
           class="chart-hero-readiness"
           :data-tone="readinessTone"
@@ -69,7 +70,7 @@
         <button
           v-else-if="canReopen"
           type="button"
-          class="chart-hero-action"
+          class="chart-hero-action chart-hero-action-secondary"
           data-test="reopen-session"
           :disabled="reopening"
           @click="$emit('reopen')"
@@ -153,6 +154,7 @@ const readinessText = computed(() => {
 .chart-hero-stack {
   display: grid;
   gap: 8px;
+  margin-bottom: 14px;
 }
 
 .chart-hero-banner {
@@ -259,6 +261,13 @@ const readinessText = computed(() => {
   gap: 6px;
 }
 
+.chart-hero-alerts small {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chart-hero-visit {
   display: grid;
   align-content: start;
@@ -325,6 +334,20 @@ const readinessText = computed(() => {
 .chart-hero-action {
   margin-top: 8px;
   width: 100%;
+}
+
+.chart-hero-action-secondary {
+  padding: 7px 12px;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+  background: var(--chart-surface);
+  color: var(--chart-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chart-hero-action-secondary:hover:not(:disabled) {
+  background: var(--chart-surface-muted);
 }
 
 @media (max-width: 900px) {

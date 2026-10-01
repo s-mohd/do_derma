@@ -1882,13 +1882,6 @@ function handleRowDoubleClick(row, event) {
 </script>
 
 <style scoped>
-.dental-chart-page .procedure-panel {
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid #e5e7eb;
-  padding: 14px;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
-}
 
 /* Wraps rather than squeezing: the action buttons move to their own line before a label breaks. */
 .dental-chart-page .procedure-primary-toolbar {

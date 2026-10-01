@@ -47,6 +47,7 @@ defineEmits(["select"])
   border: 1px solid var(--chart-border);
   border-radius: 12px;
   box-shadow: var(--chart-shadow);
+  margin-bottom: 14px;
 }
 
 .chart-tabs-button {
