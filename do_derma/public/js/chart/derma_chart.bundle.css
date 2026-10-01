@@ -33,7 +33,7 @@
   --chart-brand: #16a34a;
 
   --chart-accent: var(--do-health-header-accent, #16a34a);
-  --chart-accent-strong: color-mix(in srgb, var(--chart-accent) 82%, black);
+  --chart-accent-strong: color-mix(in srgb, var(--chart-accent) 70%, black);
   --chart-accent-soft: color-mix(in srgb, var(--chart-accent) 10%, white);
 
   --derma-white: var(--chart-surface);
@@ -98,6 +98,12 @@
   background: var(--chart-ok-soft);
   border-color: transparent;
   color: var(--chart-ok-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="info"] {
+  background: var(--chart-info-soft);
+  border-color: transparent;
+  color: var(--chart-info-text);
 }
 
 .dental-chart-page .chart-pill[data-tone="caution"] {
@@ -1354,18 +1360,6 @@
 .dental-chart-page :where(.primary, .ghost):focus-visible {
   outline: none;
   box-shadow: var(--chart-focus);
-}
-
-.dental-chart-page .badge,
-.dental-chart-page .pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 4px 8px;
-  background: #eef6ff;
-  color: #1f4e79;
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .dental-chart-page .loading-overlay,

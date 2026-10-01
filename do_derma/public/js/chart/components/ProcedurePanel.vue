@@ -76,8 +76,8 @@
             {{ __("New Procedure") }}
           </button>
         </Teleport>
-        <span v-if="readOnly" class="badge read-only-badge chart-pill" data-tone="neutral">{{ __("Read only") }}</span>
-        <span v-if="anesthesiaRecorded" class="badge anesthesia-badge chart-pill" data-tone="caution">{{ __("Anesthesia recorded") }}</span>
+        <span v-if="readOnly" class="chart-pill" data-tone="neutral">{{ __("Read only") }}</span>
+        <span v-if="anesthesiaRecorded" class="chart-pill" data-tone="caution">{{ __("Anesthesia recorded") }}</span>
       </div>
     </div>
 
@@ -595,7 +595,14 @@ const rowBatchSize = ref(50)
 const loadedRowsCount = ref(rowBatchSize.value)
 const tableWrapperEl = ref(null)
 
-const STATUS_TONES = { Draft: "neutral", "In Progress": "caution", Completed: "ok", Cancelled: "danger" }
+const STATUS_TONES = {
+  Draft: "neutral",
+  Pending: "caution",
+  "In Progress": "caution",
+  Submitted: "info",
+  Completed: "ok",
+  Cancelled: "danger",
+}
 
 function buildGroupView(group, items = []) {
   const hasLabCaseColumn = items.some((row) => !!row.lab_case_name || !!row.lab_case_recommended)

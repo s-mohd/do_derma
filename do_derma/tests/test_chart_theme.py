@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from unittest import TestCase
@@ -120,3 +121,32 @@ class TestChartComponentColours(TestCase):
 			for tag in re.findall(r"<Teleport[^>]*>", path.read_text()):
 				self.assertIn('to="#chart-section-actions"', tag, path.name)
 				self.assertIn("defer", tag, path.name)
+
+
+def get_relative_luminance(hex_colour: str) -> float:
+	channels = [int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+	linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+	return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+class TestChartReviewFindings(TestCase):
+	"""Regressions the phase 2b review caught."""
+
+	def test_filled_buttons_keep_white_text_readable(self):
+		strong = get_token_block(CHART_CSS.read_text(), CHART_FIRST_TOKEN)["--chart-accent-strong"]
+		share = int(re.search(r"var\(--chart-accent\) (\d+)%, black", strong).group(1)) / 100
+		for accent in ("#16a34a", "#EC864B"):
+			darkened = "#" + "".join(f"{round(int(accent[i : i + 2], 16) * share):02x}" for i in (1, 3, 5))
+			contrast = 1.05 / (get_relative_luminance(darkened) + 0.05)
+			self.assertGreaterEqual(contrast, 4.5, accent)
+
+	def test_every_procedure_status_has_a_tone(self):
+		doctype = Path(frappe.get_app_path("healthcare", "healthcare", "doctype", "clinical_procedure", "clinical_procedure.json"))
+		status = next(field for field in json.loads(doctype.read_text())["fields"] if field["fieldname"] == "status")
+		tones = re.search(r"const STATUS_TONES = \{([^}]*)\}", (CHART_DIR / "components/ProcedurePanel.vue").read_text()).group(1)
+		for option in status["options"].split("\n"):
+			self.assertRegex(tones, rf'(^|[\s{{,])"?{re.escape(option)}"?:', option)
+
+	def test_procedure_pills_carry_no_legacy_badge_class(self):
+		self.assertNotRegex((CHART_DIR / "components/ProcedurePanel.vue").read_text(), r'class="badge\b')
+		self.assertNotIn(".dental-chart-page .badge", CHART_CSS.read_text())
