@@ -67,6 +67,77 @@
   --derma-info-bg: var(--chart-info-soft);
 }
 
+/* Shared chart building blocks, mirroring the Patient Overview. */
+.dental-chart-page .chart-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 999px;
+  background: var(--chart-surface-muted);
+  color: var(--chart-text-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.dental-chart-page button.chart-pill {
+  cursor: pointer;
+}
+
+.dental-chart-page .chart-pill[data-tone="accent"],
+.dental-chart-page button.chart-pill[aria-pressed="true"] {
+  background: var(--chart-accent-soft);
+  border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
+  color: var(--chart-accent-strong);
+}
+
+.dental-chart-page .chart-pill[data-tone="ok"] {
+  background: var(--chart-ok-soft);
+  border-color: transparent;
+  color: var(--chart-ok-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="caution"] {
+  background: var(--chart-caution-soft);
+  border-color: var(--chart-caution-border);
+  color: var(--chart-caution-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="danger"] {
+  background: var(--chart-danger-soft);
+  border-color: var(--chart-danger-border);
+  color: var(--chart-danger-text);
+}
+
+.dental-chart-page .chart-label {
+  margin: 0;
+  color: var(--chart-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dental-chart-page .chart-inner-card {
+  border: 1px solid var(--chart-border);
+  border-radius: 12px;
+  background: var(--chart-surface-muted);
+  box-shadow: none;
+}
+
+.dental-chart-page :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), select, textarea) {
+  border-color: var(--chart-border-strong);
+  border-radius: 8px;
+}
+
+.dental-chart-page :where(input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: var(--chart-focus);
+}
+
 /* The chart is light-only: pin Frappe's dark-mode variables to their v16 light values. */
 [data-theme="dark"] .dental-chart-page.derma-chart-page {
   --alert-bg-danger: #fff7f7;
@@ -1631,12 +1702,13 @@
 .dental-chart-page .workspace-tab,
 .dental-chart-page .category-tab>button,
 .dental-chart-page .category-menu button {
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  background: var(--derma-white);
-  color: var(--derma-navy);
-  padding: 8px 11px;
-  font-weight: 700;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+  background: var(--chart-surface);
+  color: var(--chart-text);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -1647,14 +1719,28 @@
 
 .dental-chart-page .primary,
 .dental-chart-page .primary-toggle button.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-brand);
-  color: var(--derma-white);
+  border-color: var(--chart-accent-strong);
+  background: var(--chart-accent-strong);
+  color: white;
 }
 
-.dental-chart-page .ghost.small {
-  padding: 5px 8px;
+.dental-chart-page .ghost.small,
+.dental-chart-page .primary.small {
+  padding: 5px 10px;
   font-size: 12px;
+}
+
+.dental-chart-page .ghost:hover:not(:disabled) {
+  background: var(--chart-surface-muted);
+}
+
+.dental-chart-page .primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--chart-accent-strong) 88%, black);
+}
+
+.dental-chart-page :where(.primary, .ghost):focus-visible {
+  outline: none;
+  box-shadow: var(--chart-focus);
 }
 
 .dental-chart-page .category-nav {

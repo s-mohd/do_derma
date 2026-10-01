@@ -78,7 +78,6 @@ HEX_ALLOWED = {
 	"components/assessment/SoapNoteFields.vue",
 	"components/assessment/StructuredAssessmentFields.vue",
 	"components/consumables/ConsumablesEditor.vue",
-	"components/shell/ChartHero.vue",
 }
 
 

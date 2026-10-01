@@ -211,8 +211,8 @@ const readinessText = computed(() => {
   border-radius: 20px;
   border: 4px solid var(--chart-surface);
   box-shadow: 0 0 0 1px var(--chart-border), var(--chart-shadow);
-  background: linear-gradient(135deg, #dcfce7, #d1fae5);
-  color: var(--chart-ok-text);
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-strong);
   font-size: 32px;
   font-weight: 700;
   object-fit: cover;

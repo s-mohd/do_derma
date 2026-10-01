@@ -2,7 +2,7 @@
   <section class="chart-section-card" data-test="section-card">
     <header class="chart-section-card-header">
       <h2>{{ label }}</h2>
-      <div v-if="$slots.actions" class="chart-section-card-actions">
+      <div id="chart-section-actions" class="chart-section-card-actions">
         <slot name="actions" />
       </div>
     </header>
@@ -31,7 +31,9 @@ defineProps({
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 8px;
   padding: 14px 18px 0;
 }
 
@@ -46,8 +48,11 @@ defineProps({
 
 .chart-section-card-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .chart-section-card-body {
