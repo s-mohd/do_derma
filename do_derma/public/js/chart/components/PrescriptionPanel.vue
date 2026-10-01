@@ -1,18 +1,16 @@
 <template>
   <section class="workspace-panel prescription-panel" data-test="prescription-panel">
-    <header class="panel-header">
-      <div class="actions">
-        <button
-          type="button"
-          class="primary"
-          data-test="prescription-save"
-          :disabled="loading || saving || !canSave"
-          @click="emitSave"
-        >
-          {{ saving ? __("Saving...") : __("Save") }}
-        </button>
-      </div>
-    </header>
+    <Teleport defer to="#chart-section-actions">
+      <button
+        type="button"
+        class="primary"
+        data-test="prescription-save"
+        :disabled="loading || saving || !canSave"
+        @click="emitSave"
+      >
+        {{ saving ? __("Saving...") : __("Save") }}
+      </button>
+    </Teleport>
 
     <p v-if="error" class="error-text">{{ error }}</p>
     <p v-if="hasEncounter && readOnly" class="status-note">
@@ -312,74 +310,16 @@ function emitSave() {
 </script>
 
 <style scoped>
-.workspace-panel {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fff;
-  padding: 12px;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: end;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.panel-header h3 {
-  margin: 0;
-  font-size: 16px;
-  color: #111827;
-}
-
-.panel-header .meta {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.actions {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid #d1d5db;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.ghost {
-  background: #f8fafc;
-  color: #334155;
-}
-
-button.primary {
-  border-color: #2563eb;
-  background: #2563eb;
-  color: #fff;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
   font-size: 12px;
   margin: 0 0 8px;
 }
 
 .status-note {
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  color: var(--chart-caution-text);
+  background: var(--chart-caution-soft);
+  border: 1px solid var(--chart-caution-border);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 12px;
@@ -387,12 +327,12 @@ button:disabled {
 }
 
 .empty-state {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 12px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .table-host:deep(.frappe-control) {
@@ -413,20 +353,20 @@ button:disabled {
 }
 
 .prescription-ordered li {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 8px;
   padding: 6px 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .prescription-ordered b {
   font-size: 13px;
-  color: #111827;
+  color: var(--chart-text);
 }
 
 .prescription-ordered small {
   display: block;
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 12px;
 }
 </style>

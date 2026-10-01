@@ -72,7 +72,6 @@ HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 HEX_ALLOWED = {
 	"components/AnesthesiaPanel.vue",
 	"components/ConsentPanel.vue",
-	"components/PrescriptionPanel.vue",
 	"components/ProcedurePanel.vue",
 	"components/assessment/AssessmentPanel.vue",
 	"components/assessment/SoapNoteFields.vue",
