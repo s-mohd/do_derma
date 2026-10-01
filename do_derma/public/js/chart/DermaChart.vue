@@ -886,7 +886,9 @@ function inventoryMetrics(item) {
   return metrics
 }
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
+// The clinical strip's profile owns allergies; the raw fields only stand in when it failed to load.
 const patientAllergyText = computed(() => {
+  if (clinicalProfile.value) return (clinicalProfile.value.allergies || []).map((row) => row.allergen).join(", ")
   return patient.value.custom_allergies || patient.value.allergies || patient.value.allergy || ""
 })
 const insuranceStatusLabel = computed(() => {
