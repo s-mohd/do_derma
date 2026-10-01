@@ -8,6 +8,7 @@ from frappe.tests import IntegrationTestCase
 
 from do_derma import documents, voice
 from do_derma.assessment import SOAP_FIELDS
+from do_derma.printing import letterhead
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
 
@@ -110,7 +111,7 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 			self.assertEqual("نص عربي" in html, has_arabic, language)
 			self.assertEqual("رسالة توضيحية للمريض" in html, has_arabic, language)
 
-	def test_sign_off_block_only_when_the_body_does_not_sign(self):
+	def test_one_sign_off_from_the_record_even_when_the_body_signs(self):
 		letter = self._letter_for(self._doctor("Consultant"))
 		name = frappe.db.get_value("Healthcare Practitioner", letter.practitioner, "practitioner_name")
 		values = letter.get_values()
@@ -136,14 +137,16 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 	def test_issue_renders_body_and_attaches_pdf(self):
 		with self._enabled(), self._llm(REPORT):
 			out = documents.generate_document("education", self.encounter.name)
-		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=blank_pdf()):
+		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=blank_pdf()) as get_pdf:
 			issued = documents.issue_document(out["name"])
+		self.assertIn(letterhead.LOGO_SRC, get_pdf.call_args.args[0])  # embedded, so the PDF never fetches it
 		self.assertEqual(issued["status"], "Issued")
 		self.assertTrue(issued["pdf_url"])
 		html = frappe.db.get_value("Patient Official Document", out["name"], "rendered_html_snapshot")
 		self.assertIn("<h2", html)
 		self.assertIn("Patient Demographic Data", html)
 		self.assertIn("&bull; None documented", html)
+		self.assertIn("CR No. 100506-1", html)
 
 	def test_unknown_kind_and_disabled_are_refused(self):
 		with self._enabled():
@@ -152,3 +155,19 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 		with patch.object(voice, "_setting", return_value=0):
 			with self.assertRaises(frappe.ValidationError):
 				documents.generate_document("report", self.encounter.name)
+
+
+class TestLetterSignoff(IntegrationTestCase):
+	def test_signoff_name_is_flagged_in_both_languages(self):
+		english = "Thank you.\n\nYours sincerely,\nDr. Sadiq Abdulla\nConsultant Vascular Surgeon"
+		arabic = "شكرا.\n\nمع خالص التحية،\nد. صادق عبد الله\nاستشاري جراحة الأوعية"  # noqa: RUF001
+		self.assertEqual(documents.derma_letter_lines(english, "Dr. Sadiq Abdulla"), ["Thank you."])
+		self.assertEqual(documents.derma_letter_lines(arabic, "Dr. Sadiq Abdulla", english), ["شكرا."])
+
+	def test_name_and_clinic_lines_without_a_closing_line_are_dropped(self):
+		body = "Follow-up in six weeks.\n\nDr. Sadiq Abdulla\n\nSOULVD Demo Clinic"
+		self.assertEqual(documents.derma_letter_lines(body, "Dr. Sadiq Abdulla"), ["Follow-up in six weeks."])
+
+	def test_no_signoff_when_the_body_does_not_sign(self):
+		lines = documents.derma_letter_lines("## Heading\n- point\n\nText.", "Dr. Sadiq Abdulla")
+		self.assertEqual(lines, ["## Heading", "- point", "Text."])

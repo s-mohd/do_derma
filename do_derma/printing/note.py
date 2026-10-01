@@ -13,6 +13,8 @@ from markupsafe import Markup, escape
 
 from do_derma import assessment
 from do_derma.assessment import HP, SOAP, STRUCTURED
+from do_derma.printing import letterhead
+from do_derma.printing.render import derma_print_text
 
 ARABIC = re.compile(r"[\u0600-\u06FF]")
 ADVICE_FIELDS = {"English": "custom_derma_patient_advice", "Arabic": "custom_derma_patient_advice_ar"}
@@ -48,11 +50,11 @@ def derma_patient_advice_html(doc, mode: str | None = None) -> Markup:
 				blocks.append((language, text))
 		if not blocks:
 			return Markup("")
-		html = ['<div class="derma-patient-advice" style="font-size:13px;margin-top:18px;padding-top:12px;border-top:1px solid #e5e7eb;">']
+		html = ['<div class="derma-patient-advice" style="font-size:12px;margin-top:18px;padding-top:12px;border-top:1px solid #e5e7eb;">']
 		html.append('<h2 style="font-size:14px;color:#1a3a5c;margin:0 0 6px;">Patient Advice</h2>')
 		for language, text in blocks:
 			rtl = ' dir="rtl"' if language == "Arabic" else ""
-			html.append(f'<div{rtl} style="white-space:pre-wrap;margin-top:6px;">{escape(text)}</div>')
+			html.append(f'<div{rtl} style="white-space:pre-wrap;margin-top:6px;">{escape(derma_print_text(text))}</div>')
 		html.append("</div>")
 		return Markup("".join(html))
 	except Exception:
@@ -68,7 +70,7 @@ def derma_diagnosis_html(doc) -> Markup:
 		return Markup("")
 	parts = [f"<b>Diagnosis:</b> {escape(diagnosis)}" if diagnosis else "", f"<b>ICD-10:</b> {escape(icd10)}" if icd10 else ""]
 	return Markup(
-		'<div class="derma-diagnosis" style="font-size:13px;margin:0 0 14px;padding:8px 12px;border-left:3px solid #1a3a5c;background:#f5f7fa;">'
+		'<div class="derma-diagnosis" style="font-size:12px;margin:0 0 14px;padding:8px 12px;border-left:3px solid #1a3a5c;background:#f5f7fa;">'
 		+ " &nbsp;·&nbsp; ".join(p for p in parts if p)
 		+ "</div>"
 	)
@@ -82,33 +84,26 @@ PRINT_FORMATS = {
 	STRUCTURED: "Derma Assessment Note (Structured)",
 }
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 6
+TEMPLATE_VERSION = 20
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """
-{%- set company = frappe.get_doc("Company", doc.company) if doc.company else None -%}
 {%- set patient = frappe.get_doc("Patient", doc.patient) if doc.patient else None -%}
 {%- set practitioner = frappe.get_doc("Healthcare Practitioner", doc.practitioner) if doc.practitioner else None -%}
-<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.55;padding:24px;">
-  <table style="width:100%;border-bottom:2px solid #1a3a5c;padding-bottom:10px;margin-bottom:22px;"><tr>
-    <td style="vertical-align:bottom;font-size:18px;font-weight:700;color:#1a3a5c;">{{ (company and company.company_name) or '' }}</td>
-    <td style="vertical-align:bottom;text-align:right;font-size:12px;color:#666;">{{ frappe.utils.formatdate(doc.encounter_date) }}</td>
-  </tr></table>
+""" + letterhead.OPEN + """
+<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.4;padding:0 24px;">
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
-    <td style="padding:6px 10px;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
-    <td style="padding:6px 10px;"><b>MRN:</b> {{ doc.patient }}</td>
-    <td style="padding:6px 10px;"><b>Visit:</b> {{ frappe.utils.formatdate(doc.encounter_date) }}</td>
-    <td style="padding:6px 10px;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>MRN:</b> {{ doc.patient }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Visit:</b> {{ frappe.utils.formatdate(doc.encounter_date) }}</td>
+    <td style="padding:6px 10px;white-space:nowrap;"><b>Clinician:</b> {{ (practitioner and practitioner.practitioner_name) or '' }}</td>
   </tr></table>
   {{ derma_diagnosis_html(doc) }}
-  <div style="font-size:13px;">{{ derma_assessment_html(doc) }}</div>
+  <div style="font-size:12px;">{{ derma_assessment_html(doc) }}</div>
   {{ derma_patient_advice_html(doc) }}
-  <div style="margin-top:40px;font-size:12px;">
-    <div style="border-top:1px solid #333;width:240px;padding-top:6px;">{{ (practitioner and practitioner.practitioner_name) or '' }}<br>
-      <span style="color:#666;">{{ (practitioner and (practitioner.custom_specialty or practitioner.designation)) or '' }}</span></div>
-  </div>
+""" + letterhead.SIGNATURE + """
 </div>
-"""
+""" + letterhead.CLOSE
 
 
 def template_for(mode: str | None) -> str:

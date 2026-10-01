@@ -45,10 +45,13 @@ fixtures = [
 jinja = {
 	"methods": [
 		"do_derma.printing.render.derma_assessment_html",
+		"do_derma.printing.render.derma_print_text",
+		"do_derma.documents.derma_letter_lines",
 		"do_derma.printing.note.derma_patient_advice_html",
 		"do_derma.printing.note.derma_diagnosis_html",
 		"do_derma.printing.render.derma_consumables_html",
 		"do_derma.printing.render.derma_procedure_variables_html",
+		"do_derma.printing.letterhead.derma_letterhead_logo",
 	]
 }
 

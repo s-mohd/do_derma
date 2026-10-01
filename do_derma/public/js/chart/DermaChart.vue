@@ -1661,8 +1661,9 @@ function printAnnotationReview(annotation) {
     [patientName, label].filter(Boolean).join(" - "),
     `<h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
       <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
-      ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:70vh;" alt="">` : ""}
-      <div style="margin-top:16px;">${legend}</div>`
+      ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:60vh;" alt="">` : ""}
+      <div style="margin-top:16px;">${legend}</div>`,
+    { logoUrl: data.value.letterhead_logo }
   )
 }
 
@@ -2358,7 +2359,8 @@ function printConsent(title, html) {
     .join(" · ")
   printHtml(
     [patient.value.patient_name, title].filter(Boolean).join(" - "),
-    `<p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(identity)}</p>${html}`
+    `<p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(identity)}</p>${html}`,
+    { logoUrl: data.value.letterhead_logo }
   )
 }
 
