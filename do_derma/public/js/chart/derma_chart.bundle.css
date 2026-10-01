@@ -265,192 +265,7 @@
   color-scheme: light;
 }
 
-.derma-encounter-header {
-  display: grid;
-  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-}
-
-.encounter-patient {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-}
-
-.encounter-patient img,
-.patient-avatar {
-  width: 46px;
-  height: 46px;
-  border-radius: 999px;
-  border: 1px solid var(--derma-border);
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-  object-fit: cover;
-}
-
-.patient-avatar {
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-}
-
-.encounter-patient strong,
-.encounter-patient small,
-.encounter-chip b {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.encounter-patient strong {
-  color: var(--derma-text-strong);
-  font-size: 18px;
-  line-height: 1.15;
-}
-
-.encounter-patient small {
-  margin-top: 3px;
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.encounter-status-strip {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 1px;
-}
-
-.encounter-chip {
-  flex: 0 0 auto;
-  min-width: 104px;
-  max-width: 190px;
-  padding: 7px 9px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  font-size: 12px;
-  line-height: 1.25;
-}
-
-.encounter-chip b {
-  color: var(--derma-text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-
-.encounter-chip.active {
-  color: var(--derma-brand);
-}
-
-.encounter-chip.warning {
-  border-color: var(--derma-warning-bg);
-  background: var(--derma-warning-bg-subtle);
-  color: #9a3412;
-}
-
-.encounter-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.encounter-actions button.reopen {
-  background: #b45309;
-  border: 1px solid #b45309;
-  color: var(--derma-white);
-}
-
-.encounter-actions button.reopen:hover:not(:disabled) {
-  background: #92400e;
-  border-color: #92400e;
-}
-
-.encounter-completed-note {
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.derma-encounter-header.is-latest-visit {
-  --visit-accent: var(--derma-brand);
-  --visit-tint: var(--derma-success-bg);
-  border-left: 4px solid var(--visit-accent);
-}
-
-.derma-encounter-header.is-previous-visit {
-  --visit-accent: #2563eb;
-  --visit-tint: #eff6ff;
-  border-left: 4px solid var(--visit-accent);
-}
-
-.encounter-visit-strip {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--visit-tint);
-  color: var(--derma-text-muted);
-  font-size: 12.5px;
-}
-
-.encounter-visit-strip b {
-  color: var(--derma-text-strong);
-}
-
-.encounter-visit-pill {
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--visit-accent);
-  color: var(--derma-white);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.dental-chart-page .encounter-visit-strip .encounter-open-latest {
-  margin-left: auto;
-  padding: 5px 12px;
-  border: 1px solid var(--visit-accent);
-  border-radius: 8px;
-  background: var(--derma-white);
-  color: var(--visit-accent);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .derma-mode-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
-}
-
-.derma-section-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -491,112 +306,35 @@
   background: #f0fdfa;
 }
 
-.derma-section-tabs {
-  min-width: 0;
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-  overflow-x: auto;
-}
-
-.derma-section-tabs button {
-  position: relative;
-  flex: 0 0 auto;
-  min-width: 118px;
-  display: grid;
-  gap: 2px;
-  padding: 11px 13px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  text-align: left;
-}
-
-.derma-section-tabs button span {
-  color: var(--derma-text-strong);
-  font-weight: 900;
-}
-
-.derma-section-tabs button small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.derma-section-tabs button.active {
-  border-color: var(--derma-brand-light);
-  background: var(--derma-success-bg);
-}
-
-.derma-section-tabs button.active span,
-.derma-section-tabs button.active small {
-  color: var(--derma-brand);
-}
-
 /* The decorations are absolutely positioned, so the label needs room beside them. */
-.derma-section-tabs button:has(.tab-tick),
-.derma-section-tabs button:has(.tab-count) {
-  padding-right: 30px;
-}
 
-.derma-section-tabs button .tab-tick {
-  position: absolute;
-  top: 9px;
-  right: 10px;
-  font-style: normal;
-  font-weight: 900;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--derma-brand);
-}
-
-.derma-section-tabs .tab-mode-toggle {
+.tab-mode-toggle {
   display: inline-flex;
-  width: max-content;
-  border: 1px solid var(--derma-brand-light);
-  border-radius: 999px;
-  overflow: hidden;
-  background: #ffffff;
+  padding: 2px;
+  border: 1px solid var(--chart-border);
+  border-radius: 9px;
+  background: var(--chart-surface-muted);
 }
 
-.derma-section-tabs .tab-mode-toggle span {
-  padding: 1px 8px;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 16px;
-  color: var(--derma-text-muted);
-  cursor: pointer;
+.dental-chart-page .tab-mode-toggle button {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--chart-muted);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none;
 }
 
-.derma-section-tabs .tab-mode-toggle span[data-active="true"] {
-  background: var(--derma-brand);
-  color: #ffffff;
+.dental-chart-page .tab-mode-toggle button[data-active="true"] {
+  background: var(--chart-surface);
+  color: var(--chart-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
-.derma-section-tabs .tab-mode-toggle[data-locked="true"] {
+.tab-mode-toggle[data-locked="true"] {
   opacity: 0.6;
-}
-
-.derma-section-tabs .tab-mode-toggle[data-locked="true"] span {
-  cursor: not-allowed;
-}
-
-.derma-section-tabs button .tab-count {
-  position: absolute;
-  top: 7px;
-  right: 8px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--derma-brand);
-  color: #ffffff;
-  font-style: normal;
-  font-weight: 800;
-  font-size: 10px;
-  line-height: 17px;
-  text-align: center;
 }
 
 .derma-annotation-pick-list {
@@ -4067,19 +3805,9 @@
   .derma-encounter-grid {
     grid-template-columns: minmax(260px, 330px) minmax(440px, 1fr) minmax(260px, 320px);
   }
-
-  .derma-encounter-header {
-    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  }
-
-  .encounter-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-  }
 }
 
 @media (max-width: 1180px) {
-  .derma-section-bar,
   .derma-mode-bar {
     grid-template-columns: 1fr;
   }
@@ -4123,8 +3851,6 @@
   .clinical-notes-grid,
   .procedure-work-grid,
   .derma-console-side,
-  .derma-section-bar,
-  .derma-encounter-header,
   .derma-encounter-grid,
   .derma-mode-grid,
   .derma-notes-grid,
@@ -4132,15 +3858,6 @@
   .encounter-support-grid,
   .derma-right-workspace {
     grid-template-columns: 1fr;
-  }
-
-  .derma-section-tabs {
-    gap: 4px;
-  }
-
-  .derma-section-tabs button {
-    min-width: 108px;
-    padding: 10px 11px;
   }
 
   .derma-encounter-grid {
@@ -4173,8 +3890,6 @@
     grid-template-columns: 1fr;
   }
 
-  .encounter-status-strip,
-  .encounter-actions,
   .workspace-header-actions {
     justify-content: flex-start;
   }
@@ -4187,24 +3902,10 @@
 }
 
 @media (max-width: 600px) {
-  .derma-section-tabs {
-    overflow-x: auto;
-    flex-wrap: nowrap;
-  }
-
-  .derma-section-tabs button {
-    min-width: 96px;
-  }
 
   .followup-list,
   .inventory-list {
     grid-template-columns: 1fr;
-  }
-
-  .encounter-patient img,
-  .encounter-patient .patient-avatar {
-    width: 36px;
-    height: 36px;
   }
 
   .skeleton-grid {
@@ -4236,72 +3937,6 @@
 .dental-chart-page.derma-chart-page {
   padding: 8px 10px 18px;
   font-size: 13px;
-}
-
-.derma-encounter-header {
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-.encounter-patient {
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 9px;
-}
-
-.encounter-patient img,
-.patient-avatar {
-  width: 38px;
-  height: 38px;
-}
-
-.encounter-patient strong {
-  font-size: 16px;
-}
-
-.encounter-patient small {
-  font-size: 11px;
-}
-
-.encounter-status-strip {
-  gap: 6px;
-}
-
-.encounter-chip {
-  min-width: 92px;
-  max-width: 160px;
-  padding: 6px 8px;
-  font-size: 11px;
-}
-
-.encounter-chip b {
-  font-size: 9px;
-}
-
-.encounter-actions {
-  gap: 6px;
-}
-
-.derma-section-bar {
-  margin-top: 8px;
-  padding: 7px 8px;
-}
-
-.derma-section-tabs {
-  gap: 5px;
-}
-
-.derma-section-tabs button {
-  min-width: 104px;
-  padding: 8px 10px;
-}
-
-.derma-section-tabs button span {
-  font-size: 13px;
-}
-
-.derma-section-tabs button small {
-  font-size: 10px;
 }
 
 .derma-console-grid {
@@ -5085,61 +4720,8 @@ body.derma-annotation-open .modal-backdrop {
   }
 }
 
-.encounter-alert-chips {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 12px 10px;
-  border-top: 1px solid var(--derma-border-subtle);
-}
-
-.encounter-alert-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  max-width: 320px;
-  padding: 5px 10px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 10px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.encounter-alert-chip:hover {
-  border-color: var(--derma-brand);
-}
-
-.encounter-alert-chip b {
-  font-size: 11px;
-  color: var(--derma-text-strong);
-}
-
 /* A chip that blocks completion has to be readable where it sits: truncating it left the
    reason discoverable only inside the completion dialog. */
-.encounter-alert-chip small {
-  font-size: 10px;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.encounter-alert-chip.danger {
-  background: var(--derma-danger-bg, #fef2f2);
-  border-color: var(--derma-danger);
-}
-
-.encounter-alert-chip.danger b {
-  color: var(--derma-danger);
-}
-
-.encounter-alert-chip.warning {
-  background: var(--derma-warning-bg-subtle);
-  border-color: var(--derma-warning-bg);
-}
 
 .procedures-section-stack,
 .photos-section-stack {
