@@ -625,11 +625,20 @@ class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(chart["clinical_profile"]["allergy_status"], "not_recorded")
 		self.assertEqual(chart["clinical_profile"]["medications"], [])
 
+	def test_clinical_profile_skips_recent_prescriptions(self):
+		patient = self._make_patient()
+		prescription = {"name": "Doxycycline", "encounter": "HLC-ENC-X"}
+
+		with patch("do_health.api.clinical_profile._recent_prescriptions", return_value=[prescription]):
+			chart = api.get_patient_derma_chart(patient_id=patient)
+
+		self.assertEqual(chart["clinical_profile"]["recent_prescriptions"], [])
+
 	def test_a_broken_clinical_profile_degrades_to_none(self):
 		patient = self._make_patient()
 		secret = "SELECT custom_allergies_table FROM tabPatient"
 
-		with patch.object(api, "get_clinical_profile", side_effect=ValueError(secret)):
+		with patch.object(api, "build_clinical_profile", side_effect=ValueError(secret)):
 			chart = api.get_patient_derma_chart(patient_id=patient)
 
 		self.assertIsNone(chart["clinical_profile"])

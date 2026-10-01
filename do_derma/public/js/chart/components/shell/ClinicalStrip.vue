@@ -10,36 +10,36 @@
       <div class="clinical-strip-column" data-test="clinical-strip-allergies">
         <h3>⚠ {{ __("Allergies") }}</h3>
         <div class="clinical-strip-chips">
-          <span v-for="allergy in profile.allergies" :key="allergy.allergen" class="clinical-strip-chip" data-tone="danger">
+          <span v-for="(allergy, index) in allergies" :key="`${index}-${allergy.allergen}`" class="clinical-strip-chip" data-tone="danger">
             {{ allergy.allergen }}
           </span>
-          <span v-if="!profile.allergies.length" class="clinical-strip-chip">{{ allergyEmptyText }}</span>
+          <span v-if="!allergies.length" class="clinical-strip-chip">{{ allergyEmptyText }}</span>
         </div>
       </div>
       <div class="clinical-strip-column" data-test="clinical-strip-history">
         <h3>{{ __("Medical History") }}</h3>
         <div class="clinical-strip-chips">
           <span
-            v-for="condition in profile.conditions"
-            :key="condition.name"
+            v-for="(condition, index) in conditions"
+            :key="`${index}-${condition.name}`"
             class="clinical-strip-chip"
             :data-tone="condition.is_critical ? 'caution' : ''"
             :title="condition.note || ''"
           >{{ condition.name }}</span>
-          <span v-if="!profile.conditions.length" class="clinical-strip-chip">{{ __("Not recorded") }}</span>
+          <span v-if="!conditions.length" class="clinical-strip-chip">{{ __("Not recorded") }}</span>
         </div>
       </div>
       <div class="clinical-strip-column" data-test="clinical-strip-medications">
         <h3>{{ __("Medications") }}</h3>
         <div class="clinical-strip-chips">
           <span
-            v-for="medication in profile.medications"
-            :key="medication.name"
+            v-for="(medication, index) in medications"
+            :key="`${index}-${medication.name}`"
             class="clinical-strip-chip"
             :data-tone="medication.risk_class ? 'caution' : ''"
             :title="medication.risk_class || ''"
           >{{ medication.name }}</span>
-          <span v-if="!profile.medications.length" class="clinical-strip-chip">{{ __("Not recorded") }}</span>
+          <span v-if="!medications.length" class="clinical-strip-chip">{{ __("Not recorded") }}</span>
         </div>
       </div>
     </div>
@@ -72,6 +72,9 @@ const props = defineProps({
 
 defineEmits(["retry"])
 
+const allergies = computed(() => props.profile?.allergies || [])
+const conditions = computed(() => props.profile?.conditions || [])
+const medications = computed(() => props.profile?.medications || [])
 const allergyEmptyText = computed(() =>
   props.profile?.allergy_status === "none_known" ? __("None known") : __("Not recorded")
 )

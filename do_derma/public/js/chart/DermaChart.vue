@@ -86,7 +86,6 @@
                   v-for="toggleMode in assessmentPanel.availableModes"
                   :key="toggleMode"
                   type="button"
-                  class="ghost small"
                   :disabled="assessmentModeLocked"
                   :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
                   :data-active="assessmentPanel.mode === toggleMode ? 'true' : 'false'"

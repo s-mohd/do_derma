@@ -122,7 +122,8 @@ changing panel internals, which is phase 2.
 ### Backend
 
 - The chart context in `api.py` gains `clinical_profile`, built by do_health's
-  `do_health.api.clinical_profile.get_clinical_profile(patient_doc)` inside
+  `do_health.api.clinical_profile.build_clinical_profile(patient_doc)` (not
+  `get_clinical_profile`, whose recent-prescription queries the strip never shows) inside
   `_safe_derma_context(_("Clinical profile"), None, …, errors)`
 - No new endpoint; the existing chart gate runs first
 

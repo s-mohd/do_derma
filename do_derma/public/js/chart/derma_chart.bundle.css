@@ -395,7 +395,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(290px, 360px);
   gap: 12px;
   align-items: start;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .derma-console-main,
@@ -3942,7 +3942,7 @@
 .derma-console-grid {
   grid-template-columns: minmax(0, 1fr) minmax(270px, 330px);
   gap: 10px;
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 .derma-console-side,

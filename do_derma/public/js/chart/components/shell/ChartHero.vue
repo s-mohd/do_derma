@@ -125,7 +125,7 @@ const patientName = computed(() => props.patient.patient_name || props.patient.n
 const initials = computed(() => patientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "P")
 const age = computed(() => {
   if (!props.patient.dob) return ""
-  const born = new Date(props.patient.dob)
+  const born = window.frappe.datetime.str_to_obj(props.patient.dob)
   const today = new Date()
   const hasHadBirthday =
     today.getMonth() > born.getMonth() || (today.getMonth() === born.getMonth() && today.getDate() >= born.getDate())
@@ -140,7 +140,10 @@ const patientMeta = computed(() =>
   ].filter((part) => part && part.trim()).join(" · ")
 )
 const visitType = computed(() => props.appointment.custom_appointment_category || props.appointment.appointment_type || props.encounter.appointment_type || "")
-const statusLabel = computed(() => (isCompleted.value ? __("Completed") : props.appointment.status || ""))
+const statusLabel = computed(() => {
+  if (isCompleted.value) return __("Completed")
+  return props.appointment.status || (props.hasSessionContext ? __("Open") : __("Pending"))
+})
 const blockerCount = computed(() => (props.readiness.blockers || []).length)
 const warningCount = computed(() => (props.readiness.items || []).length - blockerCount.value)
 const readinessTone = computed(() => (blockerCount.value ? "danger" : warningCount.value ? "caution" : "ok"))
