@@ -71,7 +71,6 @@ HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 # Files still carrying hex colours in <style>; each panel task deletes its entry.
 HEX_ALLOWED = {
 	"components/ProcedurePanel.vue",
-	"components/consumables/ConsumablesEditor.vue",
 }
 
 

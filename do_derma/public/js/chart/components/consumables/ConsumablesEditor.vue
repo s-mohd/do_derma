@@ -109,7 +109,7 @@
 
     <div v-if="removed.length" class="consumables-removed" data-test="consumables-removed">
       <span class="text-muted">{{ __("Removed from the template") }}</span>
-      <span v-for="(row, index) in removed" :key="`removed-${index}`" class="removed-chip">
+      <span v-for="(row, index) in removed" :key="`removed-${index}`" class="removed-chip chart-pill" data-tone="neutral">
         {{ row.item_name || row.item_code }}
         <button v-if="!readOnly" type="button" class="ghost small" @click="restore(row)">
           {{ __("Restore") }}
@@ -435,7 +435,7 @@ async function applyItem(itemCode) {
 <style scoped>
 .mark-consumables {
   padding: 8px 12px;
-  border-top: 1px solid var(--border-color, #e5e7eb);
+  border-top: 1px solid var(--chart-border);
 }
 
 .mark-consumables-head {
@@ -457,7 +457,7 @@ async function applyItem(itemCode) {
 }
 
 .consumables-table tr.overridden {
-  background: var(--fg-hover-color, #f6f8fa);
+  background: var(--chart-surface-muted);
 }
 
 .consumable-flag {
@@ -466,13 +466,13 @@ async function applyItem(itemCode) {
   border-radius: 8px;
   font-size: 10px;
   text-transform: uppercase;
-  background: var(--yellow-100, #fef3c7);
-  color: var(--yellow-700, #a16207);
+  background: var(--chart-caution-soft);
+  color: var(--chart-caution-text);
 }
 
 .consumable-flag.broken {
-  background: var(--red-100, #fee2e2);
-  color: var(--red-700, #b91c1c);
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
 .consumable-hint {
@@ -481,7 +481,7 @@ async function applyItem(itemCode) {
 }
 
 .consumables-error {
-  color: var(--red-600, #dc2626);
+  color: var(--chart-danger-text);
   margin: 4px 0;
 }
 
@@ -494,14 +494,14 @@ async function applyItem(itemCode) {
 }
 
 .consumable-missing {
-  border-color: var(--red-400, #f87171);
+  border-color: var(--chart-danger);
 }
 
 .link-cell {
   background: none;
   border: none;
   padding: 0;
-  color: var(--text-color, #1f272e);
+  color: var(--chart-text);
   text-decoration: underline dotted;
   cursor: pointer;
 }
@@ -521,12 +521,6 @@ async function applyItem(itemCode) {
 }
 
 .removed-chip {
-  display: inline-flex;
   gap: 6px;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--fg-hover-color, #f6f8fa);
-  color: var(--text-muted, #6b7280);
 }
 </style>
