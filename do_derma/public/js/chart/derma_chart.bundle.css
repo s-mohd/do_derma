@@ -5214,9 +5214,6 @@ body.derma-annotation-open .modal-backdrop {
 
 /* AI documents (Review tab) */
 .ai-documents {
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
   margin-bottom: 12px;
 }
 .ai-documents > header {
@@ -5230,8 +5227,6 @@ body.derma-annotation-open .modal-backdrop {
 }
 .ai-documents > header strong {
   display: block;
-  color: var(--derma-text-strong);
-  font-size: 14px;
 }
 .ai-documents > header small {
   color: var(--derma-text-muted);
@@ -5273,17 +5268,6 @@ body.derma-annotation-open .modal-backdrop {
 }
 .ai-doc-head small {
   color: var(--derma-text-muted);
-}
-.ai-doc-status {
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--derma-bg-muted);
-  color: var(--derma-text-muted);
-}
-li[data-status="Issued"] .ai-doc-status {
-  background: #dcfce7;
-  color: #166534;
 }
 .ai-doc-buttons {
   margin-left: auto;

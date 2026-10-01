@@ -306,10 +306,10 @@
         <div class="workspace-tabview">
           <div class="workspace-content review-section-stack">
             <AiDocumentsCard v-if="data.voice_scribe_enabled && encounter.name" :encounter="encounter.name" />
-            <section class="derma-timeline-workspace">
+            <section class="derma-timeline-workspace chart-inner-card">
               <header>
                 <div>
-                  <strong>{{ __("Treatment Timeline") }}</strong>
+                  <strong class="chart-label">{{ __("Treatment Timeline") }}</strong>
                   <small>{{ visitTimeline.length ? __("{0} previous visit(s)").replace("{0}", visitTimeline.length) : __("No previous derma activity yet") }}</small>
                 </div>
                 <button type="button" class="ghost small" :disabled="chartOverlayMode === 'today'" @click="clearTimelineOverlay">
@@ -414,10 +414,10 @@
               </div>
             </section>
 
-            <section class="derma-readiness-summary" data-test="review-readiness">
+            <section class="derma-readiness-summary chart-inner-card" data-test="review-readiness">
               <header>
                 <div>
-                  <strong>{{ __("Session Readiness") }}</strong>
+                  <strong class="chart-label">{{ __("Session Readiness") }}</strong>
                   <small>{{ readinessSummaryText }}</small>
                 </div>
                 <span class="readiness-mode" :data-mode="readinessEnforcement" data-test="review-readiness-mode">
@@ -496,10 +496,10 @@
               </div>
             </section>
 
-            <section class="derma-followup-workspace">
+            <section class="derma-followup-workspace chart-inner-card">
               <header>
                 <div>
-                  <strong>{{ __("Follow-Up Intelligence") }}</strong>
+                  <strong class="chart-label">{{ __("Follow-Up Intelligence") }}</strong>
                   <small>{{ followupItems.length ? __("{0} item(s)").replace("{0}", followupItems.length) : __("No follow-up risks detected") }}</small>
                 </div>
                 <div class="followup-stats">
