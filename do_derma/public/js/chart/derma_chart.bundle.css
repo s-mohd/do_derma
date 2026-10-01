@@ -4850,22 +4850,6 @@ body.derma-annotation-open .modal-backdrop {
   flex-wrap: wrap;
 }
 
-.photo-scope-chip {
-  border: 1px solid var(--derma-border-muted);
-  background: var(--derma-white);
-  border-radius: 999px;
-  padding: 4px 11px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.photo-scope-chip.active {
-  border-color: var(--derma-primary);
-  background: var(--derma-primary-bg-subtle);
-  color: var(--derma-primary);
-}
-
 .photo-required-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
