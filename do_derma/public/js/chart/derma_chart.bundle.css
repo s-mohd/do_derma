@@ -30,6 +30,41 @@
   --derma-text-deepest: #111827;
 }
 
+/* Patient Overview tokens (do_health --ov-*, light). test_chart_theme pins the values. */
+.dental-chart-page.derma-chart-page {
+  --chart-bg: #f3f5f8;
+  --chart-surface: #ffffff;
+  --chart-surface-muted: #f6f8fa;
+  --chart-border: rgba(15, 23, 42, 0.08);
+  --chart-border-strong: rgba(15, 23, 42, 0.15);
+  --chart-text: #0f172a;
+  --chart-text-soft: #334155;
+  --chart-muted: #64748b;
+  --chart-faint: #a3afbf;
+  --chart-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -18px rgba(15, 23, 42, 0.25);
+  --chart-radius: 14px;
+  --chart-focus: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  --chart-danger: #e11d48;
+  --chart-danger-soft: #fff1f3;
+  --chart-danger-border: rgba(225, 29, 72, 0.22);
+  --chart-danger-text: #be123c;
+  --chart-caution: #d97706;
+  --chart-caution-soft: #fffaeb;
+  --chart-caution-border: rgba(217, 119, 6, 0.26);
+  --chart-caution-text: #b45309;
+  --chart-ok: #059669;
+  --chart-ok-soft: #ecfdf5;
+  --chart-ok-text: #047857;
+  --chart-info-soft: #eff5ff;
+  --chart-info-text: #1d4ed8;
+  --chart-teal: #0d9488;
+  --chart-violet: #7c3aed;
+  --chart-blue: #2563eb;
+  --chart-rose: #e11d48;
+  --chart-amber: #d97706;
+  --chart-brand: #16a34a;
+}
+
 /* The chart is light-only: pin Frappe's dark-mode variables to their v16 light values. */
 [data-theme="dark"] .dental-chart-page.derma-chart-page {
   --alert-bg-danger: #fff7f7;
@@ -225,7 +260,7 @@
 .dental-chart-page.derma-chart-page {
   min-height: calc(100vh - 96px);
   padding: 12px 16px 24px;
-  background: #f3f7f9;
+  background: var(--chart-bg);
   color: var(--derma-text-deep);
   color-scheme: light;
 }
