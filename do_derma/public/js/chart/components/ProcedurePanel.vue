@@ -58,6 +58,15 @@
         </button>
         <button
           type="button"
+          class="primary small consent-action"
+          data-test="procedure-new-consent"
+          :disabled="readOnly || !totalCount"
+          @click="emit('new-consent')"
+        >
+          {{ __("New Consent") }}
+        </button>
+        <button
+          type="button"
           class="primary small"
           data-test="procedure-new"
           :disabled="readOnly"
@@ -210,6 +219,25 @@
                 <span class="pill" :class="statusClass(row.status)">
                   {{ row.status || "Draft" }}
                 </span>
+                <button
+                  v-if="row.consents?.length"
+                  type="button"
+                  class="consent-badge consented"
+                  data-test="procedure-consent-badge"
+                  @click.stop="emit('open-consents', row)"
+                >
+                  {{ consentBadgeLabel(row.consents) }}
+                </button>
+                <button
+                  v-else-if="row.consent_required && row.docstatus !== 2"
+                  type="button"
+                  class="consent-badge needed"
+                  data-test="procedure-consent-needed"
+                  :disabled="readOnly"
+                  @click.stop="emit('new-consent', row)"
+                >
+                  {{ __("Consent needed") }}
+                </button>
               </td>
               <td class="procedure-cell">
                 <span v-if="row.procedure_code" class="procedure-code">{{ row.procedure_code }}</span>
@@ -545,6 +573,8 @@ const emit = defineEmits([
   "create-lab-case",
   "open-lab-case",
   "reopen-procedure",
+  "new-consent",
+  "open-consents",
 ])
 
 const advancedFiltersOpen = ref(false)
@@ -963,6 +993,13 @@ let overrideOutsideHandler = null
 
 function getEditValue(row, key) {
   return edits.value[row.name]?.[key]
+}
+
+/** "Consented" when any consent was signed; waived-only coverage says so. */
+function consentBadgeLabel(consents) {
+  const isWaivedOnly = consents.every((consent) => consent.custom_derma_signature_waived)
+  const label = isWaivedOnly ? __("Consent waived") : __("Consented")
+  return consents.length > 1 ? `${label} (${consents.length})` : label
 }
 
 function isEditable(row) {
@@ -1853,12 +1890,27 @@ function handleRowDoubleClick(row, event) {
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
 }
 
+/* Wraps rather than squeezing: the action buttons move to their own line before a label breaks. */
 .dental-chart-page .procedure-primary-toolbar {
-  display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(140px, 0.32fr) auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.dental-chart-page .procedure-primary-toolbar > .history-search {
+  flex: 1 1 260px;
+}
+
+.dental-chart-page .procedure-primary-toolbar > .panel-actions {
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.dental-chart-page .procedure-primary-toolbar button {
+  white-space: nowrap;
 }
 
 .dental-chart-page .status-filter-row {
@@ -1955,6 +2007,11 @@ function handleRowDoubleClick(row, event) {
   border-radius: 10px;
   padding: 6px 10px;
   cursor: pointer;
+}
+
+.dental-chart-page .panel-actions .primary.consent-action {
+  border-color: var(--derma-info);
+  background: var(--derma-info);
 }
 
 .dental-chart-page .panel-actions .session-badge {
@@ -2669,6 +2726,33 @@ function handleRowDoubleClick(row, event) {
   font-weight: 700;
 }
 
+.consent-badge {
+  display: block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.consent-badge.consented {
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.consent-badge.needed {
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.consent-badge:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .dental-chart-page .procedure-date-row td {
   background: #f8fafc;
   color: #334155;
@@ -2853,10 +2937,6 @@ function handleRowDoubleClick(row, event) {
 }
 
 @media (max-width: 768px) {
-  .dental-chart-page .procedure-primary-toolbar {
-    grid-template-columns: 1fr;
-  }
-
   .dental-chart-page .panel-actions {
     justify-content: flex-start;
     flex-wrap: wrap;

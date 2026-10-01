@@ -259,7 +259,32 @@
                 @new-procedure="createProcedure"
                 @copy-marks="copyMarksFromLastVisit"
                 @reopen-procedure="reopenProcedure"
+                @new-consent="openNewConsent"
+                @open-consents="openProcedureConsents"
               />
+              <div v-if="consentPanel.open" class="consent-overlay" data-test="consent-overlay">
+                <div class="consent-overlay-card" role="dialog" aria-modal="true" :aria-label="__('New Consent')">
+                  <ConsentPanel
+                    :saving="consentPanel.saving"
+                    :sending="consentPanel.sending"
+                    :error="consentPanel.error"
+                    :has-session-context="hasSessionContext"
+                    :procedure-options="consentProcedureOptions"
+                    :preselected="consentPanel.preselected"
+                    :preview-html="consentPanel.previewHtml"
+                    :preview-loading="consentPanel.previewLoading"
+                    :default-signed-by="patient.patient_name || patient.name"
+                    :reset-key="consentPanel.resetKey"
+                    :read-only="isEncounterLocked"
+                    :enable-whatsapp-consent="!!featureToggles.enable_whatsapp_consent"
+                    @request-preview="requestConsentPreview"
+                    @create="createConsentFromPanel"
+                    @send-whatsapp="sendConsentViaWhatsApp"
+                    @cancel="consentPanel.open = false"
+                    @print-blank="(html) => printConsent(__('Consent Form'), html)"
+                  />
+                </div>
+              </div>
             </div>
           </template>
 
@@ -298,31 +323,6 @@
             :read-only="isEncounterLocked"
             @refresh="() => loadPrescriptionPanel(true)"
             @save="savePrescriptionPanel"
-          />
-
-          <ConsentPanel
-            v-else-if="activeSection === 'consent'"
-            :loading="consentPanel.loading"
-            :saving="consentPanel.saving"
-            :sending="consentPanel.sending"
-            :error="consentPanel.error"
-            :has-session-context="hasSessionContext"
-            :encounter-name="consentPanel.encounter"
-            :consents="consentPanel.consents"
-            :procedure-options="consentProcedureOptions"
-            :preview-html="consentPanel.previewHtml"
-            :preview-loading="consentPanel.previewLoading"
-            :default-signed-by="patient.patient_name || patient.name"
-            :reset-key="consentPanel.resetKey"
-            :read-only="isEncounterLocked"
-            :enable-whatsapp-consent="!!featureToggles.enable_whatsapp_consent"
-            @refresh="() => loadConsentPanel(true)"
-            @request-preview="requestConsentPreview"
-            @create="createConsentFromPanel"
-            @send-whatsapp="sendConsentViaWhatsApp"
-            @open-consent="openSignedConsent"
-            @resend-consent="resendConsentViaWhatsApp"
-            @cancel-consent="cancelRemoteConsent"
           />
 
           <section v-else-if="activeSection === 'review'" class="workspace-shell review-shell" data-test="review-section">
@@ -617,6 +617,7 @@ import { procedureDisplayName } from "../shared/procedure_label.js"
 import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
+import { printHtml } from "../shared/print_window.js"
 import { runDialogAction } from "../shared/dialog_progress.js"
 import { serverErrorText } from "../shared/error_text.js"
 
@@ -660,7 +661,6 @@ const SECTION_TABS = [
   { key: "procedures", label: __("Procedures"), hint: __("Treatment") },
   { key: "photos", label: __("Photos"), hint: __("Compare") },
   { key: "prescriptions", label: __("Prescription"), hint: __("Rx") },
-  { key: "consent", label: __("Consent"), hint: __("Forms") },
   { key: "review", label: __("Review"), hint: __("Sign-off") },
 ]
 
@@ -674,7 +674,8 @@ const SECTION_ALIASES = {
   chart: "assessment",
   notes: "assessment",
   procedure: "procedures",
-  consents: "consent",
+  consent: "procedures",
+  consents: "procedures",
 }
 
 // Chart sections degrade independently on the server; these are the context_errors
@@ -758,12 +759,11 @@ const assessmentPanel = reactive({
 const prescriptionPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [] })
 const anesthesiaPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [] })
 const consentPanel = reactive({
-  loading: false,
+  open: false,
+  preselected: [],
   saving: false,
   sending: false,
   error: "",
-  encounter: "",
-  consents: [],
   previewHtml: "",
   previewLoading: false,
   resetKey: 0,
@@ -773,7 +773,6 @@ const loadedTabs = reactive({
   assessment: false,
   prescriptions: false,
   anesthesia: false,
-  consents: false,
 })
 
 // Controls whose integration is unfinished stay hidden until Derma Settings turns
@@ -906,11 +905,11 @@ const encounterAlertItems = computed(() => {
       tone: "danger",
     })
   }
-  if (selectedTemplate.value?.custom_derma_consent_required && !consentPanel.consents.length) {
+  if (consentPendingProcedures.value.length) {
     alerts.push({
       key: "consent",
       label: __("Consent Required"),
-      detail: selectedTemplateLabel.value,
+      detail: consentPendingProcedures.value.map(procedureDisplayName).join(", "),
       tone: "warning",
     })
   }
@@ -962,7 +961,7 @@ const groupedProcedures = computed(() => {
 })
 
 const consentProcedureOptions = computed(() =>
-  procedures.value.map((row) => {
+  procedures.value.filter((row) => row.docstatus !== 2).map((row) => {
     const value = row.name
     const label = procedureDisplayName(row)
     const description = [row.status, row.derma_category || row.category, row.body_region || row.region_label]
@@ -977,6 +976,10 @@ const consentProcedureOptions = computed(() =>
       display_name: label,
     }
   })
+)
+
+const consentPendingProcedures = computed(() =>
+  procedures.value.filter((row) => row.consent_required && row.docstatus !== 2 && !(row.consents || []).length)
 )
 
 const assessmentEditableOnSubmitFields = computed(() => {
@@ -1101,7 +1104,9 @@ async function hydrateDermaSectionPreference() {
 
 async function setActiveSection(section, tab = "") {
   sectionChosenByUser.value = true
-  activeSection.value = normalizeDermaSection(section)
+  const next = normalizeDermaSection(section)
+  if (next !== activeSection.value) closeConsentPanel()
+  activeSection.value = next
   if (tab) activeWorkspaceTab.value = tab
   persistDermaSection(activeSection.value)
   await ensureSectionData(activeSection.value, tab)
@@ -1118,10 +1123,6 @@ async function ensureSectionData(section = activeSection.value, tab = activeWork
     await loadPrescriptionPanel()
     return
   }
-  if (normalized === "consent") {
-    await loadConsentPanel()
-    return
-  }
   if (normalized === "review") {
     await ensureWorkspaceTab(tab || activeWorkspaceTab.value)
   }
@@ -1133,7 +1134,13 @@ function isSectionDegraded(section) {
   return labels.some((label) => failed.includes(label))
 }
 
+function closeConsentPanel() {
+  consentPanel.open = false
+  consentPanel.previewHtml = ""
+}
+
 async function load(context = props.context) {
+  closeConsentPanel()
   loading.value = true
   loadError.value = ""
   try {
@@ -1162,7 +1169,6 @@ async function load(context = props.context) {
     // tab, so the assessment payload cannot stay lazy. loadAssessment guards on
     // loadedTabs and catches internally.
     if (contextReady.value) loadAssessment()
-    if (encounter.value.name) await loadConsentPanel(true)
   } catch (error) {
     loadError.value = serverErrorText(error, __("Unable to load derma chart."))
   } finally {
@@ -1335,7 +1341,7 @@ function openClinicalProcedure(procedure) {
 function handleEncounterAlert(alert) {
   if (!alert) return
   if (alert.key === "consent") {
-    setActiveSection("consent")
+    setActiveSection("procedures")
     return
   }
   if (alert.key === "photos") {
@@ -1427,7 +1433,6 @@ async function ensureWorkspaceTab(tab, force = false) {
   if (tab === "assessment") return loadAssessment(force)
   if (tab === "prescriptions") return loadPrescriptionPanel(force)
   if (tab === "anesthesia") return loadAnesthesiaPanel(force)
-  if (tab === "consents") return loadConsentPanel(force)
 }
 
 async function createProcedure() {
@@ -1652,39 +1657,14 @@ function printAnnotationReview(annotation) {
   const patientName = patient.value.patient_name || patient.value.name || ""
   // This document is hand-written HTML in a window with no autoescaping, so every
   // interpolated value is escaped here. `legend` is server-generated, escaped at generation.
-  const title = escapeHtml([patientName, label].filter(Boolean).join(" - "))
-  const printWindow = window.open("", "_blank")
-  if (!printWindow) {
-    frappe.show_alert({ message: __("Allow pop-ups to print the annotation."), indicator: "orange" })
-    return
-  }
-  // Same letterhead as the note and letters (do_derma/printing/letterhead.py):
-  // logo on top, company block fixed to the foot of every sheet above a repeating spacer.
-  printWindow.document.write(`<!doctype html>
-    <html><head><title>${title}</title>
-    <style>
-      @page { size: A4; margin: 10mm 12mm 0; }
-      .derma-letterhead { width: 100%; border-collapse: collapse; }
-      .derma-letterhead td { padding: 0; }
-      .derma-letterhead-foot { position: fixed; left: 0; right: 0; bottom: 0; padding-bottom: 12mm; text-align: center; color: #222; font: 10px/1.5 Arial, sans-serif; }
-      .derma-letterhead-foot b { display: block; font: 11px Georgia, "Times New Roman", serif; letter-spacing: 4px; margin-bottom: 5px; }
-    </style></head>
-    <body style="font-family:sans-serif;margin:0;">
-      <table class="derma-letterhead"><tfoot><tr><td><div style="height:42mm;"></div></td></tr></tfoot><tbody><tr><td>
-        <div style="text-align:center;margin:0 0 20px;"><img src="${escapeHtml(data.value.letterhead_logo || "/assets/do_derma/images/derma-one-logo.png")}" alt="Logo" style="max-width:290px;max-height:66px;width:auto;height:auto;"></div>
-        <h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
-        <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
-        ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:60vh;" alt="">` : ""}
-        <div style="margin-top:16px;">${legend}</div>
-      </td></tr></tbody></table>
-      <div class="derma-letterhead-foot"><b>DERMA ONE MEDICAL CENTRE W.L.L.</b>
-        P.O. Box 31008, Floors 6 &amp; 7, Bldg 71, Road 3201, Block 332, Kingdom of Bahrain<br>
-        Tel: +973 1724 0042 &nbsp; Email: info@dermaonecentre.com &nbsp; CR No. 100506-1<br>
-        www.dermaonecentre.com</div>
-    </body></html>`)
-  printWindow.document.close()
-  printWindow.focus()
-  setTimeout(() => printWindow.print(), 350)
+  printHtml(
+    [patientName, label].filter(Boolean).join(" - "),
+    `<h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
+      <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
+      ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:60vh;" alt="">` : ""}
+      <div style="margin-top:16px;">${legend}</div>`,
+    { logoUrl: data.value.letterhead_logo }
+  )
 }
 
 function annotationPreview(annotation) {
@@ -2233,24 +2213,47 @@ async function loadAnesthesiaPanel(force = false) {
   }
 }
 
-async function loadConsentPanel(force = false) {
-  if (!force && loadedTabs.consents) return
-  consentPanel.loading = true
+function openNewConsent(row = null) {
+  consentPanel.preselected = row ? [row.name] : consentPendingProcedures.value.map((item) => item.name)
+  consentPanel.previewHtml = ""
   consentPanel.error = ""
-  try {
-    const response = await frappe.call({ method: "do_derma.api.get_derma_consents", args: contextArgs() })
-    consentPanel.encounter = encounter.value.name || ""
-    consentPanel.consents = response.message || []
-    loadedTabs.consents = true
-  } catch (error) {
-    consentPanel.error = serverErrorText(error, __("Unable to load consents."))
-  } finally {
-    consentPanel.loading = false
-  }
+  consentPanel.resetKey += 1
+  consentPanel.open = true
 }
+
+function openProcedureConsents(row) {
+  const consents = row?.consents || []
+  if (consents.length === 1) return openSignedConsent(consents[0])
+  const dialog = new frappe.ui.Dialog({
+    title: __("Consents for {0}", [procedureDisplayName(row)]),
+    fields: [
+      {
+        fieldname: "consent",
+        fieldtype: "Select",
+        label: __("Consent"),
+        reqd: 1,
+        default: consents[0].name,
+        options: consents.map((item) => ({
+          value: item.name,
+          label: [item.consent_form_template || item.name, formatDateTime(item.signed_on)].filter(Boolean).join(" · "),
+        })),
+      },
+    ],
+    primary_action_label: __("Open"),
+    primary_action(values) {
+      dialog.hide()
+      openSignedConsent(consents.find((item) => item.name === values.consent))
+    },
+  })
+  dialog.show()
+  nameDialogControls(dialog)
+}
+
+let consentPreviewSequence = 0
 
 async function requestConsentPreview(payload) {
   const procedureItems = buildConsentProcedureItems(payload?.procedure_selection)
+  const sequence = ++consentPreviewSequence
   consentPanel.previewLoading = true
   consentPanel.error = ""
   try {
@@ -2258,13 +2261,15 @@ async function requestConsentPreview(payload) {
       method: "do_derma.api.render_derma_consent_preview",
       args: { payload: { ...payload, ...contextArgs(), procedure_items: procedureItems } },
     })
+    if (sequence !== consentPreviewSequence) return
     const raw = response.message?.rendered_html || ""
     consentPanel.previewHtml = frappe?.utils?.unescape_html ? frappe.utils.unescape_html(raw) : raw
     consentPanel.error = response.message?.error || ""
   } catch (error) {
+    if (sequence !== consentPreviewSequence) return
     consentPanel.error = serverErrorText(error, __("Unable to render consent preview."))
   } finally {
-    consentPanel.previewLoading = false
+    if (sequence === consentPreviewSequence) consentPanel.previewLoading = false
   }
 }
 
@@ -2277,11 +2282,10 @@ async function createConsentFromPanel(payload) {
       method: "do_derma.api.create_derma_consent",
       args: { payload: { ...payload, ...contextArgs(), procedure_items: procedureItems } },
     })
-    if (response.message?.name) openSignedConsent({ name: response.message.name })
-    loadedTabs.consents = false
-    await loadConsentPanel(true)
+    consentPanel.open = false
     consentPanel.previewHtml = ""
-    consentPanel.resetKey += 1
+    await refresh()
+    if (response.message?.name) openSignedConsent({ name: response.message.name })
     frappe.show_alert({ message: __("Consent created."), indicator: "green" })
   } catch (error) {
     consentPanel.error = serverErrorText(error, __("Unable to create consent."))
@@ -2313,21 +2317,19 @@ function sendConsentViaWhatsApp() {
   unsupportedRemoteConsentMessage()
 }
 
-function resendConsentViaWhatsApp() {
-  unsupportedRemoteConsentMessage()
-}
-
-function cancelRemoteConsent() {
-  unsupportedRemoteConsentMessage()
-}
-
 async function openSignedConsent(row) {
   const name = row?.name || row
   if (!name) return
+  const title = row?.consent_form_template || __("Consent Form")
+  let printable = ""
   const dialog = new frappe.ui.Dialog({
-    title: row?.consent_form_template || __("Consent Form"),
+    title,
     size: "large",
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
+    primary_action_label: __("Print"),
+    primary_action() {
+      if (printable) printConsent(title, printable)
+    },
   })
   dialog.show()
   nameDialogControls(dialog)
@@ -2339,8 +2341,9 @@ async function openSignedConsent(row) {
     })
     const result = response.message || {}
     const meta = escapeHtml(consentMetaText({ ...row, ...result }))
+    printable = result.rendered_html || ""
     dialog.fields_dict.body.$wrapper.html(
-      `<p class="text-muted">${meta}</p><div class="consent-rendered-html">${result.rendered_html || __("No rendered content available.")}</div>`
+      `<p class="text-muted">${meta}</p><div class="consent-rendered-html">${printable || __("No rendered content available.")}</div>`
     )
   } catch (err) {
     dialog.fields_dict.body.$wrapper.html(
@@ -2349,8 +2352,23 @@ async function openSignedConsent(row) {
   }
 }
 
+/** Stored or previewed consent HTML, headed with who it is for so a paper copy can be filed. */
+function printConsent(title, html) {
+  const identity = [patient.value.patient_name, patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "", encounter.value.name]
+    .filter(Boolean)
+    .join(" · ")
+  printHtml(
+    [patient.value.patient_name, title].filter(Boolean).join(" - "),
+    `<p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(identity)}</p>${html}`,
+    { logoUrl: data.value.letterhead_logo }
+  )
+}
+
 function consentMetaText(row = {}) {
-  return [row.status, row.signed_by, row.signed_on].filter(Boolean).join(" · ")
+  const status = row.custom_derma_signature_waived
+    ? `${__("Signature waived")}: ${row.custom_derma_waiver_reason || ""}`
+    : row.status
+  return [status, row.signed_by, formatDateTime(row.signed_on)].filter(Boolean).join(" · ")
 }
 
 function blockerListHtml(blockers) {
@@ -2677,6 +2695,13 @@ function rowTimestamp(row) {
 function formatDate(value) {
   if (!value) return ""
   return window.frappe?.datetime?.str_to_user?.(value) || String(value).slice(0, 10)
+}
+
+/** User date format plus hours and minutes, without seconds. */
+function formatDateTime(value) {
+  if (!value) return ""
+  const text = String(value)
+  return [formatDate(text.slice(0, 10)), text.slice(11, 16)].filter(Boolean).join(" ")
 }
 
 </script>

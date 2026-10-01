@@ -3923,8 +3923,7 @@
   grid-column: 1 / -1;
 }
 
-.annotation-history-table,
-.consent-list {
+.annotation-history-table {
   padding: 12px 14px;
   display: grid;
   gap: 8px;
@@ -3934,8 +3933,7 @@
   margin: 0;
 }
 
-.annotation-history-table button,
-.consent-list button {
+.annotation-history-table button {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -5635,4 +5633,20 @@ li[data-status="Issued"] .ai-doc-status {
   padding: 6px 10px;
   font-size: 13px;
   background: var(--derma-white);
+}
+
+.dental-chart-page .consent-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 16px;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.dental-chart-page .consent-overlay-card {
+  width: min(1100px, 100%);
 }

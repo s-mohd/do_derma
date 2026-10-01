@@ -53,6 +53,28 @@ ICD10_FIELD = "custom_derma_icd10"
 NOTE_AR_FIELD = "custom_derma_note_ar"
 MODE_FIELD = "custom_derma_assessment_mode"
 PRACTITIONER_DEFAULT_FIELD = "custom_derma_default_assessment_mode"
+SIGNATURE_WAIVED_FIELD = "custom_derma_signature_waived"
+WAIVER_REASON_FIELD = "custom_derma_waiver_reason"
+
+# A consent saved without a digital signature (paper, verbal). The health apps refuse to submit an
+# unsigned consent, so a waived one stays a draft and these fields say why.
+CONSENT_WAIVER_FIELDS: list[dict[str, Any]] = [
+	{
+		"fieldname": SIGNATURE_WAIVED_FIELD,
+		"fieldtype": "Check",
+		"label": "Signature Waived",
+		"insert_after": "relationship",
+		"read_only": 1,
+	},
+	{
+		"fieldname": WAIVER_REASON_FIELD,
+		"fieldtype": "Small Text",
+		"label": "Waiver Reason",
+		"insert_after": SIGNATURE_WAIVED_FIELD,
+		"read_only": 1,
+		"depends_on": f"eval:doc.{SIGNATURE_WAIVED_FIELD}",
+	},
+]
 
 DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 	"Patient Encounter": [
@@ -410,6 +432,20 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"insert_after": "custom_derma_print_procedure_variables",
 		},
 	],
+	# One consent can cover several procedures. do_health's Consent Form links only one, so derma
+	# owns this table; clinical_procedure still holds the first row for do_health's own readers.
+	"Consent Form": [
+		{
+			"fieldname": "custom_derma_procedures",
+			"fieldtype": "Table",
+			"label": "Procedures",
+			"options": "Derma Consent Procedure",
+			"insert_after": "clinical_procedure",
+			"hidden": 1,
+		},
+		*CONSENT_WAIVER_FIELDS,
+	],
+	"Encounter Consent": CONSENT_WAIVER_FIELDS,
 	"Healthcare Practitioner": [
 		{
 			"fieldname": "custom_derma_default_assessment_mode",
