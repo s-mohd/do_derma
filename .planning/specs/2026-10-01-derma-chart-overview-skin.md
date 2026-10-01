@@ -94,18 +94,30 @@ load them and the sidebar and Overview already show them.
 ### Section card frame
 
 Each active section renders inside one card (surface, 14px radius, `--chart-shadow`).
-The header has the uppercase section label on the left and the section's existing
-actions on the right. Panel internals are unchanged in phase 1.
+The header has the uppercase section label on the left and an actions slot on the
+right. In phase 1 only Assessment fills that slot (the mode toggle). The other panels
+keep their own toolbars (New Procedure, New Consent, …) because moving them means
+changing panel internals, which is phase 2.
 
 ### Tokens and CSS
 
-- New `do_derma/public/js/chart/theme/chart_tokens.css`: the do_health `--ov-*` values,
-  renamed `--chart-*`, declared on `.derma-chart-page`, with a
-  `[data-theme="dark"] .derma-chart-page` twin. Imported once from the chart bundle
-- New components use `<style scoped>` reading only `--chart-*` tokens
+- **Light-only in phase 1.** The chart pins light colours under desk dark mode
+  (`test_chart_theme.py`, commit 03b9db7), and its panels have no dark styles. A dark hero
+  over light panels would look broken, so dark mode moves to phase 2 together with the
+  panels
+- A `--chart-*` token block, one per do_health light `--ov-*` value, sits near the top of
+  `derma_chart.bundle.css` on `.dental-chart-page.derma-chart-page`, ahead of the
+  early-closing `@media` trap. It is the one rule this phase adds to that file. A
+  separate CSS file imported from the bundle was dropped: `frappe.require` already loads
+  `derma_chart.bundle.css` and nothing else
+- A test pins every `--chart-*` value to do_health's `--ov-*` value, so drift fails loudly
+- The page canvas background becomes `var(--chart-bg)`
+- New components use `<style scoped>` reading only `--chart-*` tokens, with class names
+  that do not collide with the bundle CSS (`chart-hero-*`, `clinical-strip-*`,
+  `chart-tabs-*`, `chart-section-card-*`)
 - `derma_chart.bundle.css`: delete only rules the shell makes dead (old encounter header,
-  `.encounter-chip`, tab hint styles). Check brace depth before each deletion (early-closing
-  `@media` trap). Add no new rules there. Do not fix the brace bug here
+  `.encounter-chip`, section tab styles). Grep each selector for zero users and check
+  brace depth before deleting. Do not fix the brace bug here
 
 ### Backend
 
@@ -121,6 +133,8 @@ and PR in do_health. The chart feature-detects it, so phase 1 ships without it.
 
 ## Phase 2 (separate plan)
 
+Dark mode for the whole chart (a `[data-theme="dark"]` twin of the `--chart-*`
+block, replacing the light pinning). Move panel toolbars into the section card header.
 Move panel internals (Assessment, Procedures, Photos, Prescription, Review, consent
 dialogs, consumables editor) onto `--chart-*` tokens and Overview pills/labels, panel by
 panel, deleting the bundle CSS each panel stops using.
@@ -142,7 +156,8 @@ Python:
 - A raising profile builder yields `clinical_profile = None` and records
   "Clinical profile" in the payload's errors
 
-Browser (`dermaone.localhost`, 1280 / 1600 / 1920 px, light and dark):
+Browser (`dermaone.localhost`, 1280 / 1600 / 1920 px; desk in light and in dark mode,
+the chart staying light in both):
 - Hero, strip and tabs render; strip with and without allergies
 - Previous-visit banner on an older encounter, Open latest works
 - A blocker shows dots on Procedures and Review; the readiness line jumps to Procedures
