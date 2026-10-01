@@ -485,15 +485,8 @@
 }
 
 .clinical-notes-grid,
-.clinical-soap-stack,
-.procedure-work-grid {
+.clinical-soap-stack {
   min-width: 0;
-}
-
-.procedure-chart-stack {
-  min-width: 0;
-  display: grid;
-  gap: 12px;
 }
 
 .chart-annotation-history {
@@ -838,14 +831,6 @@
   background: #fff;
 }
 
-.procedure-work-grid {
-  display: grid;
-  grid-template-columns: minmax(310px, 380px) minmax(420px, 1fr);
-  gap: 12px;
-  align-items: start;
-  margin-top: 12px;
-}
-
 .section-panel {
   min-width: 0;
   border: 1px solid var(--derma-border);
@@ -897,8 +882,7 @@
   text-align: left;
 }
 
-.derma-mode-switch button span,
-.active-procedure-chip {
+.derma-mode-switch button span {
   font-weight: 900;
 }
 
@@ -926,48 +910,15 @@
   min-width: 0;
 }
 
-.active-procedure-chip {
-  max-width: 220px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #1e3a8a;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.active-procedure-chip b {
-  color: var(--derma-info);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
 .derma-mode-grid,
 .derma-notes-grid,
 .derma-encounter-mode {
   margin-top: 12px;
 }
 
-.derma-mode-grid,
-.encounter-workspace-grid,
-.encounter-support-grid {
+.derma-mode-grid {
   display: grid;
   gap: 12px;
-}
-
-.encounter-workspace-grid {
-  grid-template-columns: minmax(560px, 1fr) minmax(320px, 420px);
-  align-items: stretch;
-}
-
-.encounter-support-grid {
-  grid-template-columns: minmax(460px, 0.9fr) minmax(320px, 420px);
-  align-items: start;
-  margin-top: 12px;
 }
 
 .derma-mode-grid {
@@ -1013,18 +964,6 @@
   color: var(--derma-danger);
 }
 
-.start-kicker {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--derma-brand-light);
-  border-radius: 999px;
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 900;
-}
-
 .derma-start-card strong {
   color: var(--derma-text-strong);
   font-size: 28px;
@@ -1037,46 +976,6 @@
   color: var(--derma-text-muted);
   font-size: 14px;
   line-height: 1.55;
-}
-
-.start-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
-  width: min(460px, 100%);
-  margin-top: 4px;
-}
-
-.start-metrics span {
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.76);
-  padding: 10px;
-}
-
-.start-metrics b,
-.start-metrics small {
-  display: block;
-}
-
-.start-metrics b {
-  color: var(--derma-text-strong);
-  font-size: 22px;
-  line-height: 1;
-}
-
-.start-metrics small {
-  margin-top: 5px;
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.start-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
 }
 
 .derma-main-workspace,
@@ -1141,28 +1040,6 @@
   font-size: 12px;
 }
 
-.command-empty,
-.command-section {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  padding: 14px;
-  overflow: auto;
-  min-height: 0;
-}
-
-.command-empty {
-  place-content: center;
-  text-align: center;
-  color: var(--derma-text-muted);
-}
-
-.command-empty strong {
-  color: var(--derma-text-strong);
-  font-size: 18px;
-}
-
-.command-empty p,
 .panel-muted {
   margin: 0;
   line-height: 1.45;
@@ -1176,15 +1053,7 @@
   overflow: hidden;
 }
 
-.workspace-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 7px;
-}
-
-.derma-main-workspace .derma-interactive-chart,
-.derma-main-workspace .procedure-first-empty {
+.derma-main-workspace .derma-interactive-chart {
   border-right: 0;
 }
 
@@ -1219,52 +1088,8 @@
   max-height: none;
 }
 
-.chart-expand-button {
-  position: absolute;
-  top: 74px;
-  right: 14px;
-  z-index: 22;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--derma-navy);
-  font-size: 20px;
-  font-weight: 900;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-}
-
-.derma-main-workspace .native-chart-frame {
-  height: min(430px, 52vh);
-  min-height: 340px;
-  max-height: 430px;
-}
-
-.compact-chart-workspace .native-chart-frame,
-.compact-chart-workspace .derma-excalidraw-canvas,
-.compact-chart-workspace .embedded-excalidraw,
-.compact-chart-workspace .derma-excalidraw-host {
-  height: min(380px, 44vh);
-  min-height: 300px;
-  max-height: 400px;
-}
-
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-canvas,
-.derma-main-workspace.compact-chart-workspace.expanded .embedded-excalidraw,
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-host {
-  height: calc(100vh - 160px);
-  min-height: 560px;
-  max-height: none;
-}
-
 .derma-photo-workspace,
-.derma-notes-grid > section,
-.encounter-primary-panel > section,
-.encounter-side-stack > section,
-.encounter-snapshot-panel {
+.derma-notes-grid > section {
   min-width: 0;
   border: 1px solid var(--derma-border);
   border-radius: 8px;
@@ -1300,28 +1125,6 @@
   font-size: 12px;
 }
 
-.photo-mode-compare {
-  min-height: 420px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 0 16px;
-}
-
-.photo-mode-compare figure {
-  min-width: 0;
-  margin: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.photo-mode-compare figcaption {
-  color: var(--derma-text-secondary-alt);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .derma-photo-workspace > .ghost {
   justify-self: start;
   margin-left: 16px;
@@ -1332,77 +1135,6 @@
   grid-template-columns: minmax(420px, 1fr) minmax(360px, 0.9fr);
   gap: 12px;
   align-items: start;
-}
-
-.encounter-side-stack {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-
-.encounter-snapshot-panel {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-}
-
-.encounter-snapshot-panel > header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--derma-bg-muted);
-}
-
-.encounter-snapshot-panel strong,
-.encounter-snapshot-panel small {
-  display: block;
-}
-
-.encounter-snapshot-panel small {
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.encounter-stat-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.encounter-stat-row span {
-  padding: 10px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-}
-
-.encounter-stat-row b,
-.encounter-stat-row small {
-  display: block;
-}
-
-.encounter-stat-row b {
-  color: var(--derma-text-strong);
-  font-size: 20px;
-  line-height: 1;
-}
-
-.encounter-recent-list {
-  display: grid;
-  gap: 8px;
-}
-
-.encounter-recent-list button {
-  display: grid;
-  gap: 3px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  text-align: left;
 }
 
 .derma-right-workspace,
@@ -1421,70 +1153,11 @@
   overflow: hidden;
 }
 
-.quick-action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-.quick-action-grid button {
-  min-height: 48px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-bg-faint);
-  color: var(--derma-navy);
-  font-weight: 800;
-}
-
-.quick-action-grid button:hover:not(:disabled) {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-}
-
-.smart-alert-list {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-.smart-alert-list button {
-  display: grid;
-  gap: 3px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 9px 10px;
-  text-align: left;
-}
-
-.smart-alert-list button.warning {
-  border-color: var(--derma-warning-bg);
-  background: var(--derma-warning-bg-subtle);
-}
-
-.smart-alert-list button.danger {
-  border-color: var(--derma-danger-bg);
-  background: #fff1f2;
-}
-
-.smart-alert-list b,
-.smart-alert-list small {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .derma-chart-page button {
   font: inherit;
 }
 
-.chart-empty-state,
-.workspace-empty,
-.workspace-error {
+.chart-empty-state {
   min-height: 180px;
   display: grid;
   place-items: center;
@@ -1492,7 +1165,6 @@
   color: var(--derma-text-muted);
 }
 
-.workspace-error,
 .error-overlay {
   color: var(--derma-danger);
 }
@@ -1608,21 +1280,6 @@
   font-size: 13px;
 }
 
-.dental-chart-page .chart-topbar {
-  margin-bottom: 12px;
-}
-
-.dental-chart-page .topbar-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: stretch;
-}
-
-.dental-chart-page .session-shell,
-.dental-chart-page .mode-rail,
-.dental-chart-page .category-nav,
-.dental-chart-page .odontogram-shell,
 .dental-chart-page .derma-encounter-summary-panel,
 .dental-chart-page .workspace-shell {
   background: var(--derma-white);
@@ -1631,27 +1288,7 @@
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
 }
 
-.dental-chart-page .session-shell {
-  padding: 12px 14px;
-}
-
-.dental-chart-page .session-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.dental-chart-page .session-head-copy strong {
-  display: block;
-  font-size: 17px;
-  color: var(--derma-text-deepest);
-}
-
-.dental-chart-page .session-head-copy small,
-.dental-chart-page .mode-label,
-.dental-chart-page .derma-session-summary,
-.dental-chart-page .procedure-arm-panel small {
+.dental-chart-page .derma-session-summary {
   color: var(--derma-text-muted);
   font-size: 12px;
 }
@@ -1676,28 +1313,9 @@
   color: #9a3412;
 }
 
-.dental-chart-page .mode-rail {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  min-width: 260px;
-}
-
-.dental-chart-page .primary-toggle {
-  display: flex;
-  gap: 8px;
-}
-
-.dental-chart-page .primary-toggle button,
-.dental-chart-page .context-lock-toggle,
 .dental-chart-page .ghost,
 .dental-chart-page .primary,
-.dental-chart-page .reopen,
-.dental-chart-page .workspace-tab,
-.dental-chart-page .category-tab>button,
-.dental-chart-page .category-menu button {
+.dental-chart-page .reopen {
   border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
   background: var(--chart-surface);
@@ -1713,8 +1331,7 @@
   cursor: not-allowed;
 }
 
-.dental-chart-page .primary,
-.dental-chart-page .primary-toggle button.active {
+.dental-chart-page .primary {
   border-color: var(--chart-accent-strong);
   background: var(--chart-accent-strong);
   color: white;
@@ -1739,88 +1356,6 @@
   box-shadow: var(--chart-focus);
 }
 
-.dental-chart-page .category-nav {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 14px;
-  padding: 10px 12px 6px;
-  margin: 12px 0 14px;
-  position: relative;
-  overflow: visible;
-}
-
-.dental-chart-page .category-nav.wrap {
-  flex-wrap: wrap;
-}
-
-.dental-chart-page .category-tab {
-  position: relative;
-}
-
-.dental-chart-page .category-tab>button {
-  min-width: 96px;
-  height: 50px;
-  border-color: transparent;
-  display: grid;
-  align-content: center;
-  gap: 8px;
-}
-
-.dental-chart-page .category-tab.open>button,
-.dental-chart-page .category-tab>button:hover {
-  border-color: #cfd8e3;
-}
-
-.dental-chart-page .cat-label {
-  max-width: 96px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.dental-chart-page .cat-underline {
-  display: block;
-  height: 3px;
-  border-radius: 999px;
-}
-
-.dental-chart-page .category-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 25px);
-  left: 0;
-  min-width: 240px;
-  max-height: 320px;
-  overflow: auto;
-  padding: 8px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
-}
-
-.dental-chart-page .category-menu button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border-color: transparent;
-  margin-bottom: 3px;
-}
-
-.dental-chart-page .category-menu button:hover,
-.dental-chart-page .category-menu button.active {
-  background: var(--derma-success-bg);
-  border-color: var(--derma-brand-light);
-}
-
-.dental-chart-page .active-service {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .dental-chart-page .badge,
 .dental-chart-page .pill {
   display: inline-flex;
@@ -1831,16 +1366,6 @@
   color: #1f4e79;
   font-size: 12px;
   font-weight: 700;
-}
-
-.dental-chart-page .odontogram-shell {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
-  gap: 0;
-  height: clamp(560px, calc(100vh - 330px), 760px);
-  min-height: 560px;
-  overflow: hidden;
 }
 
 .dental-chart-page .loading-overlay,
@@ -1882,279 +1407,6 @@
   background:
     linear-gradient(180deg, var(--derma-white) 0%, #f7fbfc 100%);
   border-right: 1px solid var(--derma-border);
-}
-
-.native-chart-empty span {
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.native-view-arrow {
-  position: absolute;
-  top: 50%;
-  z-index: 5;
-  width: 34px;
-  height: 34px;
-  transform: translateY(-50%);
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--derma-navy);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
-  font-size: 24px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-}
-
-.native-view-arrow.previous {
-  left: 12px;
-}
-
-.native-view-arrow.next {
-  right: 12px;
-}
-
-.native-view-arrow:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.native-chart-frame {
-  position: relative;
-  min-height: 0;
-  overflow: hidden;
-  cursor: default;
-  background:
-    linear-gradient(90deg, rgba(226, 232, 240, 0.36) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(226, 232, 240, 0.36) 1px, transparent 1px),
-    var(--derma-white);
-  background-size: 32px 32px;
-}
-
-.native-chart-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-  user-select: none;
-  pointer-events: none;
-}
-
-.native-chart-empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 7px;
-  text-align: center;
-}
-
-.native-chart-empty strong {
-  color: var(--derma-text-strong);
-  font-size: 20px;
-}
-
-.native-region-layer {
-  position: absolute;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.native-region-layer polygon {
-  pointer-events: auto;
-  cursor: pointer;
-  stroke-width: 2;
-  transition: fill 0.16s ease, stroke-width 0.16s ease, filter 0.16s ease;
-}
-
-.native-region-layer polygon:hover,
-.native-region-layer polygon.active {
-  stroke-width: 3;
-  filter: drop-shadow(0 4px 12px rgba(20, 184, 166, 0.22));
-}
-
-.native-region-nav {
-  max-width: 46%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.native-region-nav button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  border: 1px solid var(--derma-border);
-  border-radius: 999px;
-  background: var(--derma-white);
-  color: var(--derma-navy);
-  padding: 4px 8px 4px 4px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.native-region-nav button span {
-  width: 21px;
-  height: 21px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: var(--derma-info-bg-subtle);
-  color: var(--derma-info);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.native-region-nav button:hover {
-  border-color: var(--derma-brand);
-  color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.native-chart-mark {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  z-index: 3;
-}
-
-.native-chart-mark.history {
-  opacity: 0.52;
-}
-
-.native-chart-mark.selected {
-  filter: drop-shadow(0 0 0.35rem rgba(15, 118, 110, 0.58));
-}
-
-.mark-dot {
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--mark-color, #0ea5e9);
-  color: var(--derma-white);
-  font-size: 9px;
-  font-weight: 900;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
-}
-
-.mark-triangle {
-  width: 0;
-  height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-bottom: 19px solid var(--mark-color, #16a34a);
-  filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.2));
-}
-
-.mark-target {
-  width: 20px;
-  height: 20px;
-  border: 3px solid var(--mark-color, #f97316);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.92), 0 6px 12px rgba(15, 23, 42, 0.16);
-}
-
-.mark-x {
-  position: relative;
-  width: 24px;
-  height: 24px;
-}
-
-.mark-x::before,
-.mark-x::after {
-  content: "";
-  position: absolute;
-  top: 11px;
-  left: 2px;
-  width: 20px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--mark-color, #d4a000);
-}
-
-.mark-x::before {
-  transform: rotate(45deg);
-}
-
-.mark-x::after {
-  transform: rotate(-45deg);
-}
-
-.mark-hatch {
-  width: 24px;
-  height: 18px;
-  border-radius: 4px;
-  background:
-    repeating-linear-gradient(135deg, var(--mark-color, #dc2626) 0 3px, transparent 3px 7px);
-  border: 1px solid rgba(220, 38, 38, 0.3);
-}
-
-.native-view-strip {
-  display: flex;
-  gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--derma-bg-muted);
-  background: var(--derma-bg-faint);
-  overflow-x: auto;
-}
-
-.native-view-strip button {
-  min-width: 92px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  color: var(--derma-navy);
-  padding: 6px;
-  display: grid;
-  gap: 5px;
-  justify-items: center;
-}
-
-.native-view-strip button.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.native-view-strip img,
-.native-view-strip>button>span {
-  width: 70px;
-  height: 48px;
-  border-radius: 6px;
-  object-fit: cover;
-  background: var(--derma-bg-subtle);
-  border: 1px solid var(--derma-bg-muted);
-}
-
-.native-view-strip>button>span {
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-  color: var(--derma-text-muted);
-}
-
-.native-view-strip small {
-  max-width: 82px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--derma-text-muted);
-  font-size: 11px;
 }
 
 .derma-excalidraw-host {
@@ -2201,37 +1453,6 @@
   font-size: 13px;
 }
 
-.procedure-first-empty {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 28px;
-  background:
-    radial-gradient(circle at 50% 40%, rgba(20, 184, 166, 0.08), transparent 34%),
-    linear-gradient(180deg, var(--derma-white) 0%, var(--derma-bg-faint-alt) 100%);
-  text-align: center;
-}
-
-.procedure-first-empty > div {
-  max-width: 460px;
-  display: grid;
-  gap: 8px;
-}
-
-.procedure-first-empty strong {
-  color: var(--derma-text-strong);
-  font-size: 24px;
-}
-
-.procedure-first-empty p {
-  margin: 0;
-  color: var(--derma-text-muted);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 .embedded-excalidraw .Island {
   border-radius: 9px;
   border-color: var(--derma-border);
@@ -2273,104 +1494,11 @@
   transform: translate(2px, 1px);
 }
 
-.excalidraw-view-rotate {
-  position: absolute;
-  top: 50%;
-  left: 14px;
-  right: 14px;
-  z-index: 8;
-  display: flex;
-  justify-content: space-between;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.excalidraw-view-rotate button {
-  pointer-events: auto;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--derma-info);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
-  font-size: 19px;
-  font-weight: 900;
-}
-
-.excalidraw-view-rotate button:hover {
-  border-color: var(--derma-brand);
-  color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.excalidraw-region-nav {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.excalidraw-region-nav button {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--derma-text-secondary-alt);
-  padding: 4px 8px 4px 4px;
-  font-size: 12px;
-  font-weight: 800;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
-}
-
-.excalidraw-region-nav button span {
-  width: 21px;
-  height: 21px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--derma-info-bg-subtle);
-  color: var(--derma-info);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.excalidraw-region-nav button:hover {
-  border-color: var(--derma-brand);
-  color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
 .review-section-stack {
   display: grid;
   gap: 12px;
 }
 
-.annotation-preview-empty {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--derma-bg-muted), var(--derma-white));
-}
-
-.procedure-arm-panel {
-  border-left: 1px solid var(--derma-border);
-  background: var(--derma-bg-faint);
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-width: 0;
-  min-height: 0;
-}
-
-.procedure-arm-panel header,
-.procedure-arm-panel footer,
 .panel-heading,
 .procedure-primary-toolbar {
   display: flex;
@@ -2381,20 +1509,9 @@
   border-bottom: 1px solid var(--derma-bg-muted);
 }
 
-.procedure-arm-panel header strong,
 .panel-heading strong {
   display: block;
   color: var(--derma-text-deepest);
-}
-
-.procedure-arm-body {
-  padding: 14px;
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  overflow: auto;
-  min-height: 0;
-  max-height: none;
 }
 
 .derma-atlas-panel {
@@ -2420,12 +1537,6 @@
   white-space: nowrap;
 }
 
-.atlas-actions {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px 0;
-}
-
 .derma-atlas-panel p {
   margin: 0;
   padding: 10px 14px 14px;
@@ -2434,43 +1545,12 @@
   line-height: 1.45;
 }
 
-.procedure-arm-body label,
-.assessment-grid label,
-.table-field,
-.consent-create-row label {
+.table-field {
   display: grid;
   gap: 6px;
   color: var(--derma-text-secondary);
   font-size: 12px;
   font-weight: 800;
-}
-
-.procedure-arm-body input,
-.procedure-arm-body textarea,
-.assessment-grid input,
-.assessment-grid textarea,
-.editable-table input,
-.consent-create-row input {
-  width: 100%;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  padding: 8px 9px;
-  color: var(--derma-text-deep);
-  background: var(--derma-white);
-  font-weight: 500;
-}
-
-.procedure-draft-grid,
-.assessment-grid,
-.consent-create-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.procedure-arm-panel footer {
-  border-top: 1px solid var(--derma-bg-muted);
-  border-bottom: 0;
 }
 
 .derma-template-picker {
@@ -2496,161 +1576,6 @@
   display: block;
 }
 
-.template-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.template-type-tabs {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.template-type-tabs.compact {
-  padding-top: 0;
-}
-
-.template-type-tabs button {
-  flex: 0 0 auto;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 999px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  padding: 5px 9px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.template-type-tabs button.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-}
-
-.template-thumb-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  max-height: 300px;
-  overflow: auto;
-}
-
-.template-thumb {
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  padding: 8px;
-  text-align: left;
-}
-
-.template-thumb:hover,
-.template-thumb.active {
-  border-color: var(--derma-brand);
-  box-shadow: inset 0 0 0 1px var(--derma-brand);
-}
-
-.template-thumb.suggested:not(.active) {
-  border-color: #bae6fd;
-  background: #f0f9ff;
-}
-
-.thumb-image {
-  height: 92px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-bg-muted);
-  border-radius: 7px;
-  background: var(--derma-bg-faint);
-  overflow: hidden;
-}
-
-.thumb-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.thumb-copy strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--derma-text-strong);
-  font-size: 12px;
-}
-
-.thumb-copy small,
-.template-empty {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-}
-
-.thumb-copy em {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-top: 5px;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: var(--derma-info-bg-subtle);
-  color: #1d4ed8;
-  padding: 2px 6px;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.template-empty {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding: 14px 0;
-  text-align: center;
-}
-
-.template-picker-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-top: 1px solid var(--derma-border-faint);
-  padding-top: 8px;
-}
-
-.template-picker-footer small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  text-align: right;
-}
-
-.selected-region-panel {
-  display: grid;
-  gap: 3px;
-  border: 1px solid var(--derma-brand-light);
-  border-radius: 8px;
-  background: #f0fdfa;
-  padding: 10px 12px;
-}
-
-.selected-region-panel span {
-  color: var(--derma-brand);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.selected-region-panel strong {
-  color: var(--derma-text-strong);
-  font-size: 14px;
-}
-
 .derma-procedure-fields {
   display: grid;
   gap: 10px;
@@ -2668,52 +1593,6 @@
 .derma-procedure-fields header strong,
 .derma-procedure-fields header small {
   display: block;
-}
-
-.procedure-field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.procedure-field-grid label.wide {
-  grid-column: 1 / -1;
-}
-
-.procedure-field-grid label.missing select,
-.procedure-field-grid label.missing input,
-.procedure-field-grid label.missing textarea {
-  border-color: #f59e0b;
-  background: #fffaf0;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.08);
-}
-
-.procedure-field-grid em {
-  color: var(--derma-danger);
-  font-style: normal;
-}
-
-.procedure-field-grid input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-}
-
-.procedure-field-grid select,
-.procedure-field-grid input,
-.procedure-field-grid textarea {
-  width: 100%;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  padding: 8px 9px;
-  color: var(--derma-text-deep);
-  background: var(--derma-white);
-  font-weight: 500;
-}
-
-.procedure-field-empty {
-  color: var(--derma-text-muted);
-  font-size: 12px;
 }
 
 .derma-readiness-panel,
@@ -2772,33 +1651,6 @@
   display: block;
 }
 
-.command-state-grid,
-.totals-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.totals-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.command-state-grid span,
-.totals-grid span {
-  min-width: 0;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 9px;
-}
-
-.command-state-grid b,
-.command-state-grid small,
-.totals-grid b,
-.totals-grid small {
-  display: block;
-}
-
 .derma-active-procedure-panel dl {
   display: grid;
   gap: 8px;
@@ -2825,305 +1677,6 @@
   margin: 0;
   color: var(--derma-text-strong);
   font-weight: 700;
-}
-
-.procedure-workspace-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.command-state-grid b,
-.totals-grid b {
-  color: var(--derma-text-strong);
-  font-size: 17px;
-  line-height: 1.1;
-}
-
-.command-state-grid small,
-.totals-grid small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  margin-top: 4px;
-}
-
-.mark-list {
-  display: grid;
-  gap: 7px;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.mark-list-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.mark-row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 18px 10px minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 7px;
-  background: var(--derma-bg-subtle);
-  padding: 8px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mark-row.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.mark-row.selected {
-  box-shadow: inset 0 0 0 1px var(--derma-brand);
-}
-
-.mark-row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-}
-
-.mark-swatch {
-  width: 10px;
-  height: 32px;
-  border-radius: 999px;
-}
-
-.mark-row b,
-.mark-row small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mark-row b {
-  color: var(--derma-text-deep);
-  font-size: 12px;
-}
-
-.mark-row small,
-.mark-row em {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.readiness-list {
-  display: grid;
-  gap: 7px;
-}
-
-.readiness-item {
-  display: grid;
-  gap: 2px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 7px;
-  padding: 7px 8px;
-  background: var(--derma-bg-subtle);
-  text-align: left;
-  cursor: pointer;
-}
-
-.readiness-item b {
-  color: var(--derma-text-deep);
-  font-size: 12px;
-}
-
-.readiness-item small {
-  color: var(--derma-text-muted);
-}
-
-.readiness-item em {
-  justify-self: start;
-  margin-top: 3px;
-  color: var(--derma-brand);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.readiness-item.ready {
-  border-color: var(--derma-success-bg-alt);
-  background: #f0fdf4;
-}
-
-.readiness-item.warning {
-  border-color: var(--derma-warning-bg);
-  background: var(--derma-warning-bg-subtle);
-}
-
-.mark-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.mark-detail-grid span {
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 9px;
-}
-
-.mark-detail-grid b,
-.mark-detail-grid small {
-  display: block;
-}
-
-.mark-detail-grid b {
-  color: var(--derma-text-strong);
-  font-size: 17px;
-  line-height: 1.1;
-}
-
-.mark-detail-grid small {
-  color: var(--derma-text-muted);
-  margin-top: 4px;
-}
-
-.mark-detail-list {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-}
-
-.mark-detail-list div {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.mark-detail-list dt {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.mark-detail-list dd {
-  margin: 0;
-  color: var(--derma-text-deep);
-  font-size: 12px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mark-status-select {
-  width: 100%;
-  min-height: 30px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  background: var(--derma-white);
-  color: var(--derma-text-deep);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.history-mark-list {
-  display: grid;
-  gap: 7px;
-  max-height: 170px;
-  overflow: auto;
-}
-
-.history-mark-row {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 8px;
-}
-
-.history-mark-row input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-}
-
-.history-mark-row b,
-.history-mark-row small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-mark-row b {
-  color: var(--derma-text-secondary);
-  font-size: 12px;
-}
-
-.history-mark-row small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-}
-
-.photo-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.photo-set-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  max-height: 210px;
-  overflow: auto;
-}
-
-.photo-set-strip button {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  padding: 7px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.photo-set-strip button.active {
-  border-color: var(--derma-brand);
-  box-shadow: inset 0 0 0 1px var(--derma-brand);
-}
-
-.photo-set-strip img {
-  width: 100%;
-  height: 74px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, var(--derma-bg-muted), var(--derma-white));
-  object-fit: cover;
-}
-
-.photo-set-strip b,
-.photo-set-strip small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.photo-set-strip b {
-  color: var(--derma-text-strong);
-  font-size: 12px;
-}
-
-.photo-set-strip small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
 }
 
 .derma-artifacts-panel .ghost {
@@ -3153,13 +1706,6 @@
   color: var(--derma-text-muted);
   font-size: 12px;
   margin-top: 2px;
-}
-
-.derma-encounter-summary-panel .summary-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .derma-encounter-summary-panel pre {
@@ -3295,8 +1841,7 @@
   padding: 12px;
 }
 
-.timeline-detail-actions,
-.compare-actions {
+.timeline-detail-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -3653,19 +2198,6 @@
   }
 }
 
-.workspace-tab {
-  border-bottom-left-radius: 0 !important;
-  border-bottom-right-radius: 0 !important;
-  border-color: transparent !important;
-}
-
-.workspace-tab.active {
-  background: var(--derma-white);
-  color: var(--derma-brand);
-  border-color: var(--derma-border) !important;
-  border-bottom-color: var(--derma-white) !important;
-}
-
 .workspace-content {
   min-height: 280px;
   padding: 0;
@@ -3707,29 +2239,20 @@
   overflow-x: auto;
 }
 
-.editable-table-wrapper {
-  max-height: 420px;
-  overflow: auto;
-}
-
-.procedure-table,
-.editable-table {
+.procedure-table {
   width: 100%;
   border-collapse: collapse;
 }
 
 .procedure-table th,
-.procedure-table td,
-.editable-table th,
-.editable-table td {
+.procedure-table td {
   padding: 10px 12px;
   border-bottom: 1px solid var(--derma-bg-muted);
   text-align: left;
   vertical-align: top;
 }
 
-.procedure-table th,
-.editable-table th {
+.procedure-table th {
   color: var(--derma-text-secondary-alt);
   background: var(--derma-bg-subtle);
   font-size: 12px;
@@ -3765,53 +2288,11 @@
   border-bottom: 1px solid var(--derma-bg-muted);
 }
 
-.assessment-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  padding: 14px;
-}
-
-.assessment-grid h4 {
-  grid-column: 1 / -1;
-  margin: 8px 0 0;
-  color: var(--derma-text-deepest);
-}
-
 .table-field {
   grid-column: 1 / -1;
 }
 
-.annotation-history-table {
-  padding: 12px 14px;
-  display: grid;
-  gap: 8px;
-}
-
-.annotation-history-table h4 {
-  margin: 0;
-}
-
-.annotation-history-table button {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--derma-border);
-  border-radius: 7px;
-  background: var(--derma-white);
-  padding: 9px 10px;
-  text-align: left;
-}
-
-.consent-create-row {
-  padding: 14px;
-  border-bottom: 1px solid var(--derma-bg-muted);
-}
-
 @media (max-width: 1100px) {
-
-  .dental-chart-page .topbar-main,
-  .dental-chart-page .odontogram-shell {
-    grid-template-columns: 1fr;
-  }
 
   .derma-excalidraw-canvas,
   .derma-excalidraw-host,
@@ -3819,55 +2300,9 @@
     min-height: 520px;
   }
 
-  .compact-chart-workspace .derma-excalidraw-canvas,
-  .compact-chart-workspace .derma-excalidraw-host,
-  .compact-chart-workspace .embedded-excalidraw {
-    height: 360px;
-    min-height: 300px;
-    max-height: 380px;
-  }
-
   .derma-excalidraw-host {
     border-right: 0;
   }
-
-  .procedure-arm-panel {
-    border-left: 0;
-    border-top: 1px solid var(--derma-border);
-  }
-
-  .procedure-arm-body {
-    max-height: none;
-  }
-}
-
-.active-procedure-summary dl {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-}
-
-.active-procedure-summary dl div {
-  display: grid;
-  gap: 3px;
-  padding: 9px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-}
-
-.active-procedure-summary dt {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.active-procedure-summary dd {
-  margin: 0;
-  color: var(--derma-text-strong);
-  font-weight: 800;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1400px) {
@@ -3875,14 +2310,11 @@
     grid-template-columns: minmax(0, 1fr) minmax(260px, 330px);
   }
 
-  .clinical-notes-grid,
-  .procedure-work-grid {
+  .clinical-notes-grid {
     grid-template-columns: minmax(320px, 0.95fr) minmax(380px, 1.05fr);
   }
 
-  .derma-mode-grid,
-  .encounter-workspace-grid,
-  .encounter-support-grid {
+  .derma-mode-grid {
     grid-template-columns: minmax(460px, 1fr) minmax(260px, 330px);
   }
 
@@ -3903,11 +2335,8 @@
 
   .derma-console-grid,
   .clinical-notes-grid,
-  .procedure-work-grid,
   .derma-mode-grid,
-  .derma-notes-grid,
-  .encounter-workspace-grid,
-  .encounter-support-grid {
+  .derma-notes-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3933,13 +2362,10 @@
 
   .derma-console-grid,
   .clinical-notes-grid,
-  .procedure-work-grid,
   .derma-console-side,
   .derma-encounter-grid,
   .derma-mode-grid,
   .derma-notes-grid,
-  .encounter-workspace-grid,
-  .encounter-support-grid,
   .derma-right-workspace {
     grid-template-columns: 1fr;
   }
@@ -3956,31 +2382,13 @@
     font-size: 22px;
   }
 
-  .start-metrics {
-    grid-template-columns: 1fr;
-  }
-
   .derma-main-workspace {
     min-height: auto;
   }
 
-  .derma-main-workspace .native-chart-frame,
   .derma-main-workspace .derma-excalidraw-canvas {
     height: 360px;
     min-height: 320px;
-  }
-
-  .photo-mode-compare {
-    grid-template-columns: 1fr;
-  }
-
-  .workspace-header-actions {
-    justify-content: flex-start;
-  }
-
-  .quick-action-grid,
-  .procedure-field-grid {
-    grid-template-columns: 1fr;
   }
 
 }
@@ -3997,24 +2405,9 @@
   }
 }
 
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-canvas,
-.derma-main-workspace.compact-chart-workspace.expanded .embedded-excalidraw,
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-host {
-  height: calc(100vh - 160px) !important;
-  min-height: 560px !important;
-  max-height: none !important;
-}
-
 @media (max-width: 900px) {
   .derma-main-workspace.expanded {
     inset: 10px;
-  }
-
-  .derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-canvas,
-  .derma-main-workspace.compact-chart-workspace.expanded .embedded-excalidraw,
-  .derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-host {
-    height: calc(100vh - 120px) !important;
-    min-height: 420px !important;
   }
 }
 
@@ -4031,7 +2424,6 @@
 
 .derma-console-side,
 .derma-quick-panel,
-.procedure-chart-stack,
 .review-section-stack {
   gap: 10px;
 }
@@ -4044,57 +2436,26 @@
   max-width: none;
 }
 
-.procedure-work-grid {
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 10px;
-  margin-top: 10px;
-}
-
 .section-panel > header,
 .derma-workspace-header,
 .derma-quick-panel > section > header,
-.chart-annotation-history > header,
-.encounter-snapshot-panel > header {
+.chart-annotation-history > header {
   padding: 10px 12px;
 }
 
 .section-panel > header strong,
 .derma-workspace-header strong,
-.chart-annotation-history > header strong,
-.encounter-snapshot-panel > header strong {
+.chart-annotation-history > header strong {
   font-size: 14px;
 }
 
 .section-panel > header small,
 .derma-workspace-header small,
-.chart-annotation-history > header small,
-.encounter-snapshot-panel > header small {
+.chart-annotation-history > header small {
   font-size: 11px;
 }
 
-.quick-action-grid {
-  gap: 7px;
-  padding: 10px 12px;
-}
-
-.quick-action-grid button {
-  min-height: 40px;
-  font-size: 13px;
-}
-
-.smart-alert-list {
-  gap: 7px;
-  padding: 10px 12px;
-}
-
-.smart-alert-list button {
-  padding: 8px 9px;
-}
-
-.derma-main-workspace .derma-excalidraw-canvas,
-.compact-chart-workspace .derma-excalidraw-canvas,
-.compact-chart-workspace .embedded-excalidraw,
-.compact-chart-workspace .derma-excalidraw-host {
+.derma-main-workspace .derma-excalidraw-canvas {
   height: min(430px, 50vh);
   min-height: 360px;
   max-height: 460px;
@@ -4105,48 +2466,12 @@
   padding: 7px 11px;
 }
 
-.chart-expand-button {
-  top: 58px;
-  right: 10px;
-  width: 32px;
-  height: 32px;
-  font-size: 17px;
-}
-
-.excalidraw-region-nav {
-  inset: 58px 58px 46px;
-  z-index: 4;
-}
-
-.excalidraw-region-nav button {
-  min-height: 26px;
-  padding: 3px 7px 3px 3px;
-  font-size: 11px;
-}
-
-.excalidraw-region-nav button span {
-  width: 19px;
-  height: 19px;
-  font-size: 14px;
-}
-
 .chart-annotation-list {
   padding: 9px 10px 10px;
 }
 
 .derma-console-grid.no-side {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.derma-console-grid.no-side .procedure-work-grid {
-  grid-template-columns: minmax(280px, 360px) minmax(560px, 1fr);
-}
-
-@media (max-width: 1180px) {
-  .derma-console-grid.no-side .procedure-work-grid,
-  .procedure-work-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .derma-annotation-modal {
