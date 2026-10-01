@@ -617,6 +617,25 @@ class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(chart["patient_id"], patient)
 		self.assertIsInstance(chart["procedures"], list)
 
+	def test_chart_carries_the_clinical_profile(self):
+		patient = self._make_patient()
+
+		chart = api.get_patient_derma_chart(patient_id=patient)
+
+		self.assertEqual(chart["clinical_profile"]["allergy_status"], "not_recorded")
+		self.assertEqual(chart["clinical_profile"]["medications"], [])
+
+	def test_a_broken_clinical_profile_degrades_to_none(self):
+		patient = self._make_patient()
+		secret = "SELECT custom_allergies_table FROM tabPatient"
+
+		with patch.object(api, "get_clinical_profile", side_effect=ValueError(secret)):
+			chart = api.get_patient_derma_chart(patient_id=patient)
+
+		self.assertIsNone(chart["clinical_profile"])
+		self.assertEqual(chart["context_errors"], ["clinical profile"])
+		self.assertNotIn(secret, json.dumps(chart, default=str))
+
 
 class TestVisitContextPatientMismatch(DermaTestHelpers, IntegrationTestCase):
 	"""A patient argument that names someone else's encounter or appointment must be

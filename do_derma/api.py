@@ -7,6 +7,7 @@ from typing import Any
 
 import frappe
 from do_health.api.appointment_methods import create_encounter_for_appointment
+from do_health.api.clinical_profile import get_clinical_profile
 from frappe import _
 from frappe.utils import cint, cstr, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
@@ -2561,6 +2562,11 @@ def get_patient_derma_chart(
 			lambda: _get_previous_marks(patient, current_encounter=encounter_id),
 		),
 		"categories": section("categories", [], _get_categories),
+		"clinical_profile": section(
+			"clinical profile",
+			None,
+			lambda: get_clinical_profile(frappe.get_doc("Patient", patient)) if patient else None,
+		),
 		"timeline": section(
 			"patient timeline",
 			[],
