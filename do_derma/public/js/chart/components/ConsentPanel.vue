@@ -674,9 +674,9 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
 
 <style scoped>
 .workspace-panel {
-  border: 1px solid #d9e2ef;
+  border: 1px solid var(--chart-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--chart-surface);
   padding: 14px;
 }
 
@@ -691,7 +691,7 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
 .panel-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #111827;
+  color: var(--chart-text);
 }
 
 .actions {
@@ -700,45 +700,23 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
   align-items: center;
 }
 
-button {
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  min-height: 30px;
-  padding: 6px 11px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
 
-button.ghost {
-  background: #ffffff;
-  color: #334155;
-}
 
-button.primary {
-  border-color: #0f766e;
-  background: #0f766e;
-  color: #fff;
-}
 
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
 
 .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
   font-size: 12px;
   margin: 0 0 8px;
 }
 
 .empty-state {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 8px;
   padding: 12px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .consent-workspace,
@@ -753,9 +731,9 @@ button:disabled {
   align-items: end;
   padding: 10px 12px 2px;
   margin-bottom: 12px;
-  border: 1px solid #e5edf5;
+  border: 1px solid var(--chart-surface-muted);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .document-grid {
@@ -770,20 +748,20 @@ button:disabled {
 }
 
 .field-host:deep(.control-label) {
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 11px;
   font-weight: 800;
 }
 
 .field-host:deep(.form-control),
 .field-host:deep(.input-with-feedback) {
-  border-color: #cfd8e3;
+  border-color: var(--chart-border-strong);
   border-radius: 7px;
 }
 
 .preview-column h4 {
   margin: 0 0 8px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -791,22 +769,22 @@ button:disabled {
 }
 
 .preview-box {
-  border: 1px solid #dbe3ee;
+  border: 1px solid var(--chart-border);
   border-radius: 8px;
   padding: 14px;
   min-height: 120px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   margin-bottom: 14px;
   max-height: min(72vh, 820px);
   overflow: auto;
 }
 
 .preview-box.editable {
-  background: linear-gradient(180deg, #f8fafc 0, #eef6f6 100%);
+  background: linear-gradient(180deg, var(--chart-surface-muted) 0, var(--chart-surface-muted) 100%);
 }
 
 .preview-box.text-muted {
-  color: #64748b;
+  color: var(--chart-muted);
 }
 
 .preview-box:deep(.page) {
@@ -823,7 +801,7 @@ button:disabled {
 }
 
 .preview-box:deep(.consent-inline-field[contenteditable="true"]:focus) {
-  background: #fff;
+  background: var(--chart-surface);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18);
 }
 
@@ -835,7 +813,7 @@ button:disabled {
   justify-content: stretch;
   min-width: 190px;
   min-height: 64px;
-  background: #fff;
+  background: var(--chart-surface);
   cursor: crosshair;
 }
 
@@ -860,10 +838,10 @@ button:disabled {
   right: 4px;
   min-height: 22px;
   padding: 2px 7px;
-  border-color: #cbd5e1;
+  border-color: var(--chart-border-strong);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.92);
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 10px;
 }
 
@@ -875,7 +853,7 @@ button:disabled {
 }
 
 .consent-signature-block .label {
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 11px;
   font-weight: 800;
 }
@@ -883,7 +861,7 @@ button:disabled {
 .consent-signature-block:deep(.consent-inline-signature) {
   width: 260px;
   height: 90px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 6px;
 }
 
@@ -894,7 +872,7 @@ button:disabled {
   align-items: center;
   margin-bottom: 12px;
   font-size: 13px;
-  color: #0f172a;
+  color: var(--chart-text);
 }
 
 .waiver-toggle,
@@ -928,7 +906,7 @@ button:disabled {
 
 .procedure-checklist legend {
   margin-bottom: 4px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 11px;
   font-weight: 800;
 }
@@ -939,13 +917,13 @@ button:disabled {
   column-gap: 8px;
   align-items: baseline;
   font-size: 13px;
-  color: #0f172a;
+  color: var(--chart-text);
 }
 
 .procedure-option .meta {
   grid-column: 2;
   font-size: 12px;
-  color: #64748b;
+  color: var(--chart-muted);
 }
 
 @media (max-width: 1024px) {
