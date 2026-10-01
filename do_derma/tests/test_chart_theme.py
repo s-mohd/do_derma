@@ -68,10 +68,8 @@ class TestChartTokens(TestCase):
 CHART_DIR = CHART_CSS.parent
 STYLE_BLOCK = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
 HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-# Files still carrying hex colours in <style>; each panel task deletes its entry.
-HEX_ALLOWED = {
-	"components/ProcedurePanel.vue",
-}
+# Component styles read --chart-* tokens; hex is not allowed.
+HEX_ALLOWED: set[str] = set()
 
 
 class TestChartAccent(TestCase):

@@ -46,43 +46,45 @@
             <option v-for="size in ROW_BATCH_OPTIONS" :key="size" :value="size">{{ size }}</option>
           </select>
         </label>
-        <button
-          type="button"
-          class="ghost small"
-          data-test="procedure-copy-marks"
-          :disabled="readOnly || !previousMarkCount"
-          :title="previousMarkCount ? '' : __('This patient has no marks on an earlier visit.')"
-          @click="emit('copy-marks')"
-        >
-          {{ __("Copy marks from last visit") }}
-        </button>
-        <button
-          type="button"
-          class="primary small consent-action"
-          data-test="procedure-new-consent"
-          :disabled="readOnly || !totalCount"
-          @click="emit('new-consent')"
-        >
-          {{ __("New Consent") }}
-        </button>
-        <button
-          type="button"
-          class="primary small"
-          data-test="procedure-new"
-          :disabled="readOnly"
-          @click="emit('new-procedure')"
-        >
-          {{ __("New Procedure") }}
-        </button>
-        <span v-if="readOnly" class="badge read-only-badge">{{ __("Read only") }}</span>
-        <span v-if="anesthesiaRecorded" class="badge anesthesia-badge">{{ __("Anesthesia recorded") }}</span>
+        <Teleport defer to="#chart-section-actions">
+          <button
+            type="button"
+            class="ghost small"
+            data-test="procedure-copy-marks"
+            :disabled="readOnly || !previousMarkCount"
+            :title="previousMarkCount ? '' : __('This patient has no marks on an earlier visit.')"
+            @click="emit('copy-marks')"
+          >
+            {{ __("Copy marks from last visit") }}
+          </button>
+          <button
+            type="button"
+            class="ghost small"
+            data-test="procedure-new-consent"
+            :disabled="readOnly || !totalCount"
+            @click="emit('new-consent')"
+          >
+            {{ __("New Consent") }}
+          </button>
+          <button
+            type="button"
+            class="primary small"
+            data-test="procedure-new"
+            :disabled="readOnly"
+            @click="emit('new-procedure')"
+          >
+            {{ __("New Procedure") }}
+          </button>
+        </Teleport>
+        <span v-if="readOnly" class="badge read-only-badge chart-pill" data-tone="neutral">{{ __("Read only") }}</span>
+        <span v-if="anesthesiaRecorded" class="badge anesthesia-badge chart-pill" data-tone="caution">{{ __("Anesthesia recorded") }}</span>
       </div>
     </div>
 
     <div class="status-filter-row">
       <button
-        class="status-chip"
-        :class="{ active: activeStatus === 'all' }"
+        class="chart-pill"
+        :aria-pressed="activeStatus === 'all' ? 'true' : 'false'"
         type="button"
         @click="setFilter('all')"
       >
@@ -91,8 +93,8 @@
       <button
         v-for="pill in statusPills"
         :key="pill.key"
-        class="status-chip"
-        :class="{ active: activeStatus === pill.key }"
+        class="chart-pill"
+        :aria-pressed="activeStatus === pill.key ? 'true' : 'false'"
         type="button"
         @click="setFilter(pill.key)"
       >
@@ -216,7 +218,7 @@
             <template v-for="row in group.items" :key="row.name">
             <tr @dblclick="handleRowDoubleClick(row, $event)">
               <td>
-                <span class="pill" :class="statusClass(row.status)">
+                <span class="chart-pill" :data-tone="statusTone(row.status)">
                   {{ row.status || "Draft" }}
                 </span>
                 <button
@@ -593,14 +595,7 @@ const rowBatchSize = ref(50)
 const loadedRowsCount = ref(rowBatchSize.value)
 const tableWrapperEl = ref(null)
 
-const STATUS_COLORS = {
-  draft: "pill-draft",
-  pending: "pill-pending",
-  in_progress: "pill-in-progress",
-  submitted: "pill-submitted",
-  completed: "pill-completed",
-  cancelled: "pill-cancelled",
-}
+const STATUS_TONES = { Draft: "neutral", "In Progress": "caution", Completed: "ok", Cancelled: "danger" }
 
 function buildGroupView(group, items = []) {
   const hasLabCaseColumn = items.some((row) => !!row.lab_case_name || !!row.lab_case_recommended)
@@ -1795,9 +1790,8 @@ function resetPrice(row) {
   saveRow(row)
 }
 
-function statusClass(status) {
-  const key = (status || "draft").toString().toLowerCase()
-  return STATUS_COLORS[key] || STATUS_COLORS.draft
+function statusTone(status) {
+  return STATUS_TONES[status] || "neutral"
 }
 
 function labCaseStatusClass(status) {
@@ -1914,24 +1908,6 @@ function handleRowDoubleClick(row, event) {
   margin-bottom: 10px;
 }
 
-.dental-chart-page .status-chip {
-  border: 1px solid #dbe4f0;
-  background: #f8fafc;
-  color: #475569;
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.dental-chart-page .status-chip.active {
-  background: #eef4ff;
-  border-color: #93c5fd;
-  color: #1d4ed8;
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.08);
-}
-
 .dental-chart-page .proc-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1939,8 +1915,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .proc-tabs button {
-  border: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border: 1px solid var(--chart-border);
+  background: var(--chart-surface);
   border-radius: 8px;
   padding: 6px 10px;
   font-weight: 600;
@@ -1948,9 +1924,9 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .proc-tabs button.active {
-  background: #e0e7ff;
-  border-color: #c7d2fe;
-  color: #1d4ed8;
+  background: var(--chart-info-soft);
+  border-color: var(--chart-border-strong);
+  color: var(--chart-info-text);
 }
 
 .dental-chart-page .panel-actions {
@@ -1964,52 +1940,22 @@ function handleRowDoubleClick(row, event) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #475467;
+  color: var(--chart-muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .dental-chart-page .panel-actions .history-load-selector select {
-  border: 1px solid #d1d5db;
-  background: #fff;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface);
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 12px;
 }
 
-.dental-chart-page .panel-actions .badge.anesthesia-badge {
-  background: #e0f2fe;
-  color: #0369a1;
-  border-radius: 10px;
-  padding: 6px 10px;
-  font-weight: 700;
-  font-size: 12px;
-}
-.dental-chart-page .panel-actions .badge.read-only-badge {
-  background: #eff6ff;
-  color: #1e3a8a;
-  border-radius: 10px;
-  padding: 6px 10px;
-  font-weight: 700;
-  font-size: 12px;
-}
-
-.dental-chart-page .panel-actions .ghost {
-  border: 1px solid #d1d5db;
-  background: #f8fafc;
-  border-radius: 10px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
-.dental-chart-page .panel-actions .primary.consent-action {
-  border-color: var(--derma-info);
-  background: var(--derma-info);
-}
-
 .dental-chart-page .panel-actions .session-badge {
-  background: #e0f2fe;
-  color: #0369a1;
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
   border-radius: 12px;
   padding: 6px 10px;
   font-weight: 700;
@@ -2022,15 +1968,15 @@ function handleRowDoubleClick(row, event) {
   align-items: end;
   margin-bottom: 12px;
   padding: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--chart-border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .dental-chart-page .history-search,
 .dental-chart-page .history-filter-control {
-  border: 1px solid #dbe4f0;
-  background: #fff;
+  border: 1px solid var(--chart-border);
+  background: var(--chart-surface);
   border-radius: 8px;
   min-height: 40px;
 }
@@ -2044,7 +1990,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .history-search i {
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 12px;
 }
 
@@ -2065,7 +2011,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .history-filter-control span {
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
@@ -2078,7 +2024,7 @@ function handleRowDoubleClick(row, event) {
   border: 0;
   outline: none;
   background: transparent;
-  color: #0f172a;
+  color: var(--chart-text);
   font-size: 12px;
   font-weight: 700;
   padding: 0;
@@ -2094,9 +2040,9 @@ function handleRowDoubleClick(row, event) {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  color: #334155;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface);
+  color: var(--chart-text-soft);
   border-radius: 8px;
   padding: 0 12px;
   font-size: 12px;
@@ -2105,9 +2051,9 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .filter-toggle-btn.active {
-  border-color: #93c5fd;
-  color: #1d4ed8;
-  background: #eff6ff;
+  border-color: var(--chart-border-strong);
+  color: var(--chart-info-text);
+  background: var(--chart-info-soft);
 }
 
 .dental-chart-page .filter-toggle-btn strong {
@@ -2117,16 +2063,16 @@ function handleRowDoubleClick(row, event) {
   min-width: 18px;
   height: 18px;
   border-radius: 999px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--chart-blue);
+  color: white;
   font-size: 11px;
   line-height: 1;
 }
 
 .dental-chart-page .clear-filters-btn {
   min-height: 40px;
-  border: 1px solid #d1d5db;
-  background: #f8fafc;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface-muted);
   border-radius: 8px;
   padding: 0 12px;
   font-size: 12px;
@@ -2142,8 +2088,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .summary-tile {
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid var(--chart-border);
+  background: var(--chart-surface-muted);
   border-radius: 8px;
   padding: 8px 10px;
   display: flex;
@@ -2154,7 +2100,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .summary-tile span {
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 11px;
   font-weight: 800;
   min-width: 0;
@@ -2164,22 +2110,22 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .summary-tile strong {
-  color: #0f172a;
+  color: var(--chart-text);
   font-size: 16px;
   line-height: 1;
 }
 
 .dental-chart-page .summary-tile.attention {
-  background: #fff7ed;
-  border-color: #fed7aa;
+  background: var(--chart-caution-soft);
+  border-color: var(--chart-caution-border);
 }
 
 .dental-chart-page .summary-tile.attention strong {
-  color: #c2410c;
+  color: var(--chart-caution-text);
 }
 
 .dental-chart-page .procedure-table-wrapper {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 12px;
   overflow: auto;
   max-height: 62vh;
@@ -2191,19 +2137,19 @@ function handleRowDoubleClick(row, event) {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
-  border-top: 1px solid #e5e7eb;
-  background: #f8fafc;
+  border-top: 1px solid var(--chart-border);
+  background: var(--chart-surface-muted);
 }
 
 .dental-chart-page .procedure-load-more-row .text-muted {
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 12px;
   font-weight: 600;
 }
 
 .dental-chart-page .procedure-load-more-row .ghost.small {
-  border: 1px solid #d1d5db;
-  background: #fff;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface);
   border-radius: 8px;
   padding: 4px 10px;
   font-size: 12px;
@@ -2253,10 +2199,10 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table th {
-  background: #f9fafb;
+  background: var(--chart-surface);
   font-weight: 700;
   padding: 10px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--chart-border);
   text-align: left;
   font-size: 13px;
   position: sticky;
@@ -2266,13 +2212,13 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .price-list-meta {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--chart-muted);
   margin-top: 4px;
 }
 
 .dental-chart-page .procedure-table .price-meta {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--chart-muted);
   margin-top: 4px;
 }
 
@@ -2284,8 +2230,8 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .price-source {
   font-size: 11px;
-  color: #2563eb;
-  background: #e0e7ff;
+  color: var(--chart-blue);
+  background: var(--chart-info-soft);
   padding: 2px 6px;
   border-radius: 999px;
   width: fit-content;
@@ -2299,7 +2245,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .tooth-cell {
-  color: #475569;
+  color: var(--chart-text-soft);
   font-weight: 700;
 }
 
@@ -2317,9 +2263,9 @@ function handleRowDoubleClick(row, event) {
   gap: 5px;
   max-width: 100%;
   min-height: 24px;
-  border: 1px solid #dbe4f0;
-  background: #f8fafc;
-  color: #334155;
+  border: 1px solid var(--chart-border);
+  background: var(--chart-surface-muted);
+  color: var(--chart-text-soft);
   border-radius: 999px;
   padding: 3px 8px;
   font-size: 11px;
@@ -2336,13 +2282,13 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .detail-chip i {
   flex: 0 0 auto;
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 10px;
 }
 
 .dental-chart-page .procedure-table .detail-chip.muted {
-  color: #64748b;
-  background: #f8fafc;
+  color: var(--chart-muted);
+  background: var(--chart-surface-muted);
 }
 
 .dental-chart-page .procedure-table .detail-chip-button {
@@ -2356,28 +2302,28 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .derma-detail-chip {
   max-width: 280px;
-  border-color: #99f6e4;
-  background: #f0fdfa;
-  color: #115e59;
+  border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-strong);
   cursor: pointer;
 }
 
 .dental-chart-page .procedure-table .derma-artifact-chip {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--chart-border-strong);
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
 }
 
 .dental-chart-page .procedure-table .lab-suggested {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #c2410c;
+  border-color: var(--chart-caution-border);
+  background: var(--chart-caution-soft);
+  color: var(--chart-caution-text);
 }
 
 .dental-chart-page .procedure-table .override-label {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: var(--chart-border-strong);
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
 }
 
 .dental-chart-page .procedure-table .note-cell {
@@ -2401,26 +2347,26 @@ function handleRowDoubleClick(row, event) {
   width: fit-content;
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #dbe4f0;
+  color: var(--chart-muted);
+  background: var(--chart-surface-muted);
+  border: 1px solid var(--chart-border);
   border-radius: 999px;
   padding: 3px 8px;
 }
 
 .dental-chart-page .procedure-table .note-presence-indicator i {
   font-size: 8px;
-  color: #94a3b8;
+  color: var(--chart-faint);
 }
 
 .dental-chart-page .procedure-table .note-presence-indicator.present {
-  color: #166534;
-  background: #ecfdf3;
-  border-color: #bbf7d0;
+  color: var(--chart-ok-text);
+  background: var(--chart-ok-soft);
+  border-color: var(--chart-ok-soft);
 }
 
 .dental-chart-page .procedure-table .note-presence-indicator.present i {
-  color: #16a34a;
+  color: var(--chart-ok);
 }
 
 .dental-chart-page .procedure-table .note-readonly-cell {
@@ -2446,13 +2392,13 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .surface-cell .clickable {
   cursor: pointer;
-  color: #2563eb;
+  color: var(--chart-blue);
   font-weight: 600;
 }
 
 .dental-chart-page .procedure-table .ghost.small {
-  border: 1px solid #d1d5db;
-  background: #f8fafc;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface-muted);
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 12px;
@@ -2460,9 +2406,9 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .ghost.small.danger {
-  border-color: #fecaca;
-  background: #fff1f2;
-  color: #b91c1c;
+  border-color: var(--chart-danger-border);
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
 .dental-chart-page .procedure-table td.row-actions {
@@ -2473,12 +2419,12 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .icon-btn {
   position: relative;
-  border: 1px solid #d1d5db;
-  background: #f8fafc;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface-muted);
   border-radius: 8px;
   padding: 5px 7px;
   font-size: 13px;
-  color: #334155;
+  color: var(--chart-text-soft);
   cursor: pointer;
 }
 
@@ -2487,14 +2433,14 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .icon-btn:hover {
-  border-color: #94a3b8;
-  background: #f1f5f9;
+  border-color: var(--chart-faint);
+  background: var(--chart-surface-muted);
 }
 
 .dental-chart-page .procedure-table .icon-btn.danger {
-  border-color: #fecaca;
-  background: #fff1f2;
-  color: #b91c1c;
+  border-color: var(--chart-danger-border);
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
 .dental-chart-page .procedure-table .icon-btn .icon-badge {
@@ -2505,8 +2451,8 @@ function handleRowDoubleClick(row, event) {
   height: 15px;
   padding: 0 3px;
   border-radius: 999px;
-  background: #087b75;
-  color: #ffffff;
+  background: var(--chart-accent-strong);
+  color: white;
   font-size: 10px;
   font-weight: 800;
   line-height: 15px;
@@ -2515,15 +2461,15 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table td {
   padding: 10px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--chart-surface-muted);
   font-size: 13px;
 }
 
 .dental-chart-page .procedure-table .procedure-code {
   font-size: 11px;
   font-weight: 700;
-  color: #1f2937;
-  background: #e5e7eb;
+  color: var(--chart-text);
+  background: var(--chart-border);
   padding: 2px 6px;
   border-radius: 999px;
   margin-right: 6px;
@@ -2536,7 +2482,7 @@ function handleRowDoubleClick(row, event) {
   background: transparent;
   padding: 0;
   margin: 0;
-  color: #0f172a;
+  color: var(--chart-text);
   text-decoration: none;
   cursor: pointer;
   font: inherit;
@@ -2547,66 +2493,55 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .procedure-open-link:hover {
-  color: #1d4ed8;
-  border-bottom-color: #bfdbfe;
+  color: var(--chart-info-text);
+  border-bottom-color: var(--chart-border-strong);
 }
 
 .dental-chart-page .procedure-table .procedure-open-link:focus-visible {
   outline: none;
-  color: #1d4ed8;
-  border-bottom-color: #1d4ed8;
-}
-
-.dental-chart-page .procedure-table .pill {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 12px;
-  color: #111827;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  color: var(--chart-info-text);
+  border-bottom-color: var(--chart-info-text);
 }
 
 .dental-chart-page .procedure-table .pill-draft {
-  background: #e5e7eb;
-  color: #374151;
-  border-color: #d1d5db;
+  background: var(--chart-border);
+  color: var(--chart-text-soft);
+  border-color: var(--chart-border-strong);
 }
 
 .dental-chart-page .procedure-table .pill-pending {
-  background: #fef3c7;
-  color: #92400e;
-  border-color: #fcd34d;
+  background: var(--chart-caution-soft);
+  color: var(--chart-caution-text);
+  border-color: var(--chart-caution-border);
 }
 
 .dental-chart-page .procedure-table .pill-in-progress {
-  background: #dbeafe;
-  color: #1e40af;
-  border-color: #bfdbfe;
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
+  border-color: var(--chart-border-strong);
 }
 
 .dental-chart-page .procedure-table .pill-submitted {
-  background: #eef2ff;
-  color: #3730a3;
-  border-color: #c7d2fe;
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
+  border-color: var(--chart-border-strong);
 }
 
 .dental-chart-page .procedure-table .pill-completed {
-  background: #dcfce7;
-  color: #166534;
-  border-color: #bbf7d0;
+  background: var(--chart-ok-soft);
+  color: var(--chart-ok-text);
+  border-color: var(--chart-ok-soft);
 }
 
 .dental-chart-page .procedure-table .pill-cancelled {
-  background: #fee2e2;
-  color: #991b1b;
-  border-color: #fecaca;
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
+  border-color: var(--chart-danger-border);
 }
 
 .dental-chart-page .procedure-table .inline-input {
   width: 100%;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--chart-border-strong);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
@@ -2646,8 +2581,8 @@ function handleRowDoubleClick(row, event) {
   left: 0;
   min-width: 100%;
   width: 100%;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--chart-surface);
+  border: 1px solid var(--chart-border);
   border-radius: 8px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
   padding: 6px;
@@ -2667,12 +2602,12 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .override-option:hover {
-  background: #f1f5f9;
+  background: var(--chart-surface-muted);
 }
 
 .dental-chart-page .procedure-table .ghost.small {
-  border: 1px solid #d1d5db;
-  background: #f8fafc;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface-muted);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 12px;
@@ -2685,23 +2620,23 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .no-charge-btn {
   flex: 0 0 auto;
-  border-color: #bfdbfe;
-  color: #1d4ed8;
-  background: #eff6ff;
+  border-color: var(--chart-border-strong);
+  color: var(--chart-info-text);
+  background: var(--chart-info-soft);
 }
 
 .dental-chart-page .procedure-table .no-charge-btn.active,
 .dental-chart-page .procedure-table .no-charge-label {
-  border-color: #bbf7d0;
-  color: #166534;
-  background: #dcfce7;
+  border-color: var(--chart-ok-soft);
+  color: var(--chart-ok-text);
+  background: var(--chart-ok-soft);
   font-weight: 700;
 }
 
 .dental-chart-page .procedure-table .no-charge-label {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--chart-ok-soft);
   border-radius: 999px;
   padding: 6px;
   line-height: 1;
@@ -2710,10 +2645,10 @@ function handleRowDoubleClick(row, event) {
 .dental-chart-page .procedure-table .insurance-locked-label {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--chart-border-strong);
   border-radius: 999px;
-  color: #1d4ed8;
-  background: #eff6ff;
+  color: var(--chart-info-text);
+  background: var(--chart-info-soft);
   padding: 6px;
   line-height: 1;
   font-weight: 700;
@@ -2730,15 +2665,15 @@ function handleRowDoubleClick(row, event) {
 }
 
 .consent-badge.consented {
-  border: 1px solid #a7f3d0;
-  background: #ecfdf5;
-  color: #047857;
+  border: 1px solid var(--chart-ok-soft);
+  background: var(--chart-ok-soft);
+  color: var(--chart-ok-text);
 }
 
 .consent-badge.needed {
-  border: 1px solid #fcd34d;
-  background: #fffbeb;
-  color: #b45309;
+  border: 1px solid var(--chart-caution-border);
+  background: var(--chart-caution-soft);
+  color: var(--chart-caution-text);
 }
 
 .consent-badge:disabled {
@@ -2747,12 +2682,12 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-date-row td {
-  background: #f8fafc;
-  color: #334155;
+  background: var(--chart-surface-muted);
+  color: var(--chart-text-soft);
   padding: 12px 14px 8px;
   font-size: 16px;
   font-weight: 800;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--chart-border);
 }
 
 .dental-chart-page .procedure-empty {
@@ -2762,14 +2697,14 @@ function handleRowDoubleClick(row, event) {
   gap: 8px;
   padding: 22px 16px;
   text-align: center;
-  color: #6b7280;
-  border: 1px dashed #cbd5e1;
+  color: var(--chart-muted);
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .dental-chart-page .procedure-empty strong {
-  color: #0f172a;
+  color: var(--chart-text);
   font-size: 14px;
 }
 
@@ -2780,8 +2715,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-empty .ghost.small {
-  border: 1px solid #d1d5db;
-  background: #fff;
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 12px;
@@ -2798,8 +2733,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .invoice-btn {
-  background: #16a34a;
-  color: #fff;
+  background: var(--chart-accent-strong);
+  color: white;
   border: none;
   border-radius: 10px;
   padding: 10px 16px;
@@ -2810,19 +2745,19 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .invoice-btn.disabled,
 .dental-chart-page .invoice-btn:disabled {
-  background: #9ca3af;
+  background: var(--chart-faint);
   cursor: not-allowed;
   opacity: 0.7;
 }
 
 .dental-chart-page .invoice-btn.ghost {
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  color: #334155;
+  background: var(--chart-surface-muted);
+  border: 1px solid var(--chart-border-strong);
+  color: var(--chart-text-soft);
 }
 
 .dental-chart-page .invoice-btn.complete {
-  background: #2563eb;
+  background: var(--chart-blue);
 }
 
 :global(.procedure-note-dialog .modal-dialog) {
@@ -2831,19 +2766,19 @@ function handleRowDoubleClick(row, event) {
 }
 
 :global(.procedure-note-dialog .modal-content) {
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--chart-border);
   border-radius: 14px;
   overflow: hidden;
 }
 
 :global(.procedure-note-dialog .modal-header) {
-  background: linear-gradient(135deg, #f8fafc, #eef2ff);
-  border-bottom: 1px solid #dbe4f0;
+  background: linear-gradient(135deg, var(--chart-surface-muted), var(--chart-info-soft));
+  border-bottom: 1px solid var(--chart-border);
 }
 
 :global(.procedure-note-dialog .modal-footer) {
-  border-top: 1px solid #e2e8f0;
-  background: #fcfdff;
+  border-top: 1px solid var(--chart-border);
+  background: var(--chart-surface);
 }
 
 :global(.procedure-note-dialog .frappe-control[data-fieldname="note"] .ql-editor) {
@@ -2851,23 +2786,23 @@ function handleRowDoubleClick(row, event) {
 }
 
 :global(.procedure-note-dialog__template-preview) {
-  border: 1px solid #dbe4f0;
+  border: 1px solid var(--chart-border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   overflow: hidden;
 }
 
 :global(.procedure-note-dialog__template-preview-rendered) {
   padding: 10px 12px;
-  background: #fff;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--chart-surface);
+  border-bottom: 1px solid var(--chart-border);
   max-height: 180px;
   overflow: auto;
 }
 
 :global(.procedure-note-dialog__template-preview-plain) {
   padding: 10px 12px;
-  color: #64748b;
+  color: var(--chart-muted);
   font-size: 12px;
   line-height: 1.45;
   max-height: 100px;
@@ -2879,18 +2814,18 @@ function handleRowDoubleClick(row, event) {
   margin-top: 4px;
   margin-bottom: 8px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--chart-text);
   font-size: 13px;
   letter-spacing: 0.01em;
 }
 
 :global(.procedure-note-dialog__loading),
 :global(.procedure-note-dialog__empty) {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 12px;
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--chart-surface-muted);
+  color: var(--chart-muted);
   font-size: 12px;
 }
 
@@ -2903,29 +2838,29 @@ function handleRowDoubleClick(row, event) {
 }
 
 :global(.procedure-note-dialog__history-item) {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--chart-border);
   border-radius: 10px;
   padding: 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 :global(.procedure-note-dialog__history-title) {
   font-size: 12px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--chart-text);
   margin-bottom: 3px;
 }
 
 :global(.procedure-note-dialog__history-meta) {
   font-size: 11px;
-  color: #64748b;
+  color: var(--chart-muted);
   margin-bottom: 6px;
 }
 
 :global(.procedure-note-dialog__history-body) {
   font-size: 12px;
   line-height: 1.45;
-  color: #334155;
+  color: var(--chart-text-soft);
   white-space: pre-wrap;
 }
 
