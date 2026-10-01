@@ -1,36 +1,4 @@
-:root {
-  --derma-white: #ffffff;
-  --derma-text-muted: #64748b;
-  --derma-brand: #0f766e;
-  --derma-border: #dbe5ef;
-  --derma-text-strong: #0f172a;
-  --derma-bg-subtle: #f8fafc;
-  --derma-border-subtle: #e2e8f0;
-  --derma-success-bg: #ecfdf5;
-  --derma-bg-muted: #eef2f7;
-  --derma-text-secondary: #334155;
-  --derma-border-muted: #cfdce6;
-  --derma-text-deep: #172033;
-  --derma-warning-bg: #fed7aa;
-  --derma-info-bg: #bfdbfe;
-  --derma-brand-light: #99f6e4;
-  --derma-navy: #1f344d;
-  --derma-warning-bg-subtle: #fff7ed;
-  --derma-danger: #b42318;
-  --derma-text-secondary-alt: #475569;
-  --derma-bg-faint: #fbfdff;
-  --derma-info-bg-subtle: #eff6ff;
-  --derma-info: #2563eb;
-  --derma-danger-bg: #fecaca;
-  --derma-bg-faint-alt: #f8fbfc;
-  --derma-border-faint: #e5e7eb;
-  --derma-border-light: #d1dbe8;
-  --derma-success-bg-alt: #bbf7d0;
-  --derma-text-strong-alt: #1e293b;
-  --derma-text-deepest: #111827;
-}
-
-/* Patient Overview tokens (do_health --ov-*, light). test_chart_theme pins the values. */
+/* Patient Overview tokens (do_health --ov-*, light), the settings accent, and the old palette as aliases. */
 .dental-chart-page.derma-chart-page {
   --chart-bg: #f3f5f8;
   --chart-surface: #ffffff;
@@ -63,6 +31,40 @@
   --chart-rose: #e11d48;
   --chart-amber: #d97706;
   --chart-brand: #16a34a;
+
+  --chart-accent: var(--do-health-header-accent, #16a34a);
+  --chart-accent-strong: color-mix(in srgb, var(--chart-accent) 82%, black);
+  --chart-accent-soft: color-mix(in srgb, var(--chart-accent) 10%, white);
+
+  --derma-white: var(--chart-surface);
+  --derma-bg-faint: var(--chart-surface);
+  --derma-bg-faint-alt: var(--chart-surface);
+  --derma-bg-subtle: var(--chart-surface-muted);
+  --derma-bg-muted: var(--chart-surface-muted);
+  --derma-text-strong: var(--chart-text);
+  --derma-text-strong-alt: var(--chart-text);
+  --derma-text-deep: var(--chart-text);
+  --derma-text-deepest: var(--chart-text);
+  --derma-navy: var(--chart-text);
+  --derma-text-secondary: var(--chart-text-soft);
+  --derma-text-secondary-alt: var(--chart-text-soft);
+  --derma-text-muted: var(--chart-muted);
+  --derma-border-subtle: var(--chart-border);
+  --derma-border-faint: var(--chart-border);
+  --derma-border: var(--chart-border-strong);
+  --derma-border-muted: var(--chart-border-strong);
+  --derma-border-light: var(--chart-border-strong);
+  --derma-brand: var(--chart-accent-strong);
+  --derma-brand-light: var(--chart-accent-soft);
+  --derma-success-bg: var(--chart-ok-soft);
+  --derma-success-bg-alt: var(--chart-ok-soft);
+  --derma-warning-bg-subtle: var(--chart-caution-soft);
+  --derma-warning-bg: var(--chart-caution-soft);
+  --derma-danger: var(--chart-danger-text);
+  --derma-danger-bg: var(--chart-danger-soft);
+  --derma-info: var(--chart-blue);
+  --derma-info-bg-subtle: var(--chart-info-soft);
+  --derma-info-bg: var(--chart-info-soft);
 }
 
 /* The chart is light-only: pin Frappe's dark-mode variables to their v16 light values. */

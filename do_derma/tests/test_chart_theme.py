@@ -63,3 +63,70 @@ class TestChartTokens(TestCase):
 		css = CHART_CSS.read_text()
 		self.assertNotIn("--chart-", css.split(DARK_SCOPE, 1)[1].split("}", 1)[0])
 		self.assertNotRegex(css, r'\[data-theme="dark"\][^{]*\{[^}]*--chart-')
+
+
+CHART_DIR = CHART_CSS.parent
+STYLE_BLOCK = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
+HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+# Files still carrying hex colours in <style>; each panel task deletes its entry.
+HEX_ALLOWED = {
+	"components/AnesthesiaPanel.vue",
+	"components/ConsentPanel.vue",
+	"components/PrescriptionPanel.vue",
+	"components/ProcedurePanel.vue",
+	"components/assessment/AssessmentPanel.vue",
+	"components/assessment/SoapNoteFields.vue",
+	"components/assessment/StructuredAssessmentFields.vue",
+	"components/consumables/ConsumablesEditor.vue",
+	"components/shell/ChartHero.vue",
+}
+
+
+class TestChartAccent(TestCase):
+	"""The chart's accent follows Do Health Settings; the old palette points at the new one."""
+
+	def get_chart_tokens(self):
+		return get_token_block(CHART_CSS.read_text(), CHART_FIRST_TOKEN)
+
+	def test_accent_reads_the_settings_colour(self):
+		tokens = self.get_chart_tokens()
+		self.assertEqual(tokens["--chart-accent"].strip(), "var(--do-health-header-accent, #16a34a)")
+		self.assertIn("var(--chart-accent)", tokens["--chart-accent-strong"])
+		self.assertIn("var(--chart-accent)", tokens["--chart-accent-soft"])
+
+	def test_old_palette_is_aliased(self):
+		tokens = self.get_chart_tokens()
+		old = {name: value for name, value in tokens.items() if name.startswith("--derma-")}
+		self.assertEqual(len(old), 29)
+		for name, value in old.items():
+			self.assertRegex(value.strip(), r"^var\(--chart-[\w-]+\)$", name)
+		root = CHART_CSS.read_text().split(":root {", 1)
+		self.assertTrue(len(root) == 1 or "--derma-" not in root[1].split("}", 1)[0])
+
+
+class TestChartComponentColours(TestCase):
+	"""Component styles read tokens, not hex; the allowlist only shrinks."""
+
+	def get_files_with_hex(self):
+		found = set()
+		for path in CHART_DIR.rglob("*.vue"):
+			relative = path.relative_to(CHART_DIR).as_posix()
+			if relative.startswith("annotation/"):
+				continue
+			styles = "".join(STYLE_BLOCK.findall(path.read_text()))
+			if HEX_COLOUR.search(styles):
+				found.add(relative)
+		return found
+
+	def test_no_new_hex_colours(self):
+		self.assertEqual(self.get_files_with_hex() - HEX_ALLOWED, set())
+
+	def test_allowlist_has_no_cleaned_files(self):
+		self.assertEqual(HEX_ALLOWED - self.get_files_with_hex(), set())
+
+	def test_teleports_target_the_section_card(self):
+		self.assertIn('id="chart-section-actions"', (CHART_DIR / "components/shell/SectionCard.vue").read_text())
+		for path in CHART_DIR.rglob("*.vue"):
+			for tag in re.findall(r"<Teleport[^>]*>", path.read_text()):
+				self.assertIn('to="#chart-section-actions"', tag, path.name)
+				self.assertIn("defer", tag, path.name)
