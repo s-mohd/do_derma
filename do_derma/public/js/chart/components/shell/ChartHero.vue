@@ -42,40 +42,43 @@
       </div>
 
       <aside class="chart-hero-visit">
-        <div class="chart-hero-visit-top">
-          <span class="chart-hero-label">{{ __("This visit") }}</span>
-          <span v-if="statusLabel" class="chart-hero-status" :data-tone="isCompleted ? 'ok' : 'caution'" data-test="hero-visit-status">
-            {{ statusLabel }}
-          </span>
+        <div class="chart-hero-visit-details">
+          <div class="chart-hero-visit-top">
+            <span class="chart-hero-label">{{ __("This visit") }}</span>
+            <span v-if="statusLabel" class="chart-hero-status" :data-tone="isCompleted ? 'ok' : 'caution'" data-test="hero-visit-status">
+              {{ statusLabel }}
+            </span>
+          </div>
+          <strong class="chart-hero-when">{{ visitWhen || __("No visit date") }}</strong>
+          <small>{{ [visitType, practitionerName, insuranceLabel].filter(Boolean).join(" · ") }}</small>
         </div>
-        <strong class="chart-hero-when">{{ visitWhen || __("No visit date") }}</strong>
-        <small>{{ [visitType, practitionerName].filter(Boolean).join(" · ") }}</small>
-        <small>{{ insuranceLabel }}</small>
-        <button
-          v-if="hasSessionContext && !isCompleted"
-          type="button"
-          class="chart-hero-readiness"
-          :data-tone="readinessTone"
-          data-test="hero-readiness"
-          @click="$emit('open-readiness')"
-        >{{ readinessText }}</button>
-        <button
-          v-if="!isCompleted"
-          type="button"
-          class="primary chart-hero-action"
-          data-test="complete-session"
-          :disabled="!hasSessionContext || completing || pending"
-          @click="$emit('complete')"
-        >{{ completing ? __("Completing...") : __("Complete Encounter") }}</button>
-        <button
-          v-else-if="canReopen"
-          type="button"
-          class="chart-hero-action chart-hero-action-secondary"
-          data-test="reopen-session"
-          :disabled="reopening"
-          @click="$emit('reopen')"
-        >{{ reopening ? __("Reopening...") : __("Reopen Encounter") }}</button>
-        <small v-else data-test="encounter-completed-note">{{ __("Completed. Reopening needs cancel permission.") }}</small>
+        <div class="chart-hero-visit-actions">
+          <button
+            v-if="hasSessionContext && !isCompleted"
+            type="button"
+            class="chart-hero-readiness"
+            :data-tone="readinessTone"
+            data-test="hero-readiness"
+            @click="$emit('open-readiness')"
+          >{{ readinessText }}</button>
+          <button
+            v-if="!isCompleted"
+            type="button"
+            class="primary chart-hero-action"
+            data-test="complete-session"
+            :disabled="!hasSessionContext || completing || pending"
+            @click="$emit('complete')"
+          >{{ completing ? __("Completing...") : __("Complete Encounter") }}</button>
+          <button
+            v-else-if="canReopen"
+            type="button"
+            class="chart-hero-action chart-hero-action-secondary"
+            data-test="reopen-session"
+            :disabled="reopening"
+            @click="$emit('reopen')"
+          >{{ reopening ? __("Reopening...") : __("Reopen Encounter") }}</button>
+          <small v-else data-test="encounter-completed-note">{{ __("Completed. Reopening needs cancel permission.") }}</small>
+        </div>
       </aside>
     </header>
   </div>
@@ -191,6 +194,7 @@ const readinessText = computed(() => {
 
 .chart-hero-identity {
   display: flex;
+  align-items: center;
   gap: 18px;
   min-width: 0;
 }
@@ -269,11 +273,11 @@ const readinessText = computed(() => {
 }
 
 .chart-hero-visit {
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  flex: 0 0 240px;
-  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
   border: 1px solid var(--chart-border);
   border-radius: 12px;
   background: var(--chart-surface-muted);
@@ -281,9 +285,20 @@ const readinessText = computed(() => {
   font-size: 12px;
 }
 
+.chart-hero-visit-details,
+.chart-hero-visit-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.chart-hero-visit-actions {
+  justify-items: center;
+  min-width: 180px;
+}
+
 .chart-hero-visit-top {
   display: flex;
-  justify-content: space-between;
+  gap: 10px;
   align-items: center;
 }
 
@@ -318,8 +333,6 @@ const readinessText = computed(() => {
 }
 
 .chart-hero-readiness {
-  justify-self: start;
-  margin-top: 6px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -332,7 +345,6 @@ const readinessText = computed(() => {
 .chart-hero-readiness[data-tone="ok"] { color: var(--chart-ok-text); }
 
 .chart-hero-action {
-  margin-top: 8px;
   width: 100%;
 }
 
@@ -356,7 +368,7 @@ const readinessText = computed(() => {
   }
 
   .chart-hero-visit {
-    flex-basis: auto;
+    flex-wrap: wrap;
   }
 }
 </style>
