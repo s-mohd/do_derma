@@ -31,12 +31,11 @@
         <button type="button" class="ghost small" @click="refresh">{{ __("Retry") }}</button>
       </div>
 
-      <DermaEncounterHeader
+      <ChartHero
         :patient="patient"
         :appointment="appointment"
         :encounter="encounter"
         :practitioner-name="currentPractitionerName"
-        :allergy-text="patientAllergyText"
         :insurance-label="insuranceStatusLabel"
         :has-session-context="hasSessionContext"
         :completing="completingSession"
@@ -47,75 +46,54 @@
         :latest-encounter="data.latest_encounter || ''"
         :visit-date="data.visit_date || ''"
         :visit-time="data.visit_time || ''"
+        :readiness="readiness"
         @complete="completeSession"
         @reopen="reopenSession"
         @open-latest="openLatestVisit"
         @alert-action="handleEncounterAlert"
+        @open-readiness="openReadiness"
       />
 
-      <section class="derma-section-bar" data-test="derma-section-bar">
-        <nav class="derma-section-tabs" :aria-label="__('Derma encounter sections')">
-          <button
-            v-for="section in SECTION_TABS"
-            :key="section.key"
-            type="button"
-            :data-test="`section-tab-${section.key}`"
-            :data-active="activeSection === section.key ? 'true' : 'false'"
-            :class="{ active: activeSection === section.key }"
-            @click="setActiveSection(section.key)"
-          >
-            <span>{{ section.label }}</span>
-            <i
-              v-if="section.key === 'assessment' && assessmentPanel.isFilled"
-              class="tab-tick"
-              data-test="assessment-tick"
-              :title="__('Assessment documented')"
-            >✓</i>
-            <i
-              v-if="section.key === 'procedures' && procedureCount"
-              class="tab-count"
-              data-test="procedures-tab-count"
-              :title="__('{0} procedure(s) this visit').replace('{0}', procedureCount)"
-            >{{ procedureCount }}</i>
-            <i
-              v-if="section.key === 'photos' && photoCount"
-              class="tab-count"
-              data-test="photos-tab-count"
-              :title="__('{0} photo(s) this visit').replace('{0}', photoCount)"
-            >{{ photoCount }}</i>
-            <i
-              v-if="section.key === 'prescriptions' && prescriptionCount"
-              class="tab-count"
-              data-test="prescriptions-tab-count"
-              :title="__('{0} prescription(s) this visit').replace('{0}', prescriptionCount)"
-            >{{ prescriptionCount }}</i>
-            <small v-if="section.key !== 'assessment' || !assessmentModeToggleVisible">{{ section.hint }}</small>
-            <small
-              v-else
-              class="tab-mode-toggle"
-              data-test="assessment-mode-toggle"
-              role="group"
-              :aria-label="__('Assessment format')"
-              :data-locked="assessmentModeLocked ? 'true' : 'false'"
-              :title="assessmentModeLocked ? __('The format is locked after submission.') : ''"
-            >
-              <span
-                v-for="toggleMode in assessmentPanel.availableModes"
-                :key="toggleMode"
-                role="button"
-                :tabindex="assessmentModeLocked ? -1 : 0"
-                :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
-                :data-active="assessmentPanel.mode === toggleMode ? 'true' : 'false'"
-                @click.stop="requestAssessmentModeChange(toggleMode)"
-                @keydown.enter.stop.prevent="requestAssessmentModeChange(toggleMode)"
-              >{{ assessmentModeShortLabel(toggleMode) }}</span>
-            </small>
-          </button>
-        </nav>
-      </section>
+      <ClinicalStrip
+        :profile="clinicalProfile"
+        :is-degraded="isClinicalProfileDegraded"
+        :patient="patient.name || ''"
+        @retry="refresh"
+      />
+
+      <SectionTabs
+        :tabs="SECTION_TABS"
+        :active="activeSection"
+        :counts="sectionTabCounts"
+        :filled="filledSections"
+        :blocked="blockedSections"
+        @select="setActiveSection"
+      />
 
       <section class="derma-console-grid no-side">
         <main class="derma-console-main">
+          <SectionCard :label="activeSectionLabel">
+            <template v-if="assessmentModeToggleVisible" #actions>
+              <div
+                class="tab-mode-toggle"
+                data-test="assessment-mode-toggle"
+                role="group"
+                :aria-label="__('Assessment format')"
+                :data-locked="assessmentModeLocked ? 'true' : 'false'"
+                :title="assessmentModeLocked ? __('The format is locked after submission.') : ''"
+              >
+                <button
+                  v-for="toggleMode in assessmentPanel.availableModes"
+                  :key="toggleMode"
+                  type="button"
+                  class="ghost small"
+                  :disabled="assessmentModeLocked"
+                  :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
+                  :data-active="assessmentPanel.mode === toggleMode ? 'true' : 'false'"
+                  @click="requestAssessmentModeChange(toggleMode)"
+                >{{ assessmentModeShortLabel(toggleMode) }}</button>
+              </div>
+            </template>
           <template v-if="activeSection === 'assessment'">
             <div class="clinical-notes-grid" data-test="assessment-section">
               <section class="clinical-soap-stack">
@@ -593,6 +571,7 @@
           </div>
         </div>
       </section>
+          </SectionCard>
         </main>
       </section>
     </template>
@@ -608,7 +587,10 @@ import PreviousVisitsPanel from "./components/assessment/PreviousVisitsPanel.vue
 import AiDocumentsCard from "./components/review/AiDocumentsCard.vue"
 import PrescriptionPanel from "./components/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
-import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
+import ChartHero from "./components/shell/ChartHero.vue"
+import ClinicalStrip from "./components/shell/ClinicalStrip.vue"
+import SectionTabs from "./components/shell/SectionTabs.vue"
+import SectionCard from "./components/shell/SectionCard.vue"
 import PhotosPanel from "./components/photos/PhotosPanel.vue"
 import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import MarkResponseChips from "./components/MarkResponseChips.vue"
@@ -657,11 +639,11 @@ const ENFORCEMENT_BLOCK = "Block"
 const EMPTY_READINESS = { items: [], blockers: [], enforcement: ENFORCEMENT_WARN }
 
 const SECTION_TABS = [
-  { key: "assessment", label: __("Assessment"), hint: __("Notes") },
-  { key: "procedures", label: __("Procedures"), hint: __("Treatment") },
-  { key: "photos", label: __("Photos"), hint: __("Compare") },
-  { key: "prescriptions", label: __("Prescription"), hint: __("Rx") },
-  { key: "review", label: __("Review"), hint: __("Sign-off") },
+  { key: "assessment", label: __("Assessment") },
+  { key: "procedures", label: __("Procedures") },
+  { key: "photos", label: __("Photos") },
+  { key: "prescriptions", label: __("Prescription") },
+  { key: "review", label: __("Review") },
 ]
 
 const SECTION_KEYS = SECTION_TABS.map((section) => section.key)
@@ -803,6 +785,21 @@ const readiness = computed(() => data.value.readiness || EMPTY_READINESS)
 const readinessItems = computed(() => readiness.value.items || [])
 const readinessBlockers = computed(() => readiness.value.blockers || [])
 const readinessEnforcement = computed(() => readiness.value.enforcement || ENFORCEMENT_WARN)
+const clinicalProfile = computed(() => data.value.clinical_profile || null)
+const isClinicalProfileDegraded = computed(() => (data.value.context_errors || []).includes("clinical profile"))
+// Both readiness engines read procedure marks, so a blocker is cleared on Procedures.
+const blockedSections = computed(() => (readinessBlockers.value.length ? ["procedures", "review"] : []))
+const sectionTabCounts = computed(() => ({
+  procedures: procedureCount.value,
+  photos: photoCount.value,
+  prescriptions: prescriptionCount.value,
+}))
+const filledSections = computed(() => (assessmentPanel.isFilled ? ["assessment"] : []))
+const activeSectionLabel = computed(() => SECTION_TABS.find((tab) => tab.key === activeSection.value)?.label || "")
+
+function openReadiness() {
+  setActiveSection(readinessBlockers.value.length ? "procedures" : "review")
+}
 const followupItems = computed(() => readinessItems.value.filter((item) => item.source === READINESS_FOLLOWUP))
 const inventoryReadiness = computed(() => readinessItems.value.filter((item) => item.source === READINESS_INVENTORY))
 const activeProcedure = computed(() => {
@@ -2099,8 +2096,7 @@ const savedVoiceSummary = computed(() => ({
   followup_ar: assessmentPanel.patientAdviceAr,
 }))
 
-// Only the active tab offers the switch: an inactive Assessment tab keeps its
-// plain hint, so a navigation click can never land on a format segment.
+// The format switch sits in the Assessment card header, so it shows only on that section.
 const assessmentModeToggleVisible = computed(
   () =>
     activeSection.value === "assessment" &&
