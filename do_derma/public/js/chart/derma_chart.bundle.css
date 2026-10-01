@@ -498,10 +498,6 @@
 
 .chart-annotation-history {
   min-width: 0;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 }
 
 .chart-annotation-history > header {

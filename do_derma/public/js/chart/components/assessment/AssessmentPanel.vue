@@ -275,52 +275,32 @@ function submitDraft() {
 
 <style scoped>
 .assessment-panel {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--chart-surface);
   padding: 12px;
   margin-bottom: 12px;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid #d1d5db;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.primary {
-  border-color: #087b75;
-  background: #087b75;
-  color: #ffffff;
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
   font-size: 12px;
   margin: 0 0 8px;
 }
 
 .status-note {
-  color: #92400e;
+  color: var(--chart-caution-text);
   font-size: 12px;
   margin: 8px 0 0;
 }
 
 .empty-state {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 14px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   display: grid;
   gap: 10px;
   justify-items: start;
@@ -336,14 +316,14 @@ button:disabled {
   gap: 10px;
   margin-top: 14px;
   padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--chart-border);
 }
 
 .footer-status {
   flex: 1;
   min-width: 0;
   font-size: 12px;
-  color: #64748b;
+  color: var(--chart-muted);
 }
 
 .advice-toggle {
@@ -351,31 +331,31 @@ button:disabled {
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #334155;
+  color: var(--chart-text-soft);
   cursor: pointer;
 }
 
 .advice-language {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
   padding: 5px 8px;
   font-size: 12px;
-  background: #ffffff;
+  background: var(--chart-surface);
 }
 
 .advice-block {
   margin-top: 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--chart-border);
   border-radius: 10px;
   padding: 8px 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   font-size: 12px;
 }
 
 .advice-block summary {
   cursor: pointer;
   font-weight: 600;
-  color: #334155;
+  color: var(--chart-text-soft);
 }
 
 .advice-block pre {
@@ -387,6 +367,6 @@ button:disabled {
 .advice-block small {
   display: block;
   margin-top: 6px;
-  color: #64748b;
+  color: var(--chart-muted);
 }
 </style>

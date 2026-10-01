@@ -106,13 +106,13 @@ function markSaved() {
 }
 
 .fields-empty {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 14px;
   margin: 0;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .soap-field {
@@ -123,7 +123,7 @@ function markSaved() {
 .soap-label {
   font-size: 14px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--chart-text);
 }
 
 .soap-input {
@@ -131,15 +131,15 @@ function markSaved() {
   resize: vertical;
   padding: 8px 10px;
   font: inherit;
-  color: #0f172a;
-  background: var(--control-bg, #edeef0);
-  border: 1px solid #e5e7eb;
+  color: var(--chart-text);
+  background: var(--control-bg, var(--chart-surface-muted));
+  border: 1px solid var(--chart-border);
   border-radius: 12px;
 }
 
 .soap-input:focus {
   outline: none;
-  border-color: #087b75;
+  border-color: var(--chart-accent-strong);
 }
 
 .soap-input[readonly] {
@@ -151,10 +151,10 @@ function markSaved() {
   padding: 8px 10px;
   font-size: 13px;
   line-height: 1.5;
-  color: #0f172a;
+  color: var(--chart-text);
   white-space: pre-wrap;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--chart-surface-muted);
+  border: 1px solid var(--chart-border);
   border-radius: 12px;
 }
 </style>

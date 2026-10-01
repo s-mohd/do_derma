@@ -512,13 +512,13 @@ async function refreshControls() {
 }
 
 .fields-empty {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 14px;
   margin: 0;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .fields-section {
@@ -527,7 +527,7 @@ async function refreshControls() {
 }
 
 .fields-section.has-separator {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--chart-border);
   padding-top: 14px;
 }
 
@@ -536,7 +536,7 @@ async function refreshControls() {
   font-size: 14px;
   line-height: 1.35;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--chart-text);
 }
 
 .fields-columns {
@@ -564,7 +564,7 @@ async function refreshControls() {
 }
 
 .field-control-host:deep(.control-label) {
-  color: #1e293b;
+  color: var(--chart-text);
   font-size: 14px;
   line-height: 1.3;
   font-weight: 600;
@@ -577,8 +577,8 @@ async function refreshControls() {
 .field-control-host:deep(input.form-control),
 .field-control-host:deep(.control-input .form-control),
 .field-control-host:deep(.table-multiselect.form-control) {
-  background: var(--control-bg, #edeef0);
-  border-color: #e5e7eb;
+  background: var(--control-bg, var(--chart-surface-muted));
+  border-color: var(--chart-border);
   border-radius: 12px;
 }
 

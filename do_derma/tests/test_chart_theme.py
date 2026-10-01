@@ -73,9 +73,6 @@ HEX_ALLOWED = {
 	"components/AnesthesiaPanel.vue",
 	"components/ConsentPanel.vue",
 	"components/ProcedurePanel.vue",
-	"components/assessment/AssessmentPanel.vue",
-	"components/assessment/SoapNoteFields.vue",
-	"components/assessment/StructuredAssessmentFields.vue",
 	"components/consumables/ConsumablesEditor.vue",
 }
 

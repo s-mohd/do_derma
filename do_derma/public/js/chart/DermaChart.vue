@@ -133,10 +133,10 @@
                   @request-edit="assessmentPanel.editing = true"
                   @save="saveAssessment"
                 />
-                <section class="chart-annotation-history encounter-annotation-history">
+                <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
                   <header>
                     <div>
-                      <strong>{{ __("Drawings") }}</strong>
+                      <strong class="chart-label">{{ __("Drawings") }}</strong>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
                     <button
