@@ -32,6 +32,14 @@ and prints stay light.
 The chart page and the chart's desk dialogs go dark. The studio keeps the light tokens and
 desk's light variables, so its desk controls stay light too.
 
+`frappe.require` keeps the stylesheet loaded for the rest of the desk session, so the `.modal`
+blocks reach every desk dialog, not only the chart's. That is safe only while those blocks
+declare custom properties and nothing else: no rule outside `.dental-chart-page`,
+`.derma-annotation-modal` or the chart's own dialog classes may read them or set a real
+property on `.modal`. The existing `body.derma-annotation-open .modal` stacking rules are fine:
+the studio sets that body class only while it is open. A test pins that `.modal` appears only
+in the token blocks and under `body.derma-annotation-open`.
+
 ## Dark palette
 
 Every `--chart-*` token with an `--ov-*` twin takes do_health's dark value:
@@ -97,6 +105,7 @@ Source tests in `do_derma/tests/test_chart_theme.py`:
 - white on `--chart-accent-strong`, and `--chart-accent-text` on the dark surface, reach
   4.5:1 for `#16a34a` and `#EC864B`
 - no hex in the stylesheet outside the three token blocks; components already carry none
+- `.modal` appears in no selector outside the token blocks and `body.derma-annotation-open`
 - `TestChartDarkMode` (which asserted light-only) and
   `test_chart_tokens_are_not_overridden_in_dark_mode` are replaced by the above
 
