@@ -1,5 +1,8 @@
-/* Patient Overview tokens (do_health --ov-*, light), the settings accent, and the old palette as aliases. */
-.dental-chart-page.derma-chart-page {
+/* Patient Overview tokens (do_health --ov-*, light), the settings accent, and the old palette as aliases.
+   The studio and desk dialogs render outside the page, so they carry the tokens too. */
+.dental-chart-page.derma-chart-page,
+.derma-annotation-modal,
+.modal {
   --chart-bg: #f3f5f8;
   --chart-surface: #ffffff;
   --chart-surface-muted: #f6f8fa;

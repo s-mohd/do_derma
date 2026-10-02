@@ -156,3 +156,11 @@ class TestChartReviewFindings(TestCase):
 		self.assertRegex(hero, r'\.chart-hero-readiness\[data-tone="ok"\] \{[^}]*var\(--chart-ok-text\)')
 		self.assertRegex(procedures, r'Completed: "ok"')
 		self.assertRegex(procedures, r"\.note-presence-indicator\.present i \{[^}]*var\(--chart-ok\)")
+
+	def test_tokens_reach_content_rendered_outside_the_page(self):
+		css = CHART_CSS.read_text()
+		start = css.index(CHART_FIRST_TOKEN)
+		selector = re.sub(r"/\*.*?\*/", "", css[css.rfind("}", 0, start) + 1 : css.rindex("{", 0, start)], flags=re.S)
+		hosts = [part.strip() for part in selector.split(",")]
+		for host in (".dental-chart-page.derma-chart-page", ".derma-annotation-modal", ".modal"):
+			self.assertIn(host, hosts)
