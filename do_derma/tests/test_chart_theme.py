@@ -176,7 +176,7 @@ def get_variables(body: str) -> dict[str, str]:
 
 def mix(hex_colour: str, share: float, other: tuple[int, int, int]) -> str:
 	channels = [int(hex_colour[i : i + 2], 16) for i in (1, 3, 5)]
-	return "#" + "".join(f"{round(c * share + o * (1 - share)):02x}" for c, o in zip(channels, other))
+	return "#" + "".join(f"{round(c * share + o * (1 - share)):02x}" for c, o in zip(channels, other, strict=True))
 
 
 def get_contrast(first: str, second: str) -> float:
