@@ -422,9 +422,9 @@
 }
 
 .derma-section-actions button:hover {
-  border-color: #5eead4;
+  border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
   color: var(--chart-accent-text);
-  background: #f0fdfa;
+  background: var(--chart-accent-soft);
 }
 
 /* The decorations are absolutely positioned, so the label needs room beside them. */
@@ -466,7 +466,7 @@
 }
 
 .derma-annotation-pick {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -485,10 +485,10 @@
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   overflow: hidden;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--chart-faint);
 }
 
 .derma-annotation-pick-preview img {
@@ -506,7 +506,7 @@
 
 .derma-annotation-pick-data {
   padding: 4px 10px 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   font-size: 12px;
   overflow-x: auto;
 }
@@ -626,8 +626,8 @@
 }
 
 .chart-annotation-delete:hover {
-  border-color: var(--red-4, #e03131);
-  color: var(--red-4, #e03131);
+  border-color: var(--chart-danger);
+  color: var(--chart-danger);
 }
 
 .chart-annotation-list b {
@@ -845,7 +845,7 @@
   border: 1px solid var(--derma-border-subtle);
   border-radius: 7px;
   background: var(--derma-white);
-  color: #94a3b8;
+  color: var(--chart-faint);
   font-size: 10px;
   font-weight: 800;
 }
@@ -867,7 +867,7 @@
   object-fit: contain;
   border: 1px solid var(--derma-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--chart-surface);
 }
 
 .derma-annotation-preview-data {
@@ -876,7 +876,7 @@
   overflow: auto;
   border: 1px solid var(--derma-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--chart-surface);
 }
 
 .section-panel {
@@ -990,7 +990,7 @@
   border: 1px solid var(--derma-border);
   border-radius: 8px;
   background:
-    radial-gradient(circle at 50% 38%, rgba(20, 184, 166, 0.08), transparent 34%),
+    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--chart-accent) 8%, transparent), transparent 34%),
     linear-gradient(180deg, var(--derma-white) 0%, var(--derma-bg-faint-alt) 100%);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 }
@@ -1222,7 +1222,7 @@
 
 .skeleton-block {
   border-radius: 12px;
-  background: linear-gradient(90deg, #eef1f5 25%, #e2e7ee 37%, #eef1f5 63%);
+  background: linear-gradient(90deg, var(--chart-surface-muted) 25%, var(--chart-border-strong) 37%, var(--chart-surface-muted) 63%);
   background-size: 400% 100%;
   animation: derma-skeleton-shimmer 1.4s ease infinite;
 }
@@ -1265,7 +1265,7 @@
   padding: 6px 16px;
   margin-bottom: 12px;
   border-radius: 10px;
-  background: var(--derma-surface-muted, #f6f8fa);
+  background: var(--chart-surface-muted);
   color: var(--derma-text-muted);
   font-size: 13px;
 }
@@ -1318,8 +1318,8 @@
   padding: 10px 16px;
   margin-bottom: 12px;
   border-radius: 10px;
-  background: #fef3f2;
-  border: 1px solid #fda29b;
+  background: var(--chart-danger-soft);
+  border: 1px solid var(--chart-danger-border);
   color: var(--derma-danger);
   font-size: 13px;
 }
@@ -1354,7 +1354,7 @@
 .dental-chart-page .derma-session-summary .attention {
   background: var(--derma-warning-bg-subtle);
   border-color: var(--derma-warning-bg);
-  color: #9a3412;
+  color: var(--chart-caution-text);
 }
 
 .dental-chart-page .ghost,
@@ -1406,7 +1406,7 @@
   display: grid;
   place-items: center;
   z-index: 30;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--chart-surface) 70%, transparent);
   font-weight: 800;
 }
 
@@ -1418,7 +1418,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   background:
-    radial-gradient(circle at 50% 42%, rgba(15, 118, 110, 0.045), transparent 34%),
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--chart-accent) 4.5%, transparent), transparent 34%),
     linear-gradient(180deg, var(--derma-white) 0%, var(--derma-bg-faint-alt) 100%);
 }
 
@@ -1436,7 +1436,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   background:
-    linear-gradient(180deg, var(--derma-white) 0%, #f7fbfc 100%);
+    linear-gradient(180deg, var(--derma-white) 0%, var(--chart-surface-muted) 100%);
   border-right: 1px solid var(--derma-border);
 }
 
@@ -1453,8 +1453,8 @@
 
 .embedded-excalidraw .excalidraw {
   --color-primary: var(--derma-brand);
-  --color-primary-darker: #0d5f5a;
-  --color-primary-darkest: #0b4d49;
+  --color-primary-darker: color-mix(in srgb, var(--chart-accent-strong) 85%, black);
+  --color-primary-darkest: color-mix(in srgb, var(--chart-accent-strong) 70%, black);
   --default-button-size: 1.78rem;
   --lg-button-size: 1.95rem;
   border: 0;
@@ -2031,8 +2031,8 @@
 }
 
 .readiness-mode[data-mode="Block"] {
-  border-color: var(--derma-danger, #c0392b);
-  color: var(--derma-danger, #c0392b);
+  border-color: var(--chart-danger-text);
+  color: var(--chart-danger-text);
 }
 
 .readiness-blocker-list {
@@ -2045,7 +2045,7 @@
 
 .readiness-blocker-list li {
   border: 1px solid var(--derma-border);
-  border-left: 3px solid var(--derma-danger, #c0392b);
+  border-left: 3px solid var(--chart-danger-text);
   border-radius: 8px;
   background: var(--derma-white);
   padding: 8px 10px;
@@ -2122,40 +2122,40 @@
 
 .followup-card.high {
   border-color: var(--derma-danger-bg);
-  background: #fff7f7;
+  background: var(--chart-danger-soft);
 }
 
 .inventory-card.high,
 .inventory-card.blocked {
   border-color: var(--derma-danger-bg);
-  background: #fff7f7;
+  background: var(--chart-danger-soft);
 }
 
 .followup-card.medium {
   border-color: var(--derma-warning-bg);
-  background: #fffaf2;
+  background: var(--chart-caution-soft);
 }
 
 .inventory-card.medium,
 .inventory-card.warning {
   border-color: var(--derma-warning-bg);
-  background: #fffaf2;
+  background: var(--chart-caution-soft);
 }
 
 .followup-card.low {
   border-color: var(--derma-info-bg);
-  background: #f8fbff;
+  background: var(--chart-info-soft);
 }
 
 .inventory-card.low,
 .inventory-card.ready {
   border-color: var(--derma-success-bg-alt);
-  background: #f7fef9;
+  background: var(--chart-ok-soft);
 }
 
 .followup-card.done {
   border-color: var(--derma-success-bg-alt);
-  background: #f0fdf4;
+  background: var(--chart-ok-soft);
 }
 
 .followup-card > header,
@@ -2198,9 +2198,9 @@
 }
 
 .inventory-metrics span {
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--chart-surface) 72%, transparent);
   padding: 8px 10px;
 }
 
@@ -2302,17 +2302,17 @@
 
 .pill.complete {
   background: var(--derma-success-bg);
-  color: #047857;
+  color: var(--chart-ok-text);
 }
 
 .pill.cancelled {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
 .pill.draft {
   background: var(--derma-warning-bg-subtle);
-  color: #c2410c;
+  color: var(--chart-caution-text);
 }
 
 .panel-heading {
@@ -2540,7 +2540,7 @@ body.derma-annotation-open .modal-backdrop {
   overflow: hidden;
   border: 1px solid var(--derma-border);
   border-radius: 10px;
-  background: #f8fbfd;
+  background: var(--chart-surface-muted);
   box-shadow: 0 30px 80px rgba(15, 23, 42, 0.24);
 }
 
@@ -2588,7 +2588,7 @@ body.derma-annotation-open .modal-backdrop {
   color: var(--derma-text-strong);
   border: 1px solid var(--derma-border-subtle);
   border-radius: 7px;
-  background: #fff;
+  background: var(--chart-surface);
 }
 
 .derma-annotation-search:focus {
@@ -2603,7 +2603,7 @@ body.derma-annotation-open .modal-backdrop {
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #475569;
+  color: var(--chart-text-soft);
   cursor: pointer;
 }
 
@@ -2623,7 +2623,7 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-review-image img {
   max-width: 100%;
   max-height: 70vh;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 6px;
 }
 
@@ -2754,7 +2754,7 @@ body.derma-annotation-open .modal-backdrop {
 
 .derma-annotation-tagging-banner .stop-tagging:hover {
   background: var(--derma-brand);
-  color: var(--derma-white);
+  color: white;
 }
 
 .derma-annotation-header-actions button,
@@ -2771,7 +2771,7 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-header-actions button.primary {
   border-color: var(--derma-brand);
   background: var(--derma-brand);
-  color: var(--derma-white);
+  color: white;
 }
 
 .derma-annotation-header-actions button.active {
@@ -2793,7 +2793,7 @@ body.derma-annotation-open .modal-backdrop {
   gap: 10px;
   padding: 12px;
   overflow: auto;
-  background: #f3f7f9;
+  background: var(--chart-bg);
 }
 
 .derma-annotation-left {
@@ -2901,7 +2901,7 @@ body.derma-annotation-open .modal-backdrop {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: var(--treatment-color, #0ea5e9);
+  background: var(--treatment-color, var(--chart-blue));
 }
 
 .derma-template-list img {
@@ -2994,7 +2994,7 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-canvas .excalidraw {
   --color-primary: var(--derma-brand);
   --color-primary-darker: var(--derma-brand);
-  --color-primary-light: #ccfbf1;
+  --color-primary-light: var(--chart-accent-soft);
 }
 
 /* Excalidraw 0.17's UIOptions covers the canvas actions but not these two: the shape Library
@@ -3298,7 +3298,7 @@ body.derma-annotation-open .modal-backdrop {
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--derma-text-strong);
-  color: var(--derma-white);
+  color: white;
   font-size: 11px;
   font-weight: 700;
 }
@@ -3449,16 +3449,16 @@ body.derma-annotation-open .modal-backdrop {
   margin-right: 4px;
 }
 .voice-scribe .voice-stop {
-  border: 1px solid #dc2626;
-  background: #dc2626;
-  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--chart-danger) 85%, black);
+  background: color-mix(in srgb, var(--chart-danger) 85%, black);
+  color: white;
   border-radius: 6px;
   padding: 5px 10px;
   font-weight: 600;
   animation: voice-pulse 1.2s ease-in-out infinite;
 }
 @keyframes voice-pulse {
-  50% { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.18); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--chart-danger) 18%, transparent); }
 }
 .voice-scribe .voice-mic {
   max-width: 220px;
@@ -3473,7 +3473,7 @@ body.derma-annotation-open .modal-backdrop {
   font-size: 12px;
 }
 .voice-scribe[data-state="failed"] .voice-hint {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
 }
 .voice-spinner {
   display: inline-block;
@@ -3528,13 +3528,13 @@ body.derma-annotation-open .modal-backdrop {
   min-width: 160px;
   height: 30px;
   border-radius: 6px;
-  background: #f4f4f5;
-  --wave-bar: #ef4444;
-  --wave-head: #dc2626;
+  background: var(--chart-surface-muted);
+  --wave-bar: var(--chart-danger);
+  --wave-head: var(--chart-danger-text);
 }
 .voice-waveform[data-paused="true"] {
-  --wave-bar: #a1a1aa;
-  --wave-head: #71717a;
+  --wave-bar: var(--chart-faint);
+  --wave-head: var(--chart-muted);
 }
 .voice-waveform canvas {
   display: block;
@@ -3543,14 +3543,14 @@ body.derma-annotation-open .modal-backdrop {
 }
 .voice-scribe .voice-level {
   font-weight: 600;
-  color: #15803d;
+  color: var(--chart-ok-text);
 }
 .voice-scribe .voice-level[data-zone="low"] {
-  color: #b45309;
+  color: var(--chart-caution-text);
 }
 .voice-scribe .voice-level[data-zone="quiet"],
 .voice-scribe .voice-level[data-zone="loud"] {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
 }
 .voice-scribe .voice-stop[data-paused="true"] {
   animation: none;
@@ -3560,7 +3560,7 @@ body.derma-annotation-open .modal-backdrop {
   flex-basis: 100%;
 }
 .voice-scribe .voice-warning {
-  color: #b45309;
+  color: var(--chart-caution-text);
   font-weight: 600;
 }
 
@@ -3597,7 +3597,7 @@ body.derma-annotation-open .modal-backdrop {
   color: var(--derma-text-muted);
 }
 .ai-documents .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
 }
 .ai-documents-list {
   list-style: none;

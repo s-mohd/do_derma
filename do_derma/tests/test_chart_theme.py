@@ -222,3 +222,22 @@ class TestChartDarkPalette(TestCase):
 				continue
 			real = [line for line in body.split(";") if line.strip() and not line.strip().startswith("--") and "color-scheme" not in line]
 			self.assertEqual(real, [], selector.strip())
+
+
+TOKEN_BLOCK_STARTS = (".dental-chart-page.derma-chart-page,", DARK_CHART_SELECTOR, DARK_SCOPE.rstrip(" {"))
+
+
+class TestChartStylesheetColours(TestCase):
+	"""Outside the token blocks the stylesheet reads tokens, so both themes reach every rule."""
+
+	def test_no_hex_outside_token_blocks(self):
+		css = re.sub(r"/\*.*?\*/", "", CHART_CSS.read_text(), flags=re.S)
+		offenders = []
+		for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+			if selector.strip().startswith(TOKEN_BLOCK_STARTS):
+				continue
+			offenders += [f"{selector.strip()[:60]}: {value}" for value in HEX_COLOUR.findall(body)]
+		self.assertEqual(offenders, [])
+
+	def test_text_on_fills_is_never_the_surface_token(self):
+		self.assertNotRegex(CHART_CSS.read_text(), r"(?<![\w-])color:\s*var\(--derma-white\)")
