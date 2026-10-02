@@ -836,7 +836,7 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
   padding: 2px 7px;
   border-color: var(--chart-border-strong);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.92);
+  background: color-mix(in srgb, var(--chart-surface) 92%, transparent);
   color: var(--chart-text-soft);
   font-size: 10px;
 }

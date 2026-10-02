@@ -188,6 +188,7 @@
 
 /* The annotation studio stays light: pin Frappe's dark-mode variables to their v16 light values. */
 [data-theme="dark"] .derma-annotation-modal {
+  color-scheme: light;
   --alert-bg-danger: #fff7f7;
   --alert-bg-info: #f7fbfd;
   --alert-bg-success: #e4f5e9;
@@ -3297,7 +3298,7 @@ body.derma-annotation-open .modal-backdrop {
   bottom: 6px;
   padding: 2px 7px;
   border-radius: 999px;
-  background: var(--derma-text-strong);
+  background: rgba(0, 0, 0, 0.72);
   color: white;
   font-size: 11px;
   font-weight: 700;
@@ -3360,7 +3361,7 @@ body.derma-annotation-open .modal-backdrop {
   max-height: 62vh;
   overflow: auto;
   border-radius: 8px;
-  background: var(--derma-text-strong);
+  background: rgba(0, 0, 0, 0.85);
 }
 
 .photo-viewer-stage img {

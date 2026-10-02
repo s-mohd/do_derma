@@ -34,6 +34,7 @@ class TestChartDarkMode(TestCase):
 			self.assertIn(name, variables)
 		self.assertNotEqual(variables["--text-color"].lower(), "#f8f8f8")
 		self.assertNotEqual(variables["--control-bg"].lower(), "#232323")
+		self.assertIn("color-scheme: light", CHART_CSS.read_text().split(DARK_SCOPE, 1)[1].split("}", 1)[0])
 
 
 OVERVIEW_FIRST_TOKEN = "--ov-bg:"
@@ -241,3 +242,19 @@ class TestChartStylesheetColours(TestCase):
 
 	def test_text_on_fills_is_never_the_surface_token(self):
 		self.assertNotRegex(CHART_CSS.read_text(), r"(?<![\w-])color:\s*var\(--derma-white\)")
+
+	def test_fills_never_use_a_text_token(self):
+		self.assertNotRegex(CHART_CSS.read_text(), r"background(-color)?:\s*var\(--(chart-text|derma-text|derma-navy)")
+
+	def test_no_translucent_white_outside_token_blocks(self):
+		white = re.compile(r"rgba?\(\s*255\s*,\s*255\s*,\s*255")
+		css = re.sub(r"/\*.*?\*/", "", CHART_CSS.read_text(), flags=re.S)
+		offenders = [
+			selector.strip()[:60]
+			for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+			if not selector.strip().startswith(TOKEN_BLOCK_STARTS) and white.search(body)
+		]
+		for path in CHART_DIR.rglob("*.vue"):
+			if not path.relative_to(CHART_DIR).as_posix().startswith("annotation/"):
+				offenders += [path.name for style in STYLE_BLOCK.findall(path.read_text()) if white.search(style)]
+		self.assertEqual(offenders, [])
