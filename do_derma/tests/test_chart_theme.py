@@ -19,7 +19,7 @@ CONTROL_VARIABLES = (
 )
 
 
-class TestChartDarkMode(TestCase):
+class TestChartStudioLight(TestCase):
 	"""Desk dark mode must not leak dark text or control colours into the light annotation studio."""
 
 	def get_dark_scope_variables(self):
@@ -204,7 +204,7 @@ class TestChartDarkPalette(TestCase):
 		selectors = [part.strip() for part in css[start : css.index("{", start)].split(",")]
 		self.assertIn('[data-theme="dark"] .modal', selectors)
 		self.assertFalse(any("derma-annotation-modal" in part for part in selectors))
-		self.assertIn("color-scheme: dark", get_rule_body(CHART_CSS.read_text(), DARK_CHART_SELECTOR))
+		self.assertIn("color-scheme: dark", get_rule_body(CHART_CSS.read_text(), DARK_CHART_SELECTOR + " {"))
 
 	def test_accent_text_reads_on_dark(self):
 		dark = self.get_dark_tokens()
@@ -221,7 +221,7 @@ class TestChartDarkPalette(TestCase):
 		for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
 			if not re.search(r"\.modal(?![\w-])", selector) or "body.derma-annotation-open" in selector:
 				continue
-			real = [line for line in body.split(";") if line.strip() and not line.strip().startswith("--") and "color-scheme" not in line]
+			real = [line for line in body.split(";") if line.strip() and not line.strip().startswith("--")]
 			self.assertEqual(real, [], selector.strip())
 
 
@@ -258,3 +258,8 @@ class TestChartStylesheetColours(TestCase):
 			if not path.relative_to(CHART_DIR).as_posix().startswith("annotation/"):
 				offenders += [path.name for style in STYLE_BLOCK.findall(path.read_text()) if white.search(style)]
 		self.assertEqual(offenders, [])
+
+	def test_danger_buttons_carry_the_shared_button_class(self):
+		for path in CHART_DIR.rglob("*.vue"):
+			for classes in re.findall(r'<button[^>]*\sclass="((?:[^"]*\s)?danger(?:\s[^"]*)?)"', path.read_text()):
+				self.assertRegex(classes, r"\b(ghost|icon-btn)\b", f"{path.name}: {classes}")

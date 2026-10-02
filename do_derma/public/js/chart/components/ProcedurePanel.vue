@@ -2402,12 +2402,6 @@ function handleRowDoubleClick(row, event) {
   padding: 4px 8px;
 }
 
-.dental-chart-page .procedure-table .ghost.small.danger {
-  border-color: var(--chart-danger-border);
-  background: var(--chart-danger-soft);
-  color: var(--chart-danger-text);
-}
-
 .dental-chart-page .procedure-table td.row-actions {
   white-space: nowrap;
   padding-left: 6px;
