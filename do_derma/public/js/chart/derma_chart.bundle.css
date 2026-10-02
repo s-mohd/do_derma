@@ -839,10 +839,6 @@
 
 .section-panel {
   min-width: 0;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 }
 
 .section-panel > header {
@@ -1320,8 +1316,7 @@
 }
 
 .dental-chart-page .ghost,
-.dental-chart-page .primary,
-.dental-chart-page .reopen {
+.dental-chart-page .primary {
   border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
   background: var(--chart-surface);

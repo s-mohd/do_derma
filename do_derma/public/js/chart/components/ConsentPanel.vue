@@ -700,10 +700,6 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
   align-items: center;
 }
 
-
-
-
-
 .error-text {
   color: var(--chart-danger-text);
   font-size: 12px;
@@ -780,7 +776,7 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
 }
 
 .preview-box.editable {
-  background: linear-gradient(180deg, var(--chart-surface-muted) 0, var(--chart-surface-muted) 100%);
+  background: var(--chart-surface-muted);
 }
 
 .preview-box.text-muted {
@@ -802,7 +798,7 @@ function appendedSignatureBlock(signedBy, drawn, blank) {
 
 .preview-box:deep(.consent-inline-field[contenteditable="true"]:focus) {
   background: var(--chart-surface);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18);
+  box-shadow: var(--chart-focus);
 }
 
 .preview-box:deep(.consent-inline-signature),

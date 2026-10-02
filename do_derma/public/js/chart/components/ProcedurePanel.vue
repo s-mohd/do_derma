@@ -2155,12 +2155,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-load-more-row .ghost.small {
-  border: 1px solid var(--chart-border-strong);
-  background: var(--chart-surface);
-  border-radius: 8px;
   padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 /* Below this the eight columns cannot all hold their content, so the wrapper
@@ -2243,7 +2238,6 @@ function handleRowDoubleClick(row, event) {
   border-radius: 999px;
   width: fit-content;
 }
-
 
 .dental-chart-page .procedure-table .surface-cell {
   display: flex;
@@ -2404,12 +2398,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .ghost.small {
-  border: 1px solid var(--chart-border-strong);
   background: var(--chart-surface-muted);
-  border-radius: 8px;
   padding: 4px 8px;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .dental-chart-page .procedure-table .ghost.small.danger {
@@ -2613,12 +2603,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .ghost.small {
-  border: 1px solid var(--chart-border-strong);
   background: var(--chart-surface-muted);
-  border-radius: 8px;
   padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .dental-chart-page .procedure-table .reset-btn {
@@ -2722,13 +2708,8 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-empty .ghost.small {
-  border: 1px solid var(--chart-border-strong);
-  background: var(--chart-surface);
-  border-radius: 8px;
   padding: 6px 10px;
-  font-size: 12px;
   font-weight: 700;
-  cursor: pointer;
 }
 
 .dental-chart-page .invoice-footer {

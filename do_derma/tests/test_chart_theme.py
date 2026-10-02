@@ -69,8 +69,6 @@ class TestChartTokens(TestCase):
 CHART_DIR = CHART_CSS.parent
 STYLE_BLOCK = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
 HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
-# Component styles read --chart-* tokens; hex is not allowed.
-HEX_ALLOWED: set[str] = set()
 
 
 class TestChartAccent(TestCase):
@@ -96,7 +94,7 @@ class TestChartAccent(TestCase):
 
 
 class TestChartComponentColours(TestCase):
-	"""Component styles read tokens, not hex; the allowlist only shrinks."""
+	"""Component styles read --chart-* tokens, never hex."""
 
 	def get_files_with_hex(self):
 		found = set()
@@ -109,11 +107,8 @@ class TestChartComponentColours(TestCase):
 				found.add(relative)
 		return found
 
-	def test_no_new_hex_colours(self):
-		self.assertEqual(self.get_files_with_hex() - HEX_ALLOWED, set())
-
-	def test_allowlist_has_no_cleaned_files(self):
-		self.assertEqual(HEX_ALLOWED - self.get_files_with_hex(), set())
+	def test_component_styles_carry_no_hex(self):
+		self.assertEqual(self.get_files_with_hex(), set())
 
 	def test_teleports_target_the_section_card(self):
 		self.assertIn('id="chart-section-actions"', (CHART_DIR / "components/shell/SectionCard.vue").read_text())
@@ -150,3 +145,14 @@ class TestChartReviewFindings(TestCase):
 	def test_procedure_pills_carry_no_legacy_badge_class(self):
 		self.assertNotRegex((CHART_DIR / "components/ProcedurePanel.vue").read_text(), r'class="badge\b')
 		self.assertNotIn(".dental-chart-page .badge", CHART_CSS.read_text())
+
+	def test_accent_and_ok_green_stay_apart(self):
+		tabs = (CHART_DIR / "components/shell/SectionTabs.vue").read_text()
+		hero = (CHART_DIR / "components/shell/ChartHero.vue").read_text()
+		procedures = (CHART_DIR / "components/ProcedurePanel.vue").read_text()
+		self.assertRegex(tabs, r'\[data-active="true"\] \{[^}]*var\(--chart-accent-soft\)')
+		self.assertRegex(hero, r"\.chart-hero-avatar \{[^}]*var\(--chart-accent-soft\)")
+		self.assertRegex(hero, r'\.chart-hero-status\[data-tone="ok"\] \{[^}]*var\(--chart-ok-text\)')
+		self.assertRegex(hero, r'\.chart-hero-readiness\[data-tone="ok"\] \{[^}]*var\(--chart-ok-text\)')
+		self.assertRegex(procedures, r'Completed: "ok"')
+		self.assertRegex(procedures, r"\.note-presence-indicator\.present i \{[^}]*var\(--chart-ok\)")

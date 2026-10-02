@@ -212,10 +212,6 @@ function emitSave() {
   align-items: center;
 }
 
-
-
-
-
 .error-text {
   color: var(--chart-danger-text);
   font-size: 12px;
