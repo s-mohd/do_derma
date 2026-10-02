@@ -74,7 +74,7 @@ defineEmits(["select"])
 
 .chart-tabs-button[data-active="true"] {
   background: var(--chart-accent-soft);
-  color: var(--chart-accent-strong);
+  color: var(--chart-accent-text);
 }
 
 .chart-tabs-dot {
@@ -85,7 +85,7 @@ defineEmits(["select"])
 }
 
 .chart-tabs-tick {
-  color: var(--chart-accent-strong);
+  color: var(--chart-accent-text);
   font-style: normal;
 }
 

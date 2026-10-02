@@ -38,6 +38,7 @@
   --chart-accent: var(--do-health-header-accent, #16a34a);
   --chart-accent-strong: color-mix(in srgb, var(--chart-accent) 70%, black);
   --chart-accent-soft: color-mix(in srgb, var(--chart-accent) 10%, white);
+  --chart-accent-text: var(--chart-accent-strong);
 
   --derma-white: var(--chart-surface);
   --derma-bg-faint: var(--chart-surface);
@@ -70,6 +71,44 @@
   --derma-info-bg: var(--chart-info-soft);
 }
 
+/* Desk dark mode: the Patient Overview's dark palette (do_health --ov-*, dark). The studio keeps the light block. */
+[data-theme="dark"] .dental-chart-page.derma-chart-page,
+[data-theme="dark"] .modal {
+  color-scheme: dark;
+  --chart-bg: #141414;
+  --chart-surface: #1e1e1e;
+  --chart-surface-muted: #262626;
+  --chart-border: rgba(255, 255, 255, 0.08);
+  --chart-border-strong: rgba(255, 255, 255, 0.16);
+  --chart-text: #f4f4f5;
+  --chart-text-soft: #d4d4d8;
+  --chart-muted: #a1a1aa;
+  --chart-faint: #71717a;
+  --chart-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -18px rgba(0, 0, 0, 0.6);
+  --chart-focus: 0 0 0 3px rgba(96, 165, 250, 0.4);
+  --chart-danger: #f43f5e;
+  --chart-danger-soft: rgba(244, 63, 94, 0.12);
+  --chart-danger-border: rgba(244, 63, 94, 0.3);
+  --chart-danger-text: #fda4af;
+  --chart-caution: #f59e0b;
+  --chart-caution-soft: rgba(245, 158, 11, 0.12);
+  --chart-caution-border: rgba(245, 158, 11, 0.3);
+  --chart-caution-text: #fcd34d;
+  --chart-ok: #34d399;
+  --chart-ok-soft: rgba(52, 211, 153, 0.12);
+  --chart-ok-text: #6ee7b7;
+  --chart-info-soft: rgba(96, 165, 250, 0.12);
+  --chart-info-text: #93c5fd;
+  --chart-teal: #2dd4bf;
+  --chart-violet: #a78bfa;
+  --chart-blue: #60a5fa;
+  --chart-rose: #fb7185;
+  --chart-amber: #fbbf24;
+  --chart-brand: #22c55e;
+  --chart-accent-soft: color-mix(in srgb, var(--chart-accent) 18%, var(--chart-surface));
+  --chart-accent-text: color-mix(in srgb, var(--chart-accent) 70%, white);
+}
+
 /* Shared chart building blocks, mirroring the Patient Overview. */
 .dental-chart-page .chart-pill {
   display: inline-flex;
@@ -94,7 +133,7 @@
 .dental-chart-page button.chart-pill[aria-pressed="true"] {
   background: var(--chart-accent-soft);
   border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
-  color: var(--chart-accent-strong);
+  color: var(--chart-accent-text);
 }
 
 .dental-chart-page .chart-pill[data-tone="ok"] {
@@ -147,8 +186,8 @@
   box-shadow: var(--chart-focus);
 }
 
-/* The chart is light-only: pin Frappe's dark-mode variables to their v16 light values. */
-[data-theme="dark"] .dental-chart-page.derma-chart-page {
+/* The annotation studio stays light: pin Frappe's dark-mode variables to their v16 light values. */
+[data-theme="dark"] .derma-annotation-modal {
   --alert-bg-danger: #fff7f7;
   --alert-bg-info: #f7fbfd;
   --alert-bg-success: #e4f5e9;
@@ -384,7 +423,7 @@
 
 .derma-section-actions button:hover {
   border-color: #5eead4;
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   background: #f0fdfa;
 }
 
@@ -570,7 +609,7 @@
 
 .chart-annotation-edit:hover {
   border-color: var(--derma-brand);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .chart-annotation-delete {
@@ -900,11 +939,11 @@
 .derma-mode-switch button.active {
   border-color: var(--derma-brand-light);
   background: var(--derma-success-bg);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-mode-switch button.active small {
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-mode-context {
@@ -1817,7 +1856,7 @@
 }
 
 .timeline-copy em {
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 11px;
   font-style: normal;
   font-weight: 800;
@@ -1946,7 +1985,7 @@
 .response-chip-row button.active {
   border-color: var(--derma-brand);
   background: var(--derma-success-bg);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-followup-workspace,
@@ -2255,7 +2294,7 @@
 .link {
   border: 0;
   background: transparent;
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-weight: 800;
   cursor: pointer;
   padding: 0;
@@ -2647,7 +2686,7 @@ body.derma-annotation-open .modal-backdrop {
   padding: 8px 16px;
   background: var(--derma-success-bg);
   border-bottom: 1px solid var(--derma-border);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 13px;
   font-weight: 700;
 }
@@ -2688,7 +2727,7 @@ body.derma-annotation-open .modal-backdrop {
   border: 1px solid var(--derma-brand);
   border-radius: 8px;
   background: var(--derma-white);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   padding: 3px 8px;
   font-size: 13px;
   font-weight: 800;
@@ -2705,7 +2744,7 @@ body.derma-annotation-open .modal-backdrop {
   border: 1px solid var(--derma-brand);
   border-radius: 8px;
   background: var(--derma-white);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   padding: 5px 12px;
   font-size: 12.5px;
   font-weight: 800;
@@ -2738,7 +2777,7 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-header-actions button.active {
   border-color: var(--derma-brand);
   background: var(--derma-success-bg);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-annotation-header-actions button:disabled {
@@ -2927,7 +2966,7 @@ body.derma-annotation-open .modal-backdrop {
   border-radius: 9px;
   background: var(--derma-white);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
@@ -2973,7 +3012,7 @@ body.derma-annotation-open .modal-backdrop {
 }
 
 .derma-variable-editor > strong {
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 12px;
 }
 

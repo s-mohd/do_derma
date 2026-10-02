@@ -2305,7 +2305,7 @@ function handleRowDoubleClick(row, event) {
   max-width: 280px;
   border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
   background: var(--chart-accent-soft);
-  color: var(--chart-accent-strong);
+  color: var(--chart-accent-text);
   cursor: pointer;
 }
 

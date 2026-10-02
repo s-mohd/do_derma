@@ -212,7 +212,7 @@ const readinessText = computed(() => {
   border: 4px solid var(--chart-surface);
   box-shadow: 0 0 0 1px var(--chart-border), var(--chart-shadow);
   background: var(--chart-accent-soft);
-  color: var(--chart-accent-strong);
+  color: var(--chart-accent-text);
   font-size: 32px;
   font-weight: 700;
   object-fit: cover;

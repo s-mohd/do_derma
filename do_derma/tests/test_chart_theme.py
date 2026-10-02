@@ -8,7 +8,7 @@ from unittest import TestCase
 import frappe
 
 CHART_CSS = Path(__file__).parents[1] / "public" / "js" / "chart" / "derma_chart.bundle.css"
-DARK_SCOPE = '[data-theme="dark"] .dental-chart-page.derma-chart-page {'
+DARK_SCOPE = '[data-theme="dark"] .derma-annotation-modal {'
 CONTROL_VARIABLES = (
 	"--text-color",
 	"--heading-color",
@@ -20,8 +20,7 @@ CONTROL_VARIABLES = (
 
 
 class TestChartDarkMode(TestCase):
-	"""The chart is light-only, so desk dark mode must not leak dark text or
-	control colours into it."""
+	"""Desk dark mode must not leak dark text or control colours into the light annotation studio."""
 
 	def get_dark_scope_variables(self):
 		css = CHART_CSS.read_text()
@@ -29,7 +28,7 @@ class TestChartDarkMode(TestCase):
 		block = css.split(DARK_SCOPE, 1)[1].split("}", 1)[0]
 		return dict(re.findall(r"(--[\w-]+):\s*([^;]+);", block))
 
-	def test_control_variables_are_pinned_light(self):
+	def test_studio_stays_light(self):
 		variables = self.get_dark_scope_variables()
 		for name in CONTROL_VARIABLES:
 			self.assertIn(name, variables)
@@ -59,12 +58,6 @@ class TestChartTokens(TestCase):
 			chart_name = name.replace("--ov-", "--chart-", 1)
 			self.assertIn(chart_name, chart)
 			self.assertEqual(chart[chart_name].strip(), value.strip(), chart_name)
-
-	def test_chart_tokens_are_not_overridden_in_dark_mode(self):
-		css = CHART_CSS.read_text()
-		self.assertNotIn("--chart-", css.split(DARK_SCOPE, 1)[1].split("}", 1)[0])
-		self.assertNotRegex(css, r'\[data-theme="dark"\][^{]*\{[^}]*--chart-')
-
 
 CHART_DIR = CHART_CSS.parent
 STYLE_BLOCK = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
@@ -164,3 +157,68 @@ class TestChartReviewFindings(TestCase):
 		hosts = [part.strip() for part in selector.split(",")]
 		for host in (".dental-chart-page.derma-chart-page", ".derma-annotation-modal", ".modal"):
 			self.assertIn(host, hosts)
+
+
+DARK_CHART_SELECTOR = '[data-theme="dark"] .dental-chart-page.derma-chart-page'
+OVERVIEW_DARK_SELECTOR = '[data-theme="dark"] .do-health-drawer--overview'
+
+
+def get_rule_body(css: str, selector_start: str) -> str:
+	"""Body of the first rule whose selector list starts with `selector_start`."""
+	css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+	start = css.index(selector_start)
+	return css[css.index("{", start) + 1 : css.index("}", start)]
+
+
+def get_variables(body: str) -> dict[str, str]:
+	return {name: value.strip() for name, value in re.findall(r"(--[\w-]+):\s*([^;]+);", body)}
+
+
+def mix(hex_colour: str, share: float, other: tuple[int, int, int]) -> str:
+	channels = [int(hex_colour[i : i + 2], 16) for i in (1, 3, 5)]
+	return "#" + "".join(f"{round(c * share + o * (1 - share)):02x}" for c, o in zip(channels, other))
+
+
+def get_contrast(first: str, second: str) -> float:
+	lighter, darker = sorted((get_relative_luminance(first), get_relative_luminance(second)), reverse=True)
+	return (lighter + 0.05) / (darker + 0.05)
+
+
+class TestChartDarkPalette(TestCase):
+	"""Under desk dark mode the chart and its dialogs take the Overview's dark palette."""
+
+	def get_dark_tokens(self):
+		return get_variables(get_rule_body(CHART_CSS.read_text(), DARK_CHART_SELECTOR))
+
+	def test_every_overview_dark_token_has_a_chart_twin(self):
+		overview_css = Path(frappe.get_app_path("do_health", "public", "css", "health_sidebar.css")).read_text()
+		overview = get_variables(get_rule_body(overview_css, OVERVIEW_DARK_SELECTOR))
+		dark = self.get_dark_tokens()
+		for name, value in overview.items():
+			self.assertEqual(dark.get(name.replace("--ov-", "--chart-", 1)), value, name)
+
+	def test_dark_block_covers_page_and_dialogs_but_not_the_studio(self):
+		css = re.sub(r"/\*.*?\*/", "", CHART_CSS.read_text(), flags=re.S)
+		start = css.index(DARK_CHART_SELECTOR)
+		selectors = [part.strip() for part in css[start : css.index("{", start)].split(",")]
+		self.assertIn('[data-theme="dark"] .modal', selectors)
+		self.assertFalse(any("derma-annotation-modal" in part for part in selectors))
+		self.assertIn("color-scheme: dark", get_rule_body(CHART_CSS.read_text(), DARK_CHART_SELECTOR))
+
+	def test_accent_text_reads_on_dark(self):
+		dark = self.get_dark_tokens()
+		self.assertEqual(dark["--chart-accent-text"], "color-mix(in srgb, var(--chart-accent) 70%, white)")
+		for accent in ("#16a34a", "#EC864B"):
+			self.assertGreaterEqual(get_contrast(mix(accent, 0.7, (255, 255, 255)), dark["--chart-surface"]), 4.5, accent)
+
+	def test_light_accent_text_matches_filled_buttons(self):
+		light = get_token_block(CHART_CSS.read_text(), CHART_FIRST_TOKEN)
+		self.assertEqual(light["--chart-accent-text"], "var(--chart-accent-strong)")
+
+	def test_modal_selector_only_in_token_blocks(self):
+		css = re.sub(r"/\*.*?\*/", "", CHART_CSS.read_text(), flags=re.S)
+		for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+			if not re.search(r"\.modal(?![\w-])", selector) or "body.derma-annotation-open" in selector:
+				continue
+			real = [line for line in body.split(";") if line.strip() and not line.strip().startswith("--") and "color-scheme" not in line]
+			self.assertEqual(real, [], selector.strip())
