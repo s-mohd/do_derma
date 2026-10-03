@@ -10,7 +10,7 @@
 
     <template v-else>
       <label v-for="row in editMode ? layout : documentedRows" :key="row.fieldname" class="soap-field">
-        <span class="soap-label">{{ row.label }}</span>
+        <span class="soap-label chart-label">{{ row.label }}</span>
         <textarea
           v-if="editMode"
           v-model="draft[row.fieldname]"
@@ -120,26 +120,15 @@ function markSaved() {
   gap: 6px;
 }
 
-.soap-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--chart-text);
-}
-
 .soap-input {
   width: 100%;
   resize: vertical;
   padding: 8px 10px;
   font: inherit;
   color: var(--chart-text);
-  background: var(--control-bg, var(--chart-surface-muted));
-  border: 1px solid var(--chart-border);
-  border-radius: 12px;
-}
-
-.soap-input:focus {
-  outline: none;
-  border-color: var(--chart-accent-strong);
+  background: var(--chart-surface);
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
 }
 
 .soap-input[readonly] {
@@ -148,13 +137,9 @@ function markSaved() {
 
 .soap-readonly {
   margin: 0;
-  padding: 8px 10px;
   font-size: 13px;
   line-height: 1.5;
   color: var(--chart-text);
   white-space: pre-wrap;
-  background: var(--chart-surface-muted);
-  border: 1px solid var(--chart-border);
-  border-radius: 12px;
 }
 </style>

@@ -14,7 +14,7 @@
       class="fields-section"
       :class="{ 'has-separator': sectionIndex > 0 }"
     >
-      <h4 v-if="section.label" class="fields-section-title">{{ section.label }}</h4>
+      <h4 v-if="section.label" class="fields-section-title chart-label">{{ section.label }}</h4>
 
       <div class="fields-columns" :style="{ '--fields-columns': String(section.columns.length || 1) }">
         <section
@@ -533,10 +533,6 @@ async function refreshControls() {
 
 .fields-section-title {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.35;
-  font-weight: 700;
-  color: var(--chart-text);
 }
 
 .fields-columns {
@@ -564,22 +560,31 @@ async function refreshControls() {
 }
 
 .field-control-host:deep(.control-label) {
-  color: var(--chart-text);
-  font-size: 14px;
-  line-height: 1.3;
-  font-weight: 600;
-  letter-spacing: 0;
   margin-bottom: 6px;
-  text-transform: none;
+  color: var(--chart-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .field-control-host:deep(textarea.form-control),
 .field-control-host:deep(input.form-control),
 .field-control-host:deep(.control-input .form-control),
 .field-control-host:deep(.table-multiselect.form-control) {
-  background: var(--control-bg, var(--chart-surface-muted));
-  border-color: var(--chart-border);
-  border-radius: 12px;
+  background: var(--chart-surface);
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+}
+
+.field-control-host:deep(.like-disabled-input) {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chart-text);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .field-control-host:deep(.table-multiselect.form-control .tb-selected-value) {

@@ -719,3 +719,21 @@ class TestAssessmentRestyle(TestCase):
 		block = get_assessment_block()
 		self.assertIn(':mode-locked="assessmentModeLocked"', block)
 		self.assertIn('@switch-mode="requestAssessmentModeChange"', block)
+
+	def test_note_fields_use_labels_plain_text_and_chart_inputs(self):
+		soap, _, soap_style = get_component_parts(ASSESSMENT_DIR / "SoapNoteFields.vue")
+		self.assertIn('class="soap-label chart-label"', soap)
+		self.assertNotRegex(get_rule_body(soap_style, ".soap-readonly {"), r"background|border")
+		self.assertIn("background: var(--chart-surface);", get_rule_body(soap_style, ".soap-input {"))
+
+		structured, _, structured_style = get_component_parts(ASSESSMENT_DIR / "StructuredAssessmentFields.vue")
+		self.assertIn('class="fields-section-title chart-label"', structured)
+		self.assertIn(
+			"text-transform: uppercase;",
+			get_rule_body(structured_style, ".field-control-host:deep(.control-label) {"),
+		)
+		self.assertIn(
+			"background: transparent;",
+			get_rule_body(structured_style, ".field-control-host:deep(.like-disabled-input) {"),
+		)
+		self.assertNotIn("--control-bg", soap_style + structured_style)
