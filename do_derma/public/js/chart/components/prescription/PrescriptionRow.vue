@@ -193,8 +193,10 @@ function mountPicker(field) {
     },
     render_input: true,
   })
-  // `set_value` would fire `change` and close the picker at once.
-  control.$input?.val(props.row.values[field] || "")
+  // Seeded without firing `change`; desk's blur only reports values that differ from `last_value`.
+  const current = props.row.values[field] || ""
+  control.set_input(current)
+  control.last_value = current
   control.$input?.focus()
 }
 

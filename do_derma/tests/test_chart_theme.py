@@ -884,6 +884,13 @@ class TestPrescriptionRow(TestCase):
 		for host in hosts:
 			self.assertIn("@keydown.escape.stop", host)
 
+	def test_a_picker_starts_from_the_cell_value_so_clearing_counts(self):
+		"""Desk's Link blur compares against `last_value`; an unseeded control never reports a clear."""
+		_, script, _ = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("control.set_input(current)", script)
+		self.assertIn("control.last_value = current", script)
+		self.assertNotIn("$input?.val(", script)
+
 	def test_drug_code_sits_under_the_medication(self):
 		template, _, _ = get_component_parts(PRESCRIPTION_ROW)
 		medication = get_element(template, '<td class="medication-cell"')
