@@ -11,13 +11,13 @@
         v-else
         type="button"
         class="cell-input medication-name"
-        :class="{ 'is-empty': !row.values.medication, 'is-missing': missing.includes('medication') }"
+        :class="{ 'is-empty': !row.values.medication && !readOnly, 'is-missing': missing.includes('medication') }"
         data-field="medication"
         data-test="prescription-medication"
         :disabled="readOnly"
         @click="emit('open-picker', 'medication')"
       >
-        {{ row.values.medication || __("Choose medication") }}
+        {{ medicationLabel }}
       </button>
       <div
         v-if="openField === 'drug_code'"
@@ -153,6 +153,14 @@ const props = defineProps({
 
 const emit = defineEmits(["update", "open-picker", "close-picker", "toggle-comment", "remove"])
 
+// Older rows carry only a drug name or item code.
+const medicationLabel = computed(() => {
+  const { medication, drug_code: drugCode } = props.row.values
+  if (medication) return medication
+  if (props.readOnly) return props.row.original.drug_name || drugCode || "—"
+  return __("Choose medication")
+})
+
 const rowElement = ref(null)
 const preview = ref(null)
 let pickerHost = null
@@ -274,6 +282,8 @@ const previewStyle = computed(() => {
   padding-left: 0;
   border-color: transparent;
   background: transparent;
+  color: var(--chart-text);
+  opacity: 1;
   cursor: default;
 }
 

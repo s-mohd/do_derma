@@ -891,6 +891,14 @@ class TestPrescriptionRow(TestCase):
 		self.assertIn("control.last_value = current", script)
 		self.assertNotIn("$input?.val(", script)
 
+	def test_read_only_rows_name_older_drugs_in_text_colour(self):
+		"""Most stored rows predate the Medication link and carry only a drug name or item code."""
+		template, script, style = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("{{ medicationLabel }}", template)
+		self.assertIn("props.row.original.drug_name || drugCode", script)
+		self.assertRegex(style, r"\.cell-input:disabled \{[^}]*color: var\(--chart-text\)")
+		self.assertRegex(style, r"\.cell-input:disabled \{[^}]*opacity: 1;")
+
 	def test_drug_code_sits_under_the_medication(self):
 		template, _, _ = get_component_parts(PRESCRIPTION_ROW)
 		medication = get_element(template, '<td class="medication-cell"')
