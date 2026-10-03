@@ -52,13 +52,16 @@ class TestChartTokens(TestCase):
 	"""The chart wears the Patient Overview's light tokens; drift from do_health fails here."""
 
 	def test_every_overview_token_has_a_matching_chart_token(self):
-		overview_css = Path(frappe.get_app_path("do_health", "public", "css", "health_sidebar.css")).read_text()
+		overview_css = Path(
+			frappe.get_app_path("do_health", "public", "css", "health_sidebar.css")
+		).read_text()
 		overview = get_token_block(overview_css, OVERVIEW_FIRST_TOKEN)
 		chart = get_token_block(CHART_CSS.read_text(), CHART_FIRST_TOKEN)
 		for name, value in overview.items():
 			chart_name = name.replace("--ov-", "--chart-", 1)
 			self.assertIn(chart_name, chart)
 			self.assertEqual(chart[chart_name].strip(), value.strip(), chart_name)
+
 
 CHART_DIR = CHART_CSS.parent
 STYLE_BLOCK = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
@@ -105,7 +108,9 @@ class TestChartComponentColours(TestCase):
 		self.assertEqual(self.get_files_with_hex(), set())
 
 	def test_teleports_target_the_section_card(self):
-		self.assertIn('id="chart-section-actions"', (CHART_DIR / "components/shell/SectionCard.vue").read_text())
+		self.assertIn(
+			'id="chart-section-actions"', (CHART_DIR / "components/shell/SectionCard.vue").read_text()
+		)
 		for path in CHART_DIR.rglob("*.vue"):
 			for tag in re.findall(r"<Teleport[^>]*>", path.read_text()):
 				self.assertIn('to="#chart-section-actions"', tag, path.name)
@@ -130,9 +135,17 @@ class TestChartReviewFindings(TestCase):
 			self.assertGreaterEqual(contrast, 4.5, accent)
 
 	def test_every_procedure_status_has_a_tone(self):
-		doctype = Path(frappe.get_app_path("healthcare", "healthcare", "doctype", "clinical_procedure", "clinical_procedure.json"))
-		status = next(field for field in json.loads(doctype.read_text())["fields"] if field["fieldname"] == "status")
-		tones = re.search(r"const STATUS_TONES = \{([^}]*)\}", (CHART_DIR / "components/ProcedurePanel.vue").read_text()).group(1)
+		doctype = Path(
+			frappe.get_app_path(
+				"healthcare", "healthcare", "doctype", "clinical_procedure", "clinical_procedure.json"
+			)
+		)
+		status = next(
+			field for field in json.loads(doctype.read_text())["fields"] if field["fieldname"] == "status"
+		)
+		tones = re.search(
+			r"const STATUS_TONES = \{([^}]*)\}", (CHART_DIR / "components/ProcedurePanel.vue").read_text()
+		).group(1)
 		for option in status["options"].split("\n"):
 			self.assertRegex(tones, rf'(^|[\s{{,])"?{re.escape(option)}"?:', option)
 
@@ -154,7 +167,9 @@ class TestChartReviewFindings(TestCase):
 	def test_tokens_reach_content_rendered_outside_the_page(self):
 		css = CHART_CSS.read_text()
 		start = css.index(CHART_FIRST_TOKEN)
-		selector = re.sub(r"/\*.*?\*/", "", css[css.rfind("}", 0, start) + 1 : css.rindex("{", 0, start)], flags=re.S)
+		selector = re.sub(
+			r"/\*.*?\*/", "", css[css.rfind("}", 0, start) + 1 : css.rindex("{", 0, start)], flags=re.S
+		)
 		hosts = [part.strip() for part in selector.split(",")]
 		for host in (".dental-chart-page.derma-chart-page", ".derma-annotation-modal", ".modal"):
 			self.assertIn(host, hosts)
@@ -177,7 +192,9 @@ def get_variables(body: str) -> dict[str, str]:
 
 def mix(hex_colour: str, share: float, other: tuple[int, int, int]) -> str:
 	channels = [int(hex_colour[i : i + 2], 16) for i in (1, 3, 5)]
-	return "#" + "".join(f"{round(c * share + o * (1 - share)):02x}" for c, o in zip(channels, other, strict=True))
+	return "#" + "".join(
+		f"{round(c * share + o * (1 - share)):02x}" for c, o in zip(channels, other, strict=True)
+	)
 
 
 def get_contrast(first: str, second: str) -> float:
@@ -192,7 +209,9 @@ class TestChartDarkPalette(TestCase):
 		return get_variables(get_rule_body(CHART_CSS.read_text(), DARK_CHART_SELECTOR))
 
 	def test_every_overview_dark_token_has_a_chart_twin(self):
-		overview_css = Path(frappe.get_app_path("do_health", "public", "css", "health_sidebar.css")).read_text()
+		overview_css = Path(
+			frappe.get_app_path("do_health", "public", "css", "health_sidebar.css")
+		).read_text()
 		overview = get_variables(get_rule_body(overview_css, OVERVIEW_DARK_SELECTOR))
 		dark = self.get_dark_tokens()
 		for name, value in overview.items():
@@ -210,7 +229,9 @@ class TestChartDarkPalette(TestCase):
 		dark = self.get_dark_tokens()
 		self.assertEqual(dark["--chart-accent-text"], "color-mix(in srgb, var(--chart-accent) 70%, white)")
 		for accent in ("#16a34a", "#EC864B"):
-			self.assertGreaterEqual(get_contrast(mix(accent, 0.7, (255, 255, 255)), dark["--chart-surface"]), 4.5, accent)
+			self.assertGreaterEqual(
+				get_contrast(mix(accent, 0.7, (255, 255, 255)), dark["--chart-surface"]), 4.5, accent
+			)
 
 	def test_light_accent_text_matches_filled_buttons(self):
 		light = get_token_block(CHART_CSS.read_text(), CHART_FIRST_TOKEN)
@@ -244,7 +265,9 @@ class TestChartStylesheetColours(TestCase):
 		self.assertNotRegex(CHART_CSS.read_text(), r"(?<![\w-])color:\s*var\(--derma-white\)")
 
 	def test_fills_never_use_a_text_token(self):
-		self.assertNotRegex(CHART_CSS.read_text(), r"background(-color)?:\s*var\(--(chart-text|derma-text|derma-navy)")
+		self.assertNotRegex(
+			CHART_CSS.read_text(), r"background(-color)?:\s*var\(--(chart-text|derma-text|derma-navy)"
+		)
 
 	def test_no_translucent_white_outside_token_blocks(self):
 		white = re.compile(r"rgba?\(\s*255\s*,\s*255\s*,\s*255")
@@ -256,10 +279,67 @@ class TestChartStylesheetColours(TestCase):
 		]
 		for path in CHART_DIR.rglob("*.vue"):
 			if not path.relative_to(CHART_DIR).as_posix().startswith("annotation/"):
-				offenders += [path.name for style in STYLE_BLOCK.findall(path.read_text()) if white.search(style)]
+				offenders += [
+					path.name for style in STYLE_BLOCK.findall(path.read_text()) if white.search(style)
+				]
 		self.assertEqual(offenders, [])
 
 	def test_danger_buttons_carry_the_shared_button_class(self):
 		for path in CHART_DIR.rglob("*.vue"):
-			for classes in re.findall(r'<button[^>]*\sclass="((?:[^"]*\s)?danger(?:\s[^"]*)?)"', path.read_text()):
+			for classes in re.findall(
+				r'<button[^>]*\sclass="((?:[^"]*\s)?danger(?:\s[^"]*)?)"', path.read_text()
+			):
 				self.assertRegex(classes, r"\b(ghost|icon-btn)\b", f"{path.name}: {classes}")
+
+
+def get_top_level_rules(css: str) -> list[tuple[int, str, str, str | None]]:
+	"""(index, selector, body, enclosing @media or None) for every rule, in order."""
+	css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+	rules, index, media, depth, start = [], 0, None, 0, 0
+	for position, char in enumerate(css):
+		if char == "{":
+			prelude = css[start:position].strip()
+			if depth == 0 and prelude.startswith("@media"):
+				media = prelude
+			elif not prelude.startswith("@") and depth == (1 if media else 0):
+				rules.append([index, prelude, position, media])
+				index += 1
+			depth += 1
+			start = position + 1
+		elif char == "}":
+			depth -= 1
+			if rules and len(rules[-1]) == 4 and depth == (1 if media else 0):
+				rules[-1].append(css[rules[-1][2] + 1 : position])
+			if depth == 0:
+				media = None
+			start = position + 1
+	return [(rule[0], rule[1], rule[4] if len(rule) > 4 else "", rule[3]) for rule in rules]
+
+
+DECLARATION = re.compile(r"([\w-]+)\s*:\s*([^;]+);")
+
+
+def get_shadowed_declarations(css: str) -> list[str]:
+	"""Top-level declarations a later top-level rule overrides for every selector they apply to."""
+	rules = [rule for rule in get_top_level_rules(css) if not rule[3]]
+	shadowed = []
+	for position, (_index, selector, body, _media) in enumerate(rules):
+		parts = {part.strip() for part in selector.split(",")}
+		later = [
+			rule for rule in rules[position + 1 :] if parts <= {part.strip() for part in rule[1].split(",")}
+		]
+		overridden = {name for rule in later for name, _value in DECLARATION.findall(rule[2])}
+		shadowed += [
+			f"{selector.strip()[:50]} {{ {name} }}"
+			for name, value in DECLARATION.findall(body)
+			if name in overridden and "!important" not in value
+		]
+	return shadowed
+
+
+class TestChartStylesheetStructure(TestCase):
+	"""The early-closing @media trap: a later unconditional rule with the same selector silently
+	overrides an earlier declaration, so editing the earlier one changes nothing."""
+
+	def test_no_declaration_is_shadowed_by_a_later_rule_with_the_same_selector(self):
+		self.assertEqual(get_shadowed_declarations(CHART_CSS.read_text()), [])

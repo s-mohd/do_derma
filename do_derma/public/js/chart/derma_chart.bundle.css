@@ -380,7 +380,6 @@
 
 .dental-chart-page.derma-chart-page {
   min-height: calc(100vh - 96px);
-  padding: 12px 16px 24px;
   background: var(--chart-bg);
   color: var(--derma-text-deep);
   color-scheme: light;
@@ -517,10 +516,7 @@
 
 .derma-console-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(290px, 360px);
-  gap: 12px;
   align-items: start;
-  margin-top: 0;
 }
 
 .derma-console-main,
@@ -530,7 +526,6 @@
 
 .derma-console-side {
   display: grid;
-  gap: 12px;
   align-content: start;
   position: sticky;
   top: 10px;
@@ -550,7 +545,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 13px;
   border-bottom: 1px solid var(--derma-bg-muted);
 }
 
@@ -570,7 +564,6 @@
   /* Wide enough for a full timestamp - 150px truncated every date to "14-08-202...". */
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px;
-  padding: 10px;
 }
 
 .chart-annotation-card {
@@ -892,21 +885,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
   border-bottom: 1px solid var(--derma-border-subtle);
 }
 
 .section-panel > header strong {
   display: block;
   color: var(--derma-text-strong);
-  font-size: 16px;
 }
 
 .section-panel > header small {
   display: block;
   margin-top: 3px;
   color: var(--derma-text-muted);
-  font-size: 12px;
 }
 
 .derma-mode-switch {
@@ -1106,8 +1096,6 @@
 }
 
 .derma-main-workspace .derma-excalidraw-canvas {
-  height: min(430px, 52vh);
-  min-height: 340px;
   border-right: 0;
 }
 
@@ -1537,7 +1525,6 @@
 
 .review-section-stack {
   display: grid;
-  gap: 12px;
 }
 
 .panel-heading,
@@ -2452,6 +2439,7 @@
   }
 }
 
+/* Chart layout: these rules apply at every width, not only below 900px. */
 .dental-chart-page.derma-chart-page {
   padding: 8px 10px 18px;
   font-size: 13px;
