@@ -407,9 +407,15 @@
                   class="icon-btn"
                   type="button"
                   data-test="procedure-note"
-                  :title="noteLabel(row)"
+                  :title="getRowNoteRawValue(row) ? undefined : noteLabel(row)"
                   :aria-label="noteLabel(row)"
-                  @click.stop="openProcedureNoteDialog(row)"
+                  :aria-describedby="notePreview?.row === row.name ? 'procedure-note-preview' : undefined"
+                  @click.stop="hideNotePreview(); openProcedureNoteDialog(row)"
+                  @mouseenter="showNotePreview(row, $event)"
+                  @focus="showNotePreview(row, $event)"
+                  @mouseleave="hideNotePreview"
+                  @blur="hideNotePreview"
+                  @keydown.escape="hideNotePreview"
                 >
                   <i :class="isEditable(row) ? 'fa-regular fa-note-sticky' : 'fa-regular fa-eye'"></i>
                   <span v-if="getRowNoteRawValue(row)" class="note-dot"></span>
@@ -497,6 +503,18 @@
       <button v-if="hasActiveFilters" type="button" class="ghost small" @click="clearHistoryFilters">
         {{ __("Clear filters") }}
       </button>
+    </div>
+
+    <div
+      v-if="notePreview"
+      id="procedure-note-preview"
+      class="note-preview"
+      role="tooltip"
+      data-test="procedure-note-preview"
+      :style="notePreviewStyle"
+    >
+      <span class="chart-label">{{ notePreview.title }}</span>
+      <p>{{ notePreview.text }}</p>
     </div>
 
     <div v-if="enableBillingSync" class="invoice-footer">
@@ -1009,6 +1027,42 @@ watch(
 
 onMounted(() => {
   nextTick(() => ensureViewportFilled())
+  // The card is pinned to the viewport, so any scroll would leave it beside the wrong row.
+  window.addEventListener("scroll", hideNotePreview, true)
+})
+
+const NOTE_PREVIEW_DELAY_MS = 250
+const NOTE_PREVIEW_GAP_PX = 8
+const notePreview = ref(null)
+let notePreviewTimer = null
+
+function showNotePreview(row, event) {
+  const text = getRowNoteValue(row)
+  if (!text) return
+  const anchor = event.currentTarget.getBoundingClientRect()
+  const delay = event.type === "focus" ? 0 : NOTE_PREVIEW_DELAY_MS
+  clearTimeout(notePreviewTimer)
+  notePreviewTimer = setTimeout(() => {
+    notePreview.value = { row: row.name, title: getProcedureLabel(row), text, anchor }
+  }, delay)
+}
+
+function hideNotePreview() {
+  clearTimeout(notePreviewTimer)
+  notePreview.value = null
+}
+
+// Opens to the left of the icon, and upward in the lower half so it never runs off the window.
+const notePreviewStyle = computed(() => {
+  const anchor = notePreview.value?.anchor
+  if (!anchor) return {}
+  const style = { right: `${window.innerWidth - anchor.left + NOTE_PREVIEW_GAP_PX}px` }
+  if (anchor.top > window.innerHeight / 2) {
+    style.bottom = `${window.innerHeight - anchor.bottom}px`
+  } else {
+    style.top = `${anchor.top}px`
+  }
+  return style
 })
 
 const edits = ref({})
@@ -1634,6 +1688,8 @@ async function setOverrideFromPriceList(row, priceList) {
 }
 
 onBeforeUnmount(() => {
+  hideNotePreview()
+  window.removeEventListener("scroll", hideNotePreview, true)
   if (overrideOutsideHandler) {
     document.removeEventListener("click", overrideOutsideHandler)
     overrideOutsideHandler = null
@@ -2247,6 +2303,31 @@ function handleRowDoubleClick(row, event) {
 .dental-chart-page .procedure-table .icon-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* Fixed, not absolute: the table wrapper's overflow-x would clip it beside the last column. */
+.dental-chart-page .note-preview {
+  position: fixed;
+  z-index: 1050;
+  width: min(320px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--chart-border);
+  border-radius: 10px;
+  background: var(--chart-surface);
+  box-shadow: var(--chart-shadow);
+  pointer-events: none;
+}
+
+.dental-chart-page .note-preview p {
+  display: -webkit-box;
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--chart-text);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 10;
 }
 
 .dental-chart-page .procedure-table .note-dot {

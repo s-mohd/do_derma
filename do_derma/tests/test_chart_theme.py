@@ -581,3 +581,30 @@ class TestProcedurePanelRestyle(TestCase):
 	def test_a_procedure_without_a_price_list_shows_no_placeholder_line(self):
 		template, _, _ = get_panel_parts()
 		self.assertIn('<span v-if="displayPriceList(row)" class="price-meta">', template)
+
+	def test_hovering_the_note_icon_previews_the_note(self):
+		template, script, style = get_panel_parts()
+		start = template.index('data-test="procedure-note"')
+		button = template[template.rindex("<button", 0, start) : template.index("</button>", start)]
+		for handler in (
+			'@mouseenter="showNotePreview(row, $event)"',
+			'@focus="showNotePreview(row, $event)"',
+			'@mouseleave="hideNotePreview"',
+			'@blur="hideNotePreview"',
+			'@keydown.escape="hideNotePreview"',
+		):
+			self.assertIn(handler, button)
+		self.assertIn(
+			":aria-describedby=\"notePreview?.row === row.name ? 'procedure-note-preview' : undefined\"",
+			button,
+		)
+		self.assertIn(':title="getRowNoteRawValue(row) ? undefined : noteLabel(row)"', button)
+		card = get_element(template, '<div\n      v-if="notePreview"')
+		self.assertIn('id="procedure-note-preview"', card)
+		self.assertIn('role="tooltip"', card)
+		self.assertIn("{{ notePreview.text }}", card)
+		show = script[script.index("function showNotePreview(") :]
+		show = show[: show.index("\n}\n")]
+		self.assertIn("const text = getRowNoteValue(row)", show)
+		self.assertIn("if (!text) return", show)
+		self.assertRegex(style, r"\.note-preview \{[^}]*position: fixed;")
