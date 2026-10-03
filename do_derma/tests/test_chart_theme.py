@@ -777,14 +777,9 @@ class TestAssessmentRestyle(TestCase):
 			'<section class="chart-annotation-history chart-inner-card encounter-annotation-history">', block
 		)
 		self.assertIn('<i v-else class="fa-regular fa-pen-to-square" aria-hidden="true"></i>', block)
-		self.assertIn('<h3 class="assessment-block-title">{{ __("Drawings") }}</h3>', block)
-		previous, _, _ = get_component_parts(ASSESSMENT_DIR / "PreviousVisitsPanel.vue")
-		self.assertIn('<h3 class="assessment-block-title">{{ __("Previous Visits") }}</h3>', previous)
-		panel, _, _ = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
-		for title in ("Clinical note", "Patient advice"):
-			self.assertIn(f'<h3 class="assessment-block-title">{{{{ __("{title}") }}}}</h3>', panel)
-		voice, _, _ = get_component_parts(ASSESSMENT_DIR / "VoiceScribe.vue")
-		self.assertIn('<h3 class="assessment-block-title">{{ __("Dictation") }}</h3>', voice)
+		self.assertRegex(
+			block, r'<h3 class="assessment-block-title" data-tone="\w+">\s*<span class="block-icon"'
+		)
 		css = CHART_CSS.read_text()
 		title = get_rule_body(css, ".clinical-soap-stack .assessment-block-title {")
 		self.assertIn("font-weight: 600;", title)
@@ -1021,3 +1016,90 @@ class TestPrescriptionPanelRestyle(TestCase):
 		)
 		self.assertIn("JSON.stringify(getPayload()) === errorPayload.value", script)
 		self.assertNotIn("validationError.value || props.error", script)
+
+
+ASSESSMENT_BLOCK_TONES = {
+	"Dictation": "info",
+	"Clinical note": "accent",
+	"Patient advice": "ok",
+	"Drawings": "neutral",
+	"Previous Visits": "neutral",
+}
+BLOCK_TITLE = re.compile(
+	r'<h3 class="assessment-block-title" data-tone="(\w+)">\s*'
+	r'<span class="block-icon" aria-hidden="true"><i class="fa-[\w -]+"></i></span>\s*'
+	r'\{\{ __\("([^"]+)"\) \}\}'
+)
+
+
+class TestAssessmentColour(TestCase):
+	"""Assessment colour marks meaning: AI blue, the note in the clinic accent, advice green."""
+
+	def get_block_titles(self):
+		paths = [*ASSESSMENT_DIR.glob("*.vue"), CHART_DIR / "DermaChart.vue"]
+		markup = "".join(path.read_text() for path in paths)
+		self.assertNotRegex(markup, r'class="assessment-block-title">')
+		return {title: tone for tone, title in BLOCK_TITLE.findall(markup)}
+
+	def test_every_block_title_carries_its_tone_and_icon(self):
+		self.assertEqual(self.get_block_titles(), ASSESSMENT_BLOCK_TONES)
+
+	def test_tones_read_chart_tokens(self):
+		css = CHART_CSS.read_text()
+		for tone in ("info", "accent", "ok"):
+			body = get_rule_body(
+				css, f'.dental-chart-page .assessment-block-title[data-tone="{tone}"] .block-icon'
+			)
+			self.assertIn(f"var(--chart-{tone}-soft)", body)
+			self.assertIn(f"var(--chart-{tone}-text)", body)
+
+	def test_the_dictation_result_reads_as_ai(self):
+		template, _, _ = get_component_parts(ASSESSMENT_DIR / "VoiceScribe.vue")
+		for hook in ("voice-diagnosis", "voice-icd10"):
+			start = template.index(f'data-test="{hook}"')
+			opening = template[template.rindex("<", 0, start) : template.index(">", start)]
+			self.assertIn('data-tone="info"', opening)
+		self.assertIn("var(--chart-info-soft)", get_rule_body(CHART_CSS.read_text(), ".voice-result {"))
+		pill = get_rule_body(CHART_CSS.read_text(), '.voice-result .chart-pill[data-tone="info"] {')
+		self.assertIn("var(--chart-surface)", pill)
+
+	def test_patient_advice_sits_on_green(self):
+		_, _, style = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		self.assertIn("var(--chart-ok-soft)", get_rule_body(style, ".advice-block pre {"))
+
+	def test_the_active_format_wears_the_accent(self):
+		body = get_rule_body(
+			CHART_CSS.read_text(), '.dental-chart-page .tab-mode-toggle button[data-active="true"]'
+		)
+		self.assertIn("var(--chart-accent-soft)", body)
+		self.assertIn("var(--chart-accent-text)", body)
+
+	def test_accent_text_on_accent_soft_is_readable(self):
+		css = CHART_CSS.read_text()
+		light = get_token_block(css, CHART_FIRST_TOKEN)
+		dark = get_variables(get_rule_body(css, DARK_CHART_SELECTOR))
+		themes = (
+			(light["--chart-accent-strong"], (0, 0, 0), light["--chart-accent-soft"], "#ffffff"),
+			(
+				dark["--chart-accent-text"],
+				(255, 255, 255),
+				dark["--chart-accent-soft"],
+				dark["--chart-surface"],
+			),
+		)
+		for text_token, text_other, soft_token, surface in themes:
+			text_share = int(re.search(r"(\d+)%", text_token).group(1)) / 100
+			soft_share = int(re.search(r"(\d+)%", soft_token).group(1)) / 100
+			surface_rgb = tuple(int(surface[i : i + 2], 16) for i in (1, 3, 5))
+			for accent in ("#16a34a", "#EC864B"):
+				text = mix(accent, text_share, text_other)
+				soft = mix(accent, soft_share, surface_rgb)
+				self.assertGreaterEqual(get_contrast(text, soft), 4.5, (accent, soft_token))
+
+	def test_neutral_chips_stand_out_on_inner_cards(self):
+		body = get_rule_body(
+			CHART_CSS.read_text(),
+			'.dental-chart-page .chart-inner-card .assessment-block-title[data-tone="neutral"] .block-icon',
+		)
+		self.assertIn("var(--chart-surface)", body)
+		self.assertIn("border: 1px solid var(--chart-border-strong)", body)

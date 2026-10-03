@@ -58,7 +58,10 @@
     </div>
 
     <template v-else>
-      <h3 class="assessment-block-title">{{ __("Clinical note") }}</h3>
+      <h3 class="assessment-block-title" data-tone="accent">
+        <span class="block-icon" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></span>
+        {{ __("Clinical note") }}
+      </h3>
       <SoapNoteFields
         v-if="mode === SOAP || mode === HP"
         ref="fieldsRef"
@@ -102,7 +105,10 @@
 
       <section v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
         <header class="advice-head">
-          <h3 class="assessment-block-title">{{ __("Patient advice") }}</h3>
+          <h3 class="assessment-block-title" data-tone="ok">
+            <span class="block-icon" aria-hidden="true"><i class="fa-regular fa-comment-dots"></i></span>
+            {{ __("Patient advice") }}
+          </h3>
           <label v-if="canPrint" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
             <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
             {{ __("Include in print") }}
@@ -387,6 +393,10 @@ function submitDraft() {
   white-space: pre-wrap;
   font: inherit;
   margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--chart-ok-soft);
+  color: var(--chart-text);
 }
 
 .advice-block small {

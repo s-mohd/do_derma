@@ -453,8 +453,8 @@
 }
 
 .dental-chart-page .tab-mode-toggle button[data-active="true"] {
-  background: var(--chart-surface);
-  color: var(--chart-text);
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-text);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
@@ -552,6 +552,45 @@
 
 .clinical-soap-stack .chart-inner-card {
   padding: 12px 14px;
+}
+
+.dental-chart-page .assessment-block-title[data-tone] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dental-chart-page .assessment-block-title .block-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--chart-surface-muted);
+  color: var(--chart-muted);
+  font-size: 11px;
+}
+
+.dental-chart-page .assessment-block-title[data-tone="info"] .block-icon {
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
+}
+
+.dental-chart-page .assessment-block-title[data-tone="accent"] .block-icon {
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-text);
+}
+
+.dental-chart-page .assessment-block-title[data-tone="ok"] .block-icon {
+  background: var(--chart-ok-soft);
+  color: var(--chart-ok-text);
+}
+
+/* Inner cards are surface-muted already. */
+.dental-chart-page .chart-inner-card .assessment-block-title[data-tone="neutral"] .block-icon {
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface);
 }
 
 .clinical-soap-stack .chart-annotation-history > header .assessment-block-title {
@@ -3478,6 +3517,9 @@ body.derma-annotation-open .modal-backdrop {
 .voice-result {
   display: grid;
   gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--chart-info-soft);
   font-size: 13px;
 }
 .voice-result-head {
@@ -3488,6 +3530,11 @@ body.derma-annotation-open .modal-backdrop {
 }
 .voice-result-head .chart-pill {
   white-space: normal;
+}
+
+/* The panel is already info-soft; the pills keep a surface so they still read as pills. */
+.voice-result .chart-pill[data-tone="info"] {
+  background: var(--chart-surface);
 }
 .voice-result pre {
   white-space: pre-wrap;

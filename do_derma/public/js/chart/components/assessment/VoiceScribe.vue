@@ -1,6 +1,9 @@
 <template>
   <section class="voice-scribe" :data-state="state" data-test="voice-scribe">
-    <h3 class="assessment-block-title">{{ __("Dictation") }}</h3>
+    <h3 class="assessment-block-title" data-tone="info">
+      <span class="block-icon" aria-hidden="true"><i class="fa-solid fa-microphone"></i></span>
+      {{ __("Dictation") }}
+    </h3>
     <div class="voice-scribe-row">
       <button
         v-if="state === 'idle' || state === 'ready' || state === 'failed'"
@@ -61,9 +64,9 @@
 
     <div v-if="summary && ['idle', 'ready', 'failed'].includes(state)" class="voice-result" data-test="voice-result">
       <div class="voice-result-head">
-        <span v-if="summary.diagnosis" class="chart-pill" data-test="voice-diagnosis">{{ summary.diagnosis }}</span>
+        <span v-if="summary.diagnosis" class="chart-pill" data-tone="info" data-test="voice-diagnosis">{{ summary.diagnosis }}</span>
         <span v-else class="voice-hint">{{ __("No diagnosis suggested") }}</span>
-        <span v-if="summary.icd10" class="chart-pill" data-test="voice-icd10">{{ summary.icd10 }}</span>
+        <span v-if="summary.icd10" class="chart-pill" data-tone="info" data-test="voice-icd10">{{ summary.icd10 }}</span>
         <button
           v-if="summary.followup_en || summary.followup_ar"
           type="button"

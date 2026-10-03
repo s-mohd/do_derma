@@ -7,7 +7,10 @@
   >
     <header>
       <div>
-        <h3 class="assessment-block-title">{{ __("Previous Visits") }}</h3>
+        <h3 class="assessment-block-title" data-tone="neutral">
+          <span class="block-icon" aria-hidden="true"><i class="fa-solid fa-clock-rotate-left"></i></span>
+          {{ __("Previous Visits") }}
+        </h3>
         <small>{{ __("Drawings and assessment from earlier visits") }}</small>
       </div>
     </header>

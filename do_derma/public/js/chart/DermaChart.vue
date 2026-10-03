@@ -138,7 +138,10 @@
                 <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
                   <header>
                     <div>
-                      <h3 class="assessment-block-title">{{ __("Drawings") }}</h3>
+                      <h3 class="assessment-block-title" data-tone="neutral">
+                        <span class="block-icon" aria-hidden="true"><i class="fa-solid fa-pen-nib"></i></span>
+                        {{ __("Drawings") }}
+                      </h3>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
                     <button
