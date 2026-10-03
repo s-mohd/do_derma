@@ -726,7 +726,9 @@ class TestAssessmentRestyle(TestCase):
 		self.assertNotRegex(get_rule_body(soap_style, ".soap-readonly {"), r"background|border")
 		self.assertIn("background: var(--chart-surface);", get_rule_body(soap_style, ".soap-input {"))
 
-		structured, _, structured_style = get_component_parts(ASSESSMENT_DIR / "StructuredAssessmentFields.vue")
+		structured, _, structured_style = get_component_parts(
+			ASSESSMENT_DIR / "StructuredAssessmentFields.vue"
+		)
 		self.assertIn('class="fields-section-title chart-label"', structured)
 		self.assertIn(
 			"text-transform: uppercase;",
@@ -783,3 +785,10 @@ class TestAssessmentRestyle(TestCase):
 		css = CHART_CSS.read_text()
 		self.assertIn("order: -1;", get_rule_body(css, ".tab-mode-toggle {"))
 		self.assertIn("padding: 0;", get_rule_body(css, ".clinical-soap-stack .chart-annotation-list {"))
+
+	def test_multiselect_inner_input_drops_desk_grey(self):
+		_, _, style = get_component_parts(ASSESSMENT_DIR / "StructuredAssessmentFields.vue")
+		self.assertIn(
+			"background: transparent;",
+			get_rule_body(style, ".field-control-host:deep(.table-multiselect input) {"),
+		)

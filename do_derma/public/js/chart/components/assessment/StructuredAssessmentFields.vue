@@ -577,6 +577,10 @@ async function refreshControls() {
   border-radius: 8px;
 }
 
+.field-control-host:deep(.table-multiselect input) {
+  background: transparent;
+}
+
 .field-control-host:deep(.like-disabled-input) {
   min-height: 0;
   padding: 0;
