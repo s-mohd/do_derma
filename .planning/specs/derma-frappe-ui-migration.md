@@ -1,5 +1,13 @@
 # Derma chart on frappe-ui: one design system for the chart and config pages
 
+> **Status 2026-10-03: SUPERSEDED. Do not continue this plan.**
+> The 2026-10 redesign (`.planning/specs/2026-10-01-derma-chart-overview-skin.md`,
+> `2026-10-01-derma-chart-panel-restyle.md`, `2026-10-02-derma-chart-dark-mode.md`) rebuilt
+> the chart shell, tabs, procedures table and palette with do_derma's own components and
+> `--chart-*` tokens, so this plan's goal is met another way. Phases 0-2 stay unmerged on
+> `feat/derma-frappe-ui-migration-phase2` as a record of the frappe-ui-in-desk findings;
+> they conflict with the redesign and must not be rebased onto it.
+
 ## Problem Statement
 
 The derma chart page looks and behaves like nothing else on a Frappe site. Every
