@@ -62,7 +62,11 @@ def get_line_notices(facts: dict[str, Any]) -> list[dict[str, str]]:
 		notices.append({"message": _("Product is expired."), "tone": "danger"})
 	elif facts.get("is_expiring_soon"):
 		days = facts["days_to_expiry"]
-		message = _("Expires today ({0}).").format(expiry) if days == 0 else _("Expires in {0} days ({1}).").format(days, expiry)
+		message = (
+			_("Expires today ({0}).").format(expiry)
+			if days == 0
+			else _("Expires in {0} days ({1}).").format(days, expiry)
+		)
 		notices.append({"message": message, "tone": "caution"})
 	if facts.get("is_short"):
 		left, needed = _quantity(facts["available_qty"]), _quantity(facts["line_qty"])
