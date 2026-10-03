@@ -409,3 +409,22 @@ class TestProcedurePanelRestyle(TestCase):
 		self.assertIn("if (rowNeedsBillingReview(row)) stats.billingReview += 1", script)
 		self.assertIn('<option value="review">', template)
 		self.assertIn('<option value="follow_up">', template)
+
+	def test_counter_tiles_give_way_to_pill_counts_and_attention_chips(self):
+		template, script, style = get_panel_parts()
+		self.assertNotIn("summary-tile", template + style)
+		self.assertIn("statusCounts[pill.key]", template)
+		self.assertIn('v-for="chip in attentionChips"', template)
+		for key, filter_name, value in (
+			("note", "noteFilter", "missing_note"),
+			("billing", "billingFilter", "review"),
+			("lab", "labFilter", "follow_up"),
+		):
+			self.assertRegex(script, rf'{key}: \{{ filter: {filter_name}, value: "{value}"')
+		self.assertIn("chip.count > 0 || isAttentionActive(chip.key)", script)
+
+	def test_batch_size_lives_in_the_footer(self):
+		template, _, _ = get_panel_parts()
+		footer = get_element(template, '<div class="procedure-load-more-row"')
+		self.assertIn('v-model.number="rowBatchSize"', footer)
+		self.assertEqual(template.count('v-model.number="rowBatchSize"'), 1)

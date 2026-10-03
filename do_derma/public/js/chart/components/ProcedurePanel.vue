@@ -10,29 +10,26 @@
         />
       </label>
 
-      <label class="history-filter-control compact-sort">
-        <span>{{ __("Sort") }}</span>
-        <select v-model="sortKey">
-          <option value="newest">{{ __("Newest first") }}</option>
-          <option value="oldest">{{ __("Oldest first") }}</option>
-          <option value="tooth">{{ __("Area") }}</option>
-          <option value="procedure">{{ __("Procedure A-Z") }}</option>
-          <option value="price_desc">{{ __("Price high-low") }}</option>
-          <option value="doctor">{{ __("Doctor") }}</option>
-          <option value="status">{{ __("Status") }}</option>
-        </select>
-      </label>
+      <select v-model="sortKey" class="procedure-sort" data-test="procedure-sort" :aria-label="__('Sort')">
+        <option value="newest">{{ __("Newest first") }}</option>
+        <option value="oldest">{{ __("Oldest first") }}</option>
+        <option value="tooth">{{ __("Area") }}</option>
+        <option value="procedure">{{ __("Procedure A-Z") }}</option>
+        <option value="price_desc">{{ __("Price high-low") }}</option>
+        <option value="doctor">{{ __("Doctor") }}</option>
+        <option value="status">{{ __("Status") }}</option>
+      </select>
 
       <button
         type="button"
-        class="filter-toggle-btn"
+        class="ghost small filter-toggle-btn"
         data-test="procedure-filters-toggle"
         :class="{ active: advancedFiltersOpen || hasSecondaryFilters }"
         @click="advancedFiltersOpen = !advancedFiltersOpen"
       >
         <i class="fa-solid fa-filter"></i>
         <span>{{ __("Filters") }}</span>
-        <strong v-if="activeSecondaryFilterCount">{{ activeSecondaryFilterCount }}</strong>
+        <span v-if="activeSecondaryFilterCount" class="filter-count">{{ activeSecondaryFilterCount }}</span>
       </button>
 
       <button v-if="hasActiveFilters" type="button" class="ghost small clear-filters-btn" @click="clearHistoryFilters">
@@ -40,12 +37,6 @@
       </button>
 
       <div class="panel-actions">
-        <label class="history-load-selector">
-          <span>{{ __("Load") }}</span>
-          <select v-model.number="rowBatchSize">
-            <option v-for="size in ROW_BATCH_OPTIONS" :key="size" :value="size">{{ size }}</option>
-          </select>
-        </label>
         <Teleport defer to="#chart-section-actions">
           <button
             type="button"
@@ -89,6 +80,7 @@
         @click="setFilter('all')"
       >
         {{ __("All") }}
+        <span v-if="allRows.length" class="pill-count">{{ allRows.length }}</span>
       </button>
       <button
         v-for="pill in statusPills"
@@ -99,7 +91,23 @@
         @click="setFilter(pill.key)"
       >
         {{ pill.label }}
+        <span v-if="statusCounts[pill.key]" class="pill-count">{{ statusCounts[pill.key] }}</span>
       </button>
+      <div class="attention-chips" aria-live="polite">
+        <button
+          v-for="chip in attentionChips"
+          :key="chip.key"
+          type="button"
+          class="chart-pill"
+          data-tone="caution"
+          :data-test="`procedure-attention-${chip.key}`"
+          :aria-pressed="isAttentionActive(chip.key) ? 'true' : 'false'"
+          @click="toggleAttention(chip.key)"
+        >
+          {{ chip.label }}
+          <span class="pill-count">{{ chip.count }}</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="advancedFiltersOpen" class="procedure-history-controls">
@@ -158,29 +166,6 @@
           <option value="billable">{{ __("Billable") }}</option>
         </select>
       </label>
-    </div>
-
-    <div class="procedure-history-summary" aria-live="polite">
-      <div class="summary-tile">
-        <span>{{ __("Matching") }}</span>
-        <strong>{{ totalFilteredRows }}</strong>
-      </div>
-      <div class="summary-tile attention">
-        <span>{{ __("Drafts") }}</span>
-        <strong>{{ historyStats.drafts }}</strong>
-      </div>
-      <div class="summary-tile">
-        <span>{{ __("Missing notes") }}</span>
-        <strong>{{ historyStats.missingNotes }}</strong>
-      </div>
-      <div v-if="enableLabCases" class="summary-tile">
-        <span>{{ __("Lab follow-up") }}</span>
-        <strong>{{ historyStats.labFollowUp }}</strong>
-      </div>
-      <div class="summary-tile">
-        <span>{{ __("Billing review") }}</span>
-        <strong>{{ historyStats.billingReview }}</strong>
-      </div>
     </div>
 
     <div
@@ -510,9 +495,17 @@
       </table>
       <div class="procedure-load-more-row" v-if="totalFilteredRows > 0">
         <span class="text-muted">{{ displayedRows }} / {{ totalFilteredRows }} procedures</span>
-        <button v-if="hasMoreRows" class="ghost small" type="button" @click="loadMoreRows">
-          Load more
-        </button>
+        <div class="load-controls">
+          <button v-if="hasMoreRows" class="ghost small" type="button" @click="loadMoreRows">
+            {{ __("Load more") }}
+          </button>
+          <label class="history-load-selector">
+            <span>{{ __("Load") }}</span>
+            <select v-model.number="rowBatchSize">
+              <option v-for="size in ROW_BATCH_OPTIONS" :key="size" :value="size">{{ size }}</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -906,6 +899,40 @@ const historyStats = computed(() => {
   }
   return stats
 })
+
+const ATTENTION_FILTERS = {
+  note: { filter: noteFilter, value: "missing_note", stat: "missingNotes", label: __("Missing notes") },
+  billing: { filter: billingFilter, value: "review", stat: "billingReview", label: __("Billing review") },
+  lab: { filter: labFilter, value: "follow_up", stat: "labFollowUp", label: __("Lab follow-up") },
+}
+
+const statusCounts = computed(() => {
+  const counts = {}
+  for (const row of allRows.value) {
+    const status = row?.status || "Draft"
+    counts[status] = (counts[status] || 0) + 1
+  }
+  return counts
+})
+
+function isAttentionActive(key) {
+  const { filter, value } = ATTENTION_FILTERS[key]
+  return filter.value === value
+}
+
+// An active chip stays visible at zero so its filter can still be cleared from here.
+const attentionChips = computed(() =>
+  Object.entries(ATTENTION_FILTERS)
+    .filter(([key]) => key !== "lab" || props.enableLabCases)
+    .map(([key, config]) => ({ key, count: historyStats.value[config.stat], label: config.label }))
+    .filter((chip) => chip.count > 0 || isAttentionActive(chip.key))
+)
+
+function toggleAttention(key) {
+  const { filter, value } = ATTENTION_FILTERS[key]
+  filter.value = isAttentionActive(key) ? "all" : value
+  loadedRowsCount.value = rowBatchSize.value
+}
 
 const emptyStateTitle = computed(() =>
   allRows.value.length > 0 && hasActiveFilters.value ? __("No matching procedures") : __("No procedures added yet")
@@ -1915,14 +1942,6 @@ function handleRowDoubleClick(row, event) {
   white-space: nowrap;
 }
 
-.dental-chart-page .status-filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
 .dental-chart-page .proc-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1951,7 +1970,7 @@ function handleRowDoubleClick(row, event) {
   justify-content: flex-end;
 }
 
-.dental-chart-page .panel-actions .history-load-selector {
+.dental-chart-page .procedure-load-more-row .history-load-selector {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1960,7 +1979,7 @@ function handleRowDoubleClick(row, event) {
   font-weight: 700;
 }
 
-.dental-chart-page .panel-actions .history-load-selector select {
+.dental-chart-page .procedure-load-more-row .history-load-selector select {
   border: 1px solid var(--chart-border-strong);
   background: var(--chart-surface);
   border-radius: 8px;
@@ -1993,7 +2012,55 @@ function handleRowDoubleClick(row, event) {
   border: 1px solid var(--chart-border);
   background: var(--chart-surface);
   border-radius: 8px;
-  min-height: 40px;
+  min-height: 34px;
+}
+
+.dental-chart-page .procedure-sort {
+  min-height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--chart-border);
+  border-radius: 8px;
+  background-color: var(--chart-surface);
+  color: var(--chart-text);
+  font-size: 13px;
+}
+
+.dental-chart-page .filter-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dental-chart-page .filter-toggle-btn.active {
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-text);
+}
+
+.dental-chart-page .filter-count,
+.dental-chart-page .pill-count {
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.dental-chart-page .status-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.dental-chart-page .attention-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dental-chart-page .load-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .dental-chart-page .history-search {
@@ -2043,100 +2110,6 @@ function handleRowDoubleClick(row, event) {
   font-size: 12px;
   font-weight: 700;
   padding: 0;
-}
-
-.dental-chart-page .compact-sort {
-  min-width: 140px;
-}
-
-.dental-chart-page .filter-toggle-btn {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border: 1px solid var(--chart-border-strong);
-  background: var(--chart-surface);
-  color: var(--chart-text-soft);
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.dental-chart-page .filter-toggle-btn.active {
-  border-color: var(--chart-border-strong);
-  color: var(--chart-info-text);
-  background: var(--chart-info-soft);
-}
-
-.dental-chart-page .filter-toggle-btn strong {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--chart-blue);
-  color: white;
-  font-size: 11px;
-  line-height: 1;
-}
-
-.dental-chart-page .clear-filters-btn {
-  min-height: 40px;
-  border: 1px solid var(--chart-border-strong);
-  background: var(--chart-surface-muted);
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.dental-chart-page .procedure-history-summary {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(110px, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.dental-chart-page .summary-tile {
-  border: 1px solid var(--chart-border);
-  background: var(--chart-surface-muted);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.dental-chart-page .summary-tile span {
-  color: var(--chart-muted);
-  font-size: 11px;
-  font-weight: 800;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dental-chart-page .summary-tile strong {
-  color: var(--chart-text);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.dental-chart-page .summary-tile.attention {
-  background: var(--chart-caution-soft);
-  border-color: var(--chart-caution-border);
-}
-
-.dental-chart-page .summary-tile.attention strong {
-  color: var(--chart-caution-text);
 }
 
 .dental-chart-page .procedure-table-wrapper {
@@ -2870,10 +2843,6 @@ function handleRowDoubleClick(row, event) {
 
   .dental-chart-page .clear-filters-btn {
     grid-column: 1 / -1;
-  }
-
-  .dental-chart-page .procedure-history-summary {
-    grid-template-columns: 1fr 1fr;
   }
 
   :global(.procedure-note-dialog .modal-dialog) {
