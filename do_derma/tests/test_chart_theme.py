@@ -905,3 +905,81 @@ class TestPrescriptionRow(TestCase):
 		self.assertRegex(
 			style, r"\.icon-btn\.danger:hover:not\(:disabled\)[^{]*\{[^}]*var\(--chart-danger-text\)"
 		)
+
+
+PRESCRIPTION_HOOKS = (
+	"prescription-panel",
+	"prescription-save",
+	"prescription-add",
+	"prescription-row",
+	"prescription-ordered-row",
+	"prescription-comment",
+	"prescription-error",
+)
+
+
+class TestPrescriptionPanelRestyle(TestCase):
+	"""The Prescription tab is a native table in the chart vocabulary (spec 2026-10-03)."""
+
+	def test_the_panel_lives_in_its_folder(self):
+		self.assertTrue(PRESCRIPTION_PANEL.exists())
+		self.assertFalse((CHART_DIR / "components" / "PrescriptionPanel.vue").exists())
+		self.assertIn(
+			'import PrescriptionPanel from "./components/prescription/PrescriptionPanel.vue"',
+			(CHART_DIR / "DermaChart.vue").read_text(),
+		)
+
+	def test_no_desk_grid(self):
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertNotIn("make_control", script)
+		self.assertNotIn('"Table"', script)
+		self.assertRegex(template, r'<table[^>]* class="prescription-table"')
+		self.assertIn("<PrescriptionRow", template)
+
+	def test_add_and_save_sit_in_the_card_header(self):
+		template, _, _ = get_component_parts(PRESCRIPTION_PANEL)
+		header = get_element(template, '<Teleport defer to="#chart-section-actions">')
+		self.assertRegex(header, r'class="ghost small"\s+data-test="prescription-add"')
+		self.assertRegex(header, r'class="primary small"\s+data-test="prescription-save"')
+		self.assertEqual(template.count("primary"), 1)
+
+	def test_status_is_a_header_pill(self):
+		template, script, style = get_component_parts(PRESCRIPTION_PANEL)
+		for label in ("Finalized", "Saving...", "Unsaved changes"):
+			self.assertIn(f'__("{label}")', script)
+		self.assertNotIn("status-note", template + style)
+		self.assertNotIn("Prescriptions are read-only", template + script)
+
+	def test_ordered_rows_share_the_table(self):
+		template, _, _ = get_component_parts(PRESCRIPTION_PANEL)
+		ordered = get_element(template, '<tr v-for="row in orderedRows"')
+		self.assertIn('data-tone="ok"', ordered)
+		self.assertIn('__("Ordered")', ordered)
+		self.assertNotIn('data-test="prescription-ordered"', template)
+
+	def test_every_hook_exists(self):
+		markup = PRESCRIPTION_PANEL.read_text() + PRESCRIPTION_ROW.read_text()
+		for hook in PRESCRIPTION_HOOKS:
+			self.assertIn(f'data-test="{hook}"', markup)
+
+	def test_a_stale_medication_lookup_is_ignored(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn("const token = ++draft.lookup", script)
+		self.assertIn("if (token !== draft.lookup) return", script)
+
+	def test_save_keeps_fields_the_table_does_not_show(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn("({ ...draft.original, ...draft.values })", script)
+
+	def test_save_names_the_first_gap_and_drops_blank_rows(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn('__("Row {0}: {1} is required.")', script)
+		self.assertIn("drafts.value.filter((draft) => !isBlank(draft))", script)
+		self.assertIn("if (validationError.value) return", script)
+
+	def test_save_waits_for_a_change(self):
+		template, _, _ = get_component_parts(PRESCRIPTION_PANEL)
+		start = template.index('data-test="prescription-save"')
+		save = template[start : template.index(">", start)]
+		self.assertIn("saving", save)
+		self.assertIn("!isDirty", save)
