@@ -80,9 +80,24 @@
         @dirty="(value) => (isDirty = value)"
       />
 
-      <p v-if="!editMode && inactiveModeHasContent" class="status-note" data-test="assessment-other-format">
-        {{ otherFormatNote }}
-      </p>
+      <div v-if="!editMode && otherModesWithContent.length" class="other-formats" data-test="assessment-other-format">
+        <template v-for="otherMode in otherModesWithContent" :key="otherMode">
+          <span v-if="isModeInert(otherMode)" class="chart-pill" data-tone="caution" :data-test="`assessment-other-format-${otherMode.toLowerCase()}`">
+            {{ otherFormatLabel(otherMode) }}
+          </span>
+          <button
+            v-else
+            type="button"
+            class="chart-pill"
+            data-tone="caution"
+            :data-test="`assessment-other-format-${otherMode.toLowerCase()}`"
+            :title="__('Switch this visit to {0}').replace('{0}', __(MODE_LABELS[otherMode]))"
+            @click="emit('switch-mode', otherMode)"
+          >
+            {{ otherFormatLabel(otherMode) }}
+          </button>
+        </template>
+      </div>
 
       <section v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
         <header class="advice-head">
@@ -129,6 +144,7 @@ const SOAP = "SOAP"
 const HP = "HP"
 const STRUCTURED = "Structured"
 const MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
+const SHORT_LABELS = { SOAP: "SOAP", HP: "H&P", Structured: "Structured" }
 // One print format per report type, seeded by do_derma.printing.note - never mixed.
 const PRINT_FORMATS = { SOAP: "Derma Assessment Note (SOAP)", HP: "Derma Assessment Note (H&P)", Structured: "Derma Assessment Note (Structured)" }
 
@@ -155,9 +171,10 @@ const props = defineProps({
   patientAdviceAr: { type: String, default: "" },
   printPatientAdvice: { type: Boolean, default: false },
   patientAdviceLanguage: { type: String, default: "Auto" },
+  modeLocked: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language"])
+const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language", "switch-mode"])
 
 // Patient advice prints only when the doctor opts in - the box is a field on the
 // encounter (Allow on Submit), so the choice survives and shows on the form too.
@@ -236,14 +253,13 @@ const canEdit = computed(() => {
   return false
 })
 
-const inactiveModeHasContent = computed(() => otherModesWithContent.value.length > 0)
+function isModeInert(mode) {
+  return props.modeLocked || !props.availableModes.includes(mode)
+}
 
-const otherFormatNote = computed(() =>
-  __("This visit also has content saved as {0}.").replace(
-    "{0}",
-    otherModesWithContent.value.map((mode) => __(MODE_LABELS[mode])).join(", ")
-  )
-)
+function otherFormatLabel(mode) {
+  return __("{0} has content").replace("{0}", __(SHORT_LABELS[mode] || mode))
+}
 
 const submittedNote = computed(() => {
   if (!props.hasEncounter) return ""
@@ -331,6 +347,12 @@ function submitDraft() {
   padding: 5px 8px;
   font-size: 12px;
   background: var(--chart-surface);
+}
+
+.other-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .advice-block {

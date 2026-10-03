@@ -704,3 +704,18 @@ class TestAssessmentRestyle(TestCase):
 	def test_the_assessment_panel_is_not_a_card_in_a_card(self):
 		_, _, style = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
 		self.assertNotRegex(get_rule_body(style, ".assessment-panel {"), r"border:|background:")
+
+	def test_other_format_pills_switch_through_the_confirm_prompt(self):
+		template, script, _ = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		row = get_element(
+			template, '<div v-if="!editMode && otherModesWithContent.length" class="other-formats"'
+		)
+		self.assertIn('data-test="assessment-other-format"', row)
+		self.assertIn('<span v-if="isModeInert(otherMode)" class="chart-pill" data-tone="caution"', row)
+		self.assertIn("@click=\"emit('switch-mode', otherMode)\"", row)
+		self.assertIn("props.modeLocked || !props.availableModes.includes(mode)", script)
+		self.assertIn('"switch-mode"', script)
+		self.assertNotIn("otherFormatNote", script)
+		block = get_assessment_block()
+		self.assertIn(':mode-locked="assessmentModeLocked"', block)
+		self.assertIn('@switch-mode="requestAssessmentModeChange"', block)

@@ -131,7 +131,9 @@
                   @advice-toggled="(value) => (assessmentPanel.printPatientAdvice = value)"
                   @advice-language="(value) => (assessmentPanel.patientAdviceLanguage = value)"
                   @request-edit="assessmentPanel.editing = true"
+                  :mode-locked="assessmentModeLocked"
                   @save="saveAssessment"
+                  @switch-mode="requestAssessmentModeChange"
                 />
                 <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
                   <header>
