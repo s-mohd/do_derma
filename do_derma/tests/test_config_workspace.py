@@ -648,6 +648,7 @@ class TestConfigReadiness(DermaTestHelpers, IntegrationTestCase):
 		unconfigurable = {
 			"enforcement": "Warn",
 			"todo_downgrades_blockers": True,
+			"expiring_soon_days": 30,
 			"is_configurable": False,
 		}
 		with patch.object(api, "get_readiness_settings", return_value=unconfigurable):
@@ -659,6 +660,7 @@ class TestConfigReadiness(DermaTestHelpers, IntegrationTestCase):
 		configured = {
 			"enforcement": "Block",
 			"todo_downgrades_blockers": False,
+			"expiring_soon_days": 30,
 			"is_configurable": True,
 		}
 		with patch.object(api, "get_readiness_settings", return_value=configured):

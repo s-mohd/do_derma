@@ -22,7 +22,7 @@ def get_session_readiness(
 		api._get_derma_procedures(patient, appointment=appointment, encounter=encounter) if patient else []
 	)
 	items = [
-		*[_as_item(row, inventory.SOURCE) for row in inventory.build(marks, procedures)],
+		*[_as_item(row, inventory.SOURCE) for row in inventory.build(marks, procedures, expiring_soon_days=settings["expiring_soon_days"])],
 		*[_as_item(row, followup.SOURCE) for row in followup.build(marks)],
 	]
 	if settings["todo_downgrades_blockers"]:

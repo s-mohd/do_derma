@@ -178,6 +178,7 @@ class TestSessionReadiness(DermaTestHelpers, IntegrationTestCase):
 		settings = {
 			"enforcement": enforcement,
 			"todo_downgrades_blockers": todo_downgrades_blockers,
+			"expiring_soon_days": 30,
 			"is_configurable": True,
 		}
 		with patch("do_derma.readiness.session.get_readiness_settings", return_value=settings):

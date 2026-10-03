@@ -635,15 +635,65 @@ class TestConsumablesInReadiness(
 		self.assertTrue(rows[0]["blocking"])
 		self.assertIn("Batch", rows[0]["message"])
 
-	def test_a_quantity_greater_than_the_available_balance_blocks(self):
-		with patch.object(inventory, "_stock_available_qty", return_value=1):
+	def test_a_quantity_greater_than_the_available_balance_warns(self):
+		with patch.object(batches, "get_available_qty", return_value=1):
 			rows = inventory.build([self._mark_with([self._line(self.item, qty=4)])])
 
-		self.assertTrue(rows[0]["blocking"])
-		self.assertIn("Insufficient", rows[0]["message"])
+		self.assertFalse(rows[0]["blocking"])
+		self.assertEqual(rows[0]["status"], "warning")
+		self.assertIn("1 left in stock; the line uses 4.", rows[0]["message"])
+
+	def test_a_short_lot_warns_though_other_lots_have_plenty(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), 90))
+		with patch.object(
+			batches,
+			"get_available_qty",
+			side_effect=lambda item, batch, warehouse: 3 if batch == lot else 100,
+		):
+			rows = inventory.build([self._mark_with([self._line(batched, qty=5, batch_no=lot)])])
+
+		self.assertFalse(rows[0]["blocking"])
+		self.assertIn("This lot has 3 left; the line uses 5.", rows[0]["message"])
+
+	def test_two_lines_on_one_lot_are_compared_together(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), 90))
+		lines = [self._line(batched, qty=2, batch_no=lot), self._line(batched, qty=2, batch_no=lot)]
+		with patch.object(batches, "get_available_qty", return_value=3):
+			rows = inventory.build([self._mark_with(lines)])
+
+		self.assertIn("the line uses 4", rows[0]["message"])
+
+	def test_an_expiring_lot_warns_within_the_window(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), 10))
+		with patch.object(batches, "get_available_qty", return_value=50):
+			rows = inventory.build(
+				[self._mark_with([self._line(batched, batch_no=lot)])], expiring_soon_days=30
+			)
+			quiet = inventory.build(
+				[self._mark_with([self._line(batched, batch_no=lot)])], expiring_soon_days=0
+			)
+
+		self.assertEqual(rows[0]["status"], "warning")
+		self.assertIn("Expires in 10 days", rows[0]["message"])
+		self.assertEqual(quiet[0]["status"], "ready")
+
+	def test_short_stock_alone_does_not_block_completion(self):
+		from do_derma.readiness.session import is_completion_blocked
+
+		with patch.object(batches, "get_available_qty", return_value=1):
+			rows = inventory.build([self._mark_with([self._line(self.item, qty=4)])])
+
+		self.assertFalse(
+			is_completion_blocked(
+				{"blockers": [row for row in rows if row["blocking"]], "enforcement": "Block"}
+			)
+		)
 
 	def test_a_unit_the_item_does_not_convert_is_uncheckable_rather_than_blocking(self):
-		with patch.object(inventory, "_stock_available_qty", return_value=1):
+		with patch.object(batches, "get_available_qty", return_value=1):
 			rows = inventory.build(
 				[self._mark_with([self._line(self.item, qty=4, uom="Box", conversion_factor=0)])]
 			)
