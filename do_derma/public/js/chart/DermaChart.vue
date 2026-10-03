@@ -135,10 +135,10 @@
                   @save="saveAssessment"
                   @switch-mode="requestAssessmentModeChange"
                 />
-                <section class="chart-annotation-history encounter-annotation-history">
+                <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
                   <header>
                     <div>
-                      <strong class="chart-label">{{ __("Drawings") }}</strong>
+                      <h3 class="assessment-block-title">{{ __("Drawings") }}</h3>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
                     <button

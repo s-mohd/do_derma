@@ -2,12 +2,12 @@
   <section
     v-if="visits.length || hasMore || error"
     ref="panel"
-    class="chart-annotation-history previous-visits"
+    class="chart-annotation-history chart-inner-card previous-visits"
     data-test="previous-visits"
   >
     <header>
       <div>
-        <strong class="chart-label">{{ __("Previous Visits") }}</strong>
+        <h3 class="assessment-block-title">{{ __("Previous Visits") }}</h3>
         <small>{{ __("Drawings and assessment from earlier visits") }}</small>
       </div>
     </header>

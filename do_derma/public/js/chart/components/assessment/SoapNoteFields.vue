@@ -1,5 +1,5 @@
 <template>
-  <div class="soap-fields" data-test="soap-note-fields">
+  <div class="soap-fields" :class="{ 'is-reading': !editMode }" data-test="soap-note-fields">
     <p v-if="!layout.length" class="fields-empty">
       {{ __("SOAP Note fields are not installed on this site. Run bench migrate.") }}
     </p>
@@ -129,6 +129,8 @@ function markSaved() {
   background: var(--chart-surface);
   border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
+  min-height: 72px;
+  field-sizing: content;
 }
 
 .soap-input[readonly] {
@@ -141,5 +143,22 @@ function markSaved() {
   line-height: 1.5;
   color: var(--chart-text);
   white-space: pre-wrap;
+}
+
+.soap-fields.is-reading {
+  gap: 10px;
+}
+
+.soap-fields.is-reading .soap-field {
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+@media (max-width: 1100px) {
+  .soap-fields.is-reading .soap-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 </style>

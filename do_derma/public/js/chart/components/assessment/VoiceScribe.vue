@@ -1,11 +1,13 @@
 <template>
   <section class="voice-scribe" :data-state="state" data-test="voice-scribe">
+    <h3 class="assessment-block-title">{{ __("Dictation") }}</h3>
     <div class="voice-scribe-row">
       <button
         v-if="state === 'idle' || state === 'ready' || state === 'failed'"
         type="button"
         class="ghost small"
         data-test="voice-start"
+        :title="__('Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.')"
         @click="startRecording"
       >
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -35,8 +37,14 @@
         <option v-for="mic in microphones" :key="mic.deviceId" :value="mic.deviceId">{{ mic.label || __("Microphone") }}</option>
       </select>
 
+      <form v-if="hasNote && !isCapturing" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
+        <input v-model="instruction" type="text" :placeholder="__('Ask the AI to adjust the note, e.g. add a 2-week follow-up and mention sun protection')" :disabled="refining" />
+        <button type="submit" class="ghost small" :disabled="refining || instruction.trim().length < 3">
+          <span v-if="refining" class="voice-spinner" aria-hidden="true"></span>{{ refining ? __("Adjusting...") : __("Adjust") }}
+        </button>
+      </form>
       <small class="voice-hint">
-        <template v-if="state === 'idle'">{{ __("Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.") }}</template>
+        <template v-if="state === 'idle' && !hasNote">{{ __("Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.") }}</template>
         <template v-else-if="state === 'paused'">{{ __("Paused. Nothing is recorded until you press Resume.") }}</template>
         <template v-else-if="state === 'recording' && silenceWarning">
           <span class="voice-warning" data-test="voice-silence">{{ silenceWarning }}</span>
@@ -50,12 +58,6 @@
       </small>
     </div>
 
-    <form v-if="hasNote && !isCapturing" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
-      <input v-model="instruction" type="text" :placeholder="__('Ask the AI to adjust the note, e.g. add a 2-week follow-up and mention sun protection')" :disabled="refining" />
-      <button type="submit" class="ghost small" :disabled="refining || instruction.trim().length < 3">
-        <span v-if="refining" class="voice-spinner" aria-hidden="true"></span>{{ refining ? __("Adjusting...") : __("Adjust") }}
-      </button>
-    </form>
 
     <div v-if="summary && ['idle', 'ready', 'failed'].includes(state)" class="voice-result" data-test="voice-result">
       <div class="voice-result-head">

@@ -532,15 +532,30 @@
   top: 10px;
 }
 
-.clinical-notes-grid,
-.clinical-soap-stack {
+.clinical-notes-grid {
   min-width: 0;
 }
 
-.clinical-soap-stack > * + * {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--chart-border);
+.clinical-soap-stack {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.clinical-soap-stack .assessment-block-title {
+  margin: 0 0 10px;
+  color: var(--chart-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.clinical-soap-stack .chart-inner-card {
+  padding: 12px 14px;
+}
+
+.clinical-soap-stack .chart-annotation-history > header .assessment-block-title {
+  margin: 0;
 }
 
 .clinical-soap-stack .chart-annotation-history > header {
@@ -3613,17 +3628,21 @@ body.derma-annotation-open .modal-backdrop {
 
 .voice-refine {
   display: flex;
+  flex: 1 1 320px;
   gap: 8px;
   align-items: center;
 }
 .voice-refine input {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--derma-border);
-  border-radius: 6px;
-  padding: 6px 10px;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+  padding: 5px 10px;
   font-size: 13px;
-  background: var(--derma-white);
+  background: var(--chart-surface);
+}
+.voice-scribe .assessment-block-title {
+  margin: 0;
 }
 
 .dental-chart-page .consent-overlay {

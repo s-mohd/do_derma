@@ -677,7 +677,7 @@ class TestAssessmentRestyle(TestCase):
 		self.assertIn("visit.procedures.length - PROCEDURE_PILLS", header)
 		self.assertIn("const PROCEDURE_PILLS = 3", script)
 		self.assertIn('<dt class="chart-label">', template)
-		self.assertNotIn("chart-inner-card", template)
+		self.assertIn('class="chart-annotation-history chart-inner-card previous-visits"', template)
 
 	def test_every_hook_survives(self):
 		sources = get_assessment_sources() + (CHART_DIR / "DermaChart.vue").read_text()
@@ -771,15 +771,83 @@ class TestAssessmentRestyle(TestCase):
 		primaries = re.findall(r'class="primary[^"]*"\s+data-test="([\w-]+)"', panel)
 		self.assertCountEqual(primaries, ["assessment-start", "assessment-edit", "assessment-save"])
 
-	def test_sections_sit_flat_with_rules_between(self):
+	def test_reference_blocks_sit_in_inner_cards_under_block_titles(self):
 		block = get_assessment_block()
-		self.assertNotIn("chart-inner-card", block)
-		self.assertIn('<i v-else class="fa-regular fa-pen-to-square" aria-hidden="true"></i>', block)
-		css = CHART_CSS.read_text()
 		self.assertIn(
-			"border-top: 1px solid var(--chart-border);", get_rule_body(css, ".clinical-soap-stack > * + * {")
+			'<section class="chart-annotation-history chart-inner-card encounter-annotation-history">', block
 		)
+		self.assertIn('<i v-else class="fa-regular fa-pen-to-square" aria-hidden="true"></i>', block)
+		self.assertIn('<h3 class="assessment-block-title">{{ __("Drawings") }}</h3>', block)
+		previous, _, _ = get_component_parts(ASSESSMENT_DIR / "PreviousVisitsPanel.vue")
+		self.assertIn('<h3 class="assessment-block-title">{{ __("Previous Visits") }}</h3>', previous)
+		panel, _, _ = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		for title in ("Clinical note", "Patient advice"):
+			self.assertIn(f'<h3 class="assessment-block-title">{{{{ __("{title}") }}}}</h3>', panel)
+		voice, _, _ = get_component_parts(ASSESSMENT_DIR / "VoiceScribe.vue")
+		self.assertIn('<h3 class="assessment-block-title">{{ __("Dictation") }}</h3>', voice)
+		css = CHART_CSS.read_text()
+		title = get_rule_body(css, ".clinical-soap-stack .assessment-block-title {")
+		self.assertIn("font-weight: 600;", title)
+		self.assertIn("color: var(--chart-text);", title)
+		self.assertIn("gap: 24px;", get_rule_body(css, ".clinical-soap-stack {"))
+		self.assertNotIn(".clinical-soap-stack > * + * {", css)
 		self.assertNotIn(".encounter-annotation-history {", css)
+
+	def test_read_mode_lists_labels_beside_values(self):
+		soap, _, soap_style = get_component_parts(ASSESSMENT_DIR / "SoapNoteFields.vue")
+		self.assertIn(":class=\"{ 'is-reading': !editMode }\"", soap)
+		self.assertIn(
+			"grid-template-columns: 180px minmax(0, 1fr);",
+			get_rule_body(soap_style, ".soap-fields.is-reading .soap-field {"),
+		)
+		structured, _, structured_style = get_component_parts(
+			ASSESSMENT_DIR / "StructuredAssessmentFields.vue"
+		)
+		self.assertIn(":class=\"{ 'is-reading': !editMode }\"", structured)
+		self.assertIn(
+			"grid-template-columns: 180px minmax(0, 1fr);",
+			get_rule_body(
+				structured_style, ".structured-fields.is-reading .field-control-host:deep(.form-group) {"
+			),
+		)
+		for style in (soap_style, structured_style):
+			self.assertIn("@media (max-width: 1100px)", style)
+
+	def test_edit_fields_start_compact_and_grow(self):
+		_, _, soap_style = get_component_parts(ASSESSMENT_DIR / "SoapNoteFields.vue")
+		_, _, structured_style = get_component_parts(ASSESSMENT_DIR / "StructuredAssessmentFields.vue")
+		for body in (
+			get_rule_body(soap_style, ".soap-input {"),
+			get_rule_body(structured_style, ".field-control-host:deep(textarea.form-control) {"),
+		):
+			self.assertIn("field-sizing: content;", body)
+			self.assertIn("min-height: 72px;", body)
+		_, structured_script, _ = get_component_parts(ASSESSMENT_DIR / "StructuredAssessmentFields.vue")
+		self.assertIn(
+			'if (control.$input?.is("textarea")) control.$input.css("height", "")', structured_script
+		)
+
+	def test_multiselect_reads_as_one_input(self):
+		_, script, style = get_component_parts(ASSESSMENT_DIR / "StructuredAssessmentFields.vue")
+		box = re.search(
+			r"\n\n\.field-control-host:deep\(\.table-multiselect\.form-control\) \{([^}]*)\}", style
+		).group(1)
+		self.assertIn("min-height: 34px;", box)
+		self.assertIn("flex-wrap: wrap;", box)
+		self.assertIn(
+			"flex: 1 1 120px;",
+			get_rule_body(style, ".field-control-host:deep(.table-multiselect .link-field) {"),
+		)
+		chip = get_rule_body(style, ".field-control-host:deep(.table-multiselect .tb-selected-value) {")
+		self.assertIn("border-radius: 999px;", chip)
+		self.assertIn("font-size: 11.5px;", chip)
+		self.assertIn('__("Add...")', script)
+
+	def test_dictation_sits_on_one_row(self):
+		template, _, _ = get_component_parts(ASSESSMENT_DIR / "VoiceScribe.vue")
+		row = get_element(template, '<div class="voice-scribe-row">')
+		self.assertIn('data-test="voice-refine"', row)
+		self.assertIn("state === 'idle' && !hasNote", row)
 
 	def test_format_switch_leads_the_header_and_drawings_align(self):
 		css = CHART_CSS.read_text()
