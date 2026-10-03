@@ -2,7 +2,7 @@
   <section
     v-if="visits.length || hasMore || error"
     ref="panel"
-    class="chart-annotation-history chart-inner-card previous-visits"
+    class="chart-annotation-history previous-visits"
     data-test="previous-visits"
   >
     <header>
@@ -15,6 +15,14 @@
       <header>
         <b>{{ formatDate(visit.visit_date) }}</b>
         <small>{{ visit.practitioner_name }}</small>
+        <span v-if="visit.mode_label" class="chart-pill" data-test="previous-visit-mode">{{ visit.mode_label }}</span>
+        <span
+          v-for="(title, index) in visit.procedures.slice(0, PROCEDURE_PILLS)"
+          :key="`${visit.encounter}-procedure-${index}`"
+          class="chart-pill"
+          data-test="previous-visit-procedure"
+        >{{ title }}</span>
+        <span v-if="visit.procedures.length > PROCEDURE_PILLS" class="chart-pill">+{{ visit.procedures.length - PROCEDURE_PILLS }}</span>
         <button
           type="button"
           class="ghost small"
@@ -47,7 +55,7 @@
         :class="{ 'is-expanded': expanded.has(visit.encounter) }"
       >
         <template v-for="(field, index) in shownFields(visit)" :key="`${field.label}-${index}`">
-          <dt>{{ field.label }}</dt>
+          <dt class="chart-label">{{ field.label }}</dt>
           <dd>{{ field.value }}</dd>
         </template>
       </dl>
@@ -109,6 +117,7 @@ import VisitSummaryDialog from "./VisitSummaryDialog.vue"
 
 const __ = window.__ || ((txt) => txt)
 const PREVIEW_FIELDS = 3
+const PROCEDURE_PILLS = 3
 const FIRST_PAGE = 1
 const MORE_PAGE = 5
 

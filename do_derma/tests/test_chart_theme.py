@@ -378,11 +378,16 @@ class TestChartHasNoBodyMap(TestCase):
 PROCEDURE_PANEL = CHART_DIR / "components" / "ProcedurePanel.vue"
 
 
+def get_component_parts(path: Path) -> tuple[str, str, str]:
+	"""Template, script and scoped style of a single-file component."""
+	template, rest = path.read_text().split("<script setup>", 1)
+	script, _, style = rest.partition("<style scoped>")
+	return template, script, style
+
+
 def get_panel_parts() -> tuple[str, str, str]:
 	"""Template, script and scoped style of the procedure panel."""
-	template, rest = PROCEDURE_PANEL.read_text().split("<script setup>", 1)
-	script, style = rest.split("<style scoped>", 1)
-	return template, script, style
+	return get_component_parts(PROCEDURE_PANEL)
 
 
 def get_element(markup: str, opening: str) -> str:
@@ -608,3 +613,21 @@ class TestProcedurePanelRestyle(TestCase):
 		self.assertIn("const text = getRowNoteValue(row)", show)
 		self.assertIn("if (!text) return", show)
 		self.assertRegex(style, r"\.note-preview \{[^}]*position: fixed;")
+
+
+ASSESSMENT_DIR = CHART_DIR / "components" / "assessment"
+
+
+class TestAssessmentRestyle(TestCase):
+	"""The Assessment tab wears the chart's shared vocabulary (spec 2026-10-03)."""
+
+	def test_previous_visit_header_shows_format_and_procedures(self):
+		template, script, _ = get_component_parts(ASSESSMENT_DIR / "PreviousVisitsPanel.vue")
+		header = get_element(template, '<article v-for="visit in visits"')
+		self.assertIn('data-test="previous-visit-mode"', header)
+		self.assertIn("visit.procedures.slice(0, PROCEDURE_PILLS)", header)
+		self.assertRegex(header, r':key="`\$\{visit\.encounter\}-procedure-\$\{index\}`"')
+		self.assertIn("visit.procedures.length - PROCEDURE_PILLS", header)
+		self.assertIn("const PROCEDURE_PILLS = 3", script)
+		self.assertIn('<dt class="chart-label">', template)
+		self.assertNotIn("chart-inner-card", template)

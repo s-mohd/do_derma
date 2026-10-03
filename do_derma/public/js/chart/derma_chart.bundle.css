@@ -646,14 +646,15 @@
 .previous-visit {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border-top: 1px solid var(--derma-border-subtle);
+  padding: 12px 0;
+  border-top: 1px solid var(--chart-border);
 }
 
 .previous-visit > header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
 }
 
 .previous-visit > header > button {
@@ -671,12 +672,10 @@
 .previous-visits-actions {
   display: flex;
   gap: 8px;
-  margin: 0 12px 12px;
 }
 
-.previous-visit > header small,
-.previous-visit-assessment dt {
-  color: var(--derma-text-muted);
+.previous-visit > header small {
+  color: var(--chart-muted);
 }
 
 .previous-visit-assessment {
