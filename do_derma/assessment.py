@@ -132,7 +132,9 @@ def get_mode_layout(mode: str) -> list[dict[str, Any]]:
 	if not mode_is_supported(mode):
 		return []
 	meta = frappe.get_meta("Patient Encounter")
-	return [_layout_row(meta.get_field(fieldname)) for fieldname in MODE_FIELDS[mode] if meta.get_field(fieldname)]
+	return [
+		_layout_row(meta.get_field(fieldname)) for fieldname in MODE_FIELDS[mode] if meta.get_field(fieldname)
+	]
 
 
 def get_soap_layout() -> list[dict[str, Any]]:
@@ -229,7 +231,9 @@ def read_assessment(encounter_doc) -> dict[str, Any]:
 		"docstatus": cint(encounter_doc.docstatus),
 		"mode": mode,
 		"is_stamped": bool(_stamped_mode(encounter_doc)),
-		"is_filled": any(_has_content(value) for value in [*values.values(), *soap_values.values(), *hp_values.values()]),
+		"is_filled": any(
+			_has_content(value) for value in [*values.values(), *soap_values.values(), *hp_values.values()]
+		),
 		"available_modes": available_modes(),
 		"soap_supported": soap_is_supported(),
 		"hp_supported": hp_is_supported(),
@@ -260,7 +264,7 @@ def get_preview(encounter_doc) -> list[dict[str, str]]:
 	values = serialize_values(encounter_doc, layout)
 	preview = []
 	for row in layout:
-		text = _preview_text(row, values.get(row.get("fieldname")))
+		text = get_preview_text(row, values.get(row.get("fieldname")))
 		if text:
 			preview.append({"label": _(row.get("label") or row.get("fieldname")), "value": text})
 	return preview
@@ -298,9 +302,10 @@ def get_table_rows(row: dict[str, Any], value: Any) -> list[list[dict[str, str]]
 	return rows
 
 
-def _preview_text(row: dict[str, Any], value: Any) -> str:
+def get_preview_text(row: dict[str, Any], value: Any) -> str:
+	"""One line per field; a table lists its filled rows, separated by semicolons."""
 	if row.get("fieldtype") in TABLE_FIELD_TYPES:
-		return _("{0} row(s)").format(len(value)) if value else ""
+		return "; ".join(" ".join(pair["value"] for pair in pairs) for pairs in get_table_rows(row, value))
 	return get_field_text(row.get("fieldtype"), value)
 
 
