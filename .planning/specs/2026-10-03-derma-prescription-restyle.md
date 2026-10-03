@@ -90,7 +90,10 @@ overwriting dosage, duration and form.
 - The linked items are kept on the row (client-only, not sent). One item fills `drug_code`;
   several show `Choose item`, which mounts an `Item` link filtered to those items; none leaves
   it blank.
-- Clearing the medication clears `drug_code`, dosage, duration and form.
+- Linked items are only known for a medication picked in this session; a loaded row shows its
+  stored `drug_code` as text and never offers `Choose item` until its medication is re-picked.
+- Changing or clearing the medication clears `drug_code`, `drug_name`, dosage, duration and
+  form, so no stale drug name rides along with the new medication.
 - A failed lookup shows the existing red alert.
 
 ### Pickers
