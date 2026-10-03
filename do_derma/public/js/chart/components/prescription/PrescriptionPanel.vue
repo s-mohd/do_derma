@@ -38,7 +38,7 @@
       {{ __("Prescriptions are visit-scoped. Select or start an appointment session first.") }}
     </div>
     <div v-else-if="!hasEncounter" class="empty-state">{{ __("No encounter found for this session.") }}</div>
-    <p v-else-if="!rowCount" class="empty-line">
+    <p v-else-if="!orderedRows.length && !drafts.length" class="empty-line">
       {{ __("No medications prescribed for this visit.") }}
       <button v-if="canEdit" type="button" class="ghost small" @click="addRow">
         <i class="fa-solid fa-plus" aria-hidden="true"></i>
@@ -138,7 +138,7 @@ const showMissing = ref(false)
 
 const canEdit = computed(() => props.hasSessionContext && props.hasEncounter && !props.readOnly)
 const orderedRows = computed(() => (props.rows || []).filter((row) => row.medication_request))
-const rowCount = computed(() => orderedRows.value.length + drafts.value.length)
+const rowCount = computed(() => orderedRows.value.length + getPayload().length)
 const isDirty = computed(() => JSON.stringify(getPayload()) !== snapshot.value)
 
 const statusPill = computed(() => {
@@ -159,9 +159,15 @@ const validationError = computed(() => {
     .replace("{1}", REQUIRED_FIELDS[field])
 })
 
-const errorText = computed(() => validationError.value || props.error)
+// A server error describes the rows that were sent; it goes once they change.
+const errorPayload = ref("")
+const serverError = computed(() =>
+  props.error && JSON.stringify(getPayload()) === errorPayload.value ? props.error : ""
+)
+const errorText = computed(() => validationError.value || serverError.value)
 
 watch(() => props.rows, resetDrafts, { immediate: true })
+watch(() => props.error, () => (errorPayload.value = JSON.stringify(getPayload())), { immediate: true })
 
 function makeDraft(original = {}) {
   const values = Object.fromEntries(VALUE_FIELDS.map((field) => [field, original[field] ?? ""]))

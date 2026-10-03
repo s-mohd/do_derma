@@ -1008,3 +1008,16 @@ class TestPrescriptionPanelRestyle(TestCase):
 		self.assertLess(script.index(".commitPicker()"), script.index('emit("save"'))
 		_, row_script, _ = get_component_parts(PRESCRIPTION_ROW)
 		self.assertIn("defineExpose({ commitPicker })", row_script)
+
+	def test_the_count_skips_rows_the_save_would_drop(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn("orderedRows.value.length + getPayload().length", script)
+
+	def test_a_server_error_clears_once_the_rows_change(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn(
+			"watch(() => props.error, () => (errorPayload.value = JSON.stringify(getPayload())), { immediate: true })",
+			script,
+		)
+		self.assertIn("JSON.stringify(getPayload()) === errorPayload.value", script)
+		self.assertNotIn("validationError.value || props.error", script)
