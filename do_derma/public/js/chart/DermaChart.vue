@@ -135,7 +135,7 @@
                   @save="saveAssessment"
                   @switch-mode="requestAssessmentModeChange"
                 />
-                <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
+                <section class="chart-annotation-history encounter-annotation-history">
                   <header>
                     <div>
                       <strong class="chart-label">{{ __("Drawings") }}</strong>
@@ -143,14 +143,14 @@
                     </div>
                     <button
                       type="button"
-                      class="primary small"
+                      class="ghost small"
                       data-test="annotate-consultation"
                       :disabled="annotationStudioBusy || isEncounterLocked"
                       :title="isEncounterLocked ? __('Reopen the encounter to draw.') : ''"
                       @click="openAnnotationStudio({ annotation: null })"
                     >
                       <span v-if="annotationStudioBusy" class="chart-spinner" aria-hidden="true"></span>
-                      <span v-else aria-hidden="true">✎</span>
+                      <i v-else class="fa-regular fa-pen-to-square" aria-hidden="true"></i>
                       {{ annotationStudioBusy ? __("Opening...") : __("Annotate Consultation") }}
                     </button>
                   </header>

@@ -754,3 +754,27 @@ class TestAssessmentRestyle(TestCase):
 		self.assertIn("white-space: normal;", get_rule_body(css, ".voice-result-head .chart-pill {"))
 		self.assertNotIn(".voice-result-head code", css)
 		self.assertNotRegex(get_rule_body(css, ".voice-scribe {"), r"border:|background:")
+
+	def test_one_filled_button_in_the_tab(self):
+		block = get_assessment_block()
+		self.assertNotIn('class="primary', block)
+		for name in (
+			"VoiceScribe.vue",
+			"PreviousVisitsPanel.vue",
+			"SoapNoteFields.vue",
+			"StructuredAssessmentFields.vue",
+		):
+			self.assertNotIn('class="primary', (ASSESSMENT_DIR / name).read_text(), name)
+		panel, _, _ = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		primaries = re.findall(r'class="primary[^"]*"\s+data-test="([\w-]+)"', panel)
+		self.assertCountEqual(primaries, ["assessment-start", "assessment-edit", "assessment-save"])
+
+	def test_sections_sit_flat_with_rules_between(self):
+		block = get_assessment_block()
+		self.assertNotIn("chart-inner-card", block)
+		self.assertIn('<i v-else class="fa-regular fa-pen-to-square" aria-hidden="true"></i>', block)
+		css = CHART_CSS.read_text()
+		self.assertIn(
+			"border-top: 1px solid var(--chart-border);", get_rule_body(css, ".clinical-soap-stack > * + * {")
+		)
+		self.assertNotIn(".encounter-annotation-history {", css)
