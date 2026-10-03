@@ -439,13 +439,17 @@ class TestProcedurePanelRestyle(TestCase):
 	def test_delete_turns_red_only_on_hover(self):
 		_, _, style = get_panel_parts()
 		self.assertNotRegex(style, r"\.icon-btn\.danger \{")
-		self.assertRegex(style, r"\.icon-btn\.danger:hover:not\(:disabled\)[^{]*\{[^}]*var\(--chart-danger-text\)")
+		self.assertRegex(
+			style, r"\.icon-btn\.danger:hover:not\(:disabled\)[^{]*\{[^}]*var\(--chart-danger-text\)"
+		)
 
 	def test_price_edits_open_from_the_price_cell(self):
 		template, _, _ = get_panel_parts()
 		price = get_element(template, '<td class="price-cell"')
 		details = get_element(template, '<div class="details-cell"')
-		picker = get_element(price, '<div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker"')
+		picker = get_element(
+			price, '<div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker"'
+		)
 		popover = get_element(picker, '<div v-if="overrideListOpenRow === row.name" class="override-popover"')
 		self.assertLess(picker.index('data-test="procedure-price"'), picker.index("override-popover"))
 		for part in ('class="inline-input"', "no-charge-btn", "override-option"):
