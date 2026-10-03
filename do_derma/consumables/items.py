@@ -7,6 +7,7 @@ from typing import Any
 import frappe
 from frappe import _
 from frappe.utils import flt
+from frappe.utils.caching import request_cache
 
 ITEM_FIELDS = ["item_name", "stock_uom", "has_batch_no"]
 
@@ -66,6 +67,7 @@ def get_batches(item_code: str, warehouse: str | None) -> list[dict[str, Any]]:
 	return sorted(rows, key=lambda row: (row.get("expiry_date") is None, row.get("expiry_date")))
 
 
+@request_cache
 def get_warehouse(owner_doctype: str | None, owner_name: str | None) -> str | None:
 	"""The warehouse the owner will consume from, empty when the site never set one."""
 	from do_derma import api

@@ -11,7 +11,7 @@ from do_derma.consumables.defaults import CONSUMABLE_FIELDS, select_fields
 from do_derma.settings import get_readiness_settings
 
 
-def hydrate(mark_rows: list[dict[str, Any]]) -> None:
+def hydrate(mark_rows: list[dict[str, Any]], is_current: bool = True) -> None:
 	"""Attach each mark's live consumables, already judged against its frozen defaults."""
 	if not mark_rows or not is_available():
 		return
@@ -24,7 +24,7 @@ def hydrate(mark_rows: list[dict[str, Any]]) -> None:
 		defaults = frozen.get(name, [])
 		compared = snapshot.compare(live.get(name, []), defaults)
 		mark["consumables"] = compared["consumables"]
-		batches.annotate_rows(mark["consumables"], "Derma Chart Mark", name, window)
+		batches.annotate_rows(mark["consumables"], "Derma Chart Mark", name, window, is_current)
 		mark["removed_consumables"] = compared["removed"]
 		mark["default_consumables"] = defaults
 

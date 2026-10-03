@@ -9,6 +9,8 @@ from frappe.utils import add_days, nowdate
 import do_derma.api as api
 from do_derma.consumables import batches, defaults, snapshot
 from do_derma.consumables import encounter as consumable_encounter
+from do_derma.consumables import marks as consumable_marks
+from do_derma.consumables import procedures as consumable_procedures
 from do_derma.readiness import inventory
 from do_derma.tests.test_api import DermaTestHelpers
 from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
@@ -1096,3 +1098,83 @@ class TestConsumablePayloadBatch(ConsumableHelpers, IntegrationTestCase):
 
 		self.assertEqual(rows[0]["batch"]["available_qty"], 10)
 		self.assertEqual((rows[0]["readiness_message"], rows[0]["readiness_tone"]), ("", ""))
+
+
+class TestBatchReviewFindings(ConsumableHelpers, DermaTestHelpers, IntegrationTestCase):
+	"""What the whole-branch review caught."""
+
+	def setUp(self):
+		self.item = self._make_stock_item(has_batch_no=1)
+		self.lot = self._make_batch(self.item, expiry_date=add_days(nowdate(), -3))
+
+	def test_lines_sharing_a_lot_are_compared_together(self):
+		fresh = self._make_batch(self.item, expiry_date=add_days(nowdate(), 200))
+		rows = [
+			{"item_code": self.item, "qty": 2, "conversion_factor": 1, "batch_no": fresh} for _ in range(2)
+		]
+		with patch.object(batches, "get_available_qty", return_value=3):
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+
+		self.assertTrue(all(row["batch"]["is_short"] for row in rows))
+		self.assertEqual(rows[0]["readiness_message"], "This lot has 3 left; these lines use 4.")
+
+	def test_a_past_line_keeps_its_lot_but_claims_nothing_today(self):
+		rows = [{"item_code": self.item, "qty": 1, "conversion_factor": 1, "batch_no": self.lot}]
+		with patch.object(batches, "get_available_qty", return_value=0) as available:
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30, is_current=False)
+
+		self.assertEqual(rows[0]["batch"]["name"], self.lot)
+		self.assertTrue(rows[0]["batch"]["expiry_date"])
+		self.assertFalse(rows[0]["batch"]["is_expired"] or rows[0]["batch"]["is_short"])
+		self.assertEqual((rows[0]["readiness_message"], rows[0]["readiness_tone"]), ("", ""))
+		available.assert_not_called()
+
+	def test_a_submitted_procedure_hydrates_as_past(self):
+		rows = [{"name": "HLC-CPR-X", "docstatus": 1, "procedure_template": ""}]
+		with patch.object(
+			consumable_procedures,
+			"_live_rows",
+			return_value={
+				"HLC-CPR-X": [
+					{"item_code": self.item, "qty": 1, "conversion_factor": 1, "batch_no": self.lot}
+				]
+			},
+		):
+			with patch.object(batches, "get_available_qty", return_value=0):
+				consumable_procedures.hydrate(rows)
+
+		self.assertEqual(rows[0]["consumables"][0]["readiness_message"], "")
+
+	def test_previous_marks_are_hydrated_as_past(self):
+		with patch.object(consumable_marks, "hydrate") as hydrate:
+			api._get_previous_marks(self._make_patient())
+
+		self.assertEqual(hydrate.call_args.kwargs.get("is_current"), False)
+
+	def test_the_inventory_endpoint_uses_the_clinic_window(self):
+		settings = {
+			"enforcement": "Warn",
+			"todo_downgrades_blockers": True,
+			"expiring_soon_days": 0,
+			"is_configurable": True,
+		}
+		with (
+			patch.object(api, "get_readiness_settings", return_value=settings),
+			patch.object(api, "_get_marks", return_value=[]),
+			patch.object(api, "_get_derma_procedures", return_value=[]),
+		):
+			with patch("do_derma.readiness.inventory.build", return_value=[]) as build:
+				api.get_inventory_readiness(patient=self._make_patient())
+
+		self.assertEqual(build.call_args.kwargs.get("expiring_soon_days"), 0)
+
+	def test_a_lot_is_looked_up_once_per_request(self):
+		fresh = self._make_batch(self.item, expiry_date=add_days(nowdate(), 200))
+		rows = [
+			{"item_code": self.item, "qty": 1, "conversion_factor": 1, "batch_no": fresh} for _ in range(3)
+		]
+		with patch("erpnext.stock.doctype.batch.batch.get_batch_qty", return_value=[]) as get_batch_qty:
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+			batches.annotate_rows([dict(row) for row in rows], "Clinical Procedure", None, 30)
+
+		self.assertEqual(get_batch_qty.call_count, 1)

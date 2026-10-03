@@ -2312,6 +2312,7 @@ def get_inventory_readiness(
 		consumable_procedures.get_carriers(
 			_get_derma_procedures(patient, appointment=appointment, encounter=encounter)
 		),
+		expiring_soon_days=get_readiness_settings()["expiring_soon_days"],
 	)
 
 
@@ -2329,7 +2330,7 @@ def _get_previous_marks(patient: str, current_encounter: str | None = None) -> l
 		limit=500,
 	)
 	visible = [row for row in rows if row.get("status") != "Archived"]
-	consumable_marks.hydrate(visible)
+	consumable_marks.hydrate(visible, is_current=False)
 	return visible
 
 

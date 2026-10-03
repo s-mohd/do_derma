@@ -35,7 +35,9 @@ def hydrate(procedure_rows: list[dict[str, Any]]) -> None:
 		defaults = defaults_by_template[template]
 		compared = snapshot.compare(live.get(row["name"], []), defaults)
 		row["consumables"] = compared["consumables"]
-		batches.annotate_rows(row["consumables"], "Clinical Procedure", row["name"], window)
+		batches.annotate_rows(
+			row["consumables"], "Clinical Procedure", row["name"], window, cint(row.get("docstatus")) == 0
+		)
 		row["removed_consumables"] = compared["removed"]
 		row["default_consumables"] = defaults
 
