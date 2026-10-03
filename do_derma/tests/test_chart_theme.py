@@ -456,3 +456,22 @@ class TestProcedurePanelRestyle(TestCase):
 		self.assertNotIn("no-charge-label", details)
 		self.assertEqual(price.count("formatCurrency(displayPrice(row))"), 2)
 		self.assertNotIn("computedPrice", price)
+
+	def test_table_has_six_labelled_columns(self):
+		template, _, _ = get_panel_parts()
+		self.assertEqual(template.count("<col "), 6)
+		headers = re.findall(r"<th>(.*?)</th>", template)
+		self.assertEqual(len(headers), 6)
+		for header in headers:
+			self.assertRegex(header, r'^\{\{ __\("[\w ]+"\) \}\}$')
+		self.assertEqual(template.count('colspan="6"'), 2)
+
+	def test_row_chips_are_chart_pills(self):
+		template, script, style = get_panel_parts()
+		self.assertNotIn('class="detail-chip', template)
+		self.assertNotIn('class="consent-badge', template)
+		self.assertNotIn(".consent-badge", style)
+		self.assertNotIn("labCaseStatusClass", template + script)
+		status = get_element(template, '<td class="status-cell"')
+		self.assertIn('data-tone="ok"', status)
+		self.assertIn('data-tone="danger"', status)

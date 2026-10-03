@@ -2280,13 +2280,6 @@
   vertical-align: top;
 }
 
-.procedure-table th {
-  color: var(--derma-text-secondary-alt);
-  background: var(--derma-bg-subtle);
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
 .procedure-open-link,
 .link {
   border: 0;

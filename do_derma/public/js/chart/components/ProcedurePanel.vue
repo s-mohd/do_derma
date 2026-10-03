@@ -178,7 +178,6 @@
         <colgroup>
           <col class="col-status" />
           <col class="col-procedure" />
-          <col class="col-tooth" />
           <col class="col-details" />
           <col class="col-price" />
           <col class="col-doctor" />
@@ -186,66 +185,71 @@
         </colgroup>
         <thead>
           <tr>
-            <th>Status</th>
-            <th>Procedure</th>
-            <th>{{ __("Area") }}</th>
-            <th>Details</th>
-            <th>Price</th>
-            <th>Doctor</th>
-            <th>Actions</th>
+            <th>{{ __("Status") }}</th>
+            <th>{{ __("Procedure") }}</th>
+            <th>{{ __("Details") }}</th>
+            <th>{{ __("Price") }}</th>
+            <th>{{ __("Doctor") }}</th>
+            <th>{{ __("Actions") }}</th>
           </tr>
         </thead>
         <tbody>
           <template v-for="group in filteredGroups" :key="group.key">
             <tr class="procedure-date-row">
-              <td colspan="7">{{ formatGroupLabel(group) }}</td>
+              <td colspan="6">{{ formatGroupLabel(group) }}</td>
             </tr>
             <template v-for="row in group.items" :key="row.name">
             <tr @dblclick="handleRowDoubleClick(row, $event)">
-              <td>
-                <span class="chart-pill" :data-tone="statusTone(row.status)">
-                  {{ row.status || "Draft" }}
-                </span>
-                <button
-                  v-if="row.consents?.length"
-                  type="button"
-                  class="consent-badge consented"
-                  data-test="procedure-consent-badge"
-                  @click.stop="emit('open-consents', row)"
-                >
-                  {{ consentBadgeLabel(row.consents) }}
-                </button>
-                <button
-                  v-else-if="row.consent_required && row.docstatus !== 2"
-                  type="button"
-                  class="consent-badge needed"
-                  data-test="procedure-consent-needed"
-                  :disabled="readOnly"
-                  @click.stop="emit('new-consent', row)"
-                >
-                  {{ __("Consent needed") }}
-                </button>
+              <td class="status-cell">
+                <div class="cell-stack">
+                  <span class="chart-pill" :data-tone="statusTone(row.status)">
+                    {{ row.status || "Draft" }}
+                  </span>
+                  <button
+                    v-if="row.consents?.length"
+                    type="button"
+                    class="chart-pill"
+                    data-tone="ok"
+                    data-test="procedure-consent-badge"
+                    @click.stop="emit('open-consents', row)"
+                  >
+                    {{ consentBadgeLabel(row.consents) }}
+                  </button>
+                  <button
+                    v-else-if="row.consent_required && row.docstatus !== 2"
+                    type="button"
+                    class="chart-pill"
+                    data-tone="danger"
+                    data-test="procedure-consent-needed"
+                    :disabled="readOnly"
+                    @click.stop="emit('new-consent', row)"
+                  >
+                    {{ __("Consent needed") }}
+                  </button>
+                </div>
               </td>
               <td class="procedure-cell">
-                <span v-if="row.procedure_code" class="procedure-code">{{ row.procedure_code }}</span>
-                <button
-                  v-if="getProcedureName(row)"
-                  type="button"
-                  class="procedure-open-link"
-                  :title="__('Open Clinical Procedure')"
-                  @click.stop="openProcedure(row)"
-                >
-                  {{ row.display_name || row.procedure_template || "-" }}
-                </button>
-                <span v-else>{{ row.display_name || row.procedure_template || "-" }}</span>
+                <div class="cell-stack">
+                  <button
+                    v-if="getProcedureName(row)"
+                    type="button"
+                    class="procedure-open-link"
+                    :title="__('Open Clinical Procedure')"
+                    @click.stop="openProcedure(row)"
+                  >
+                    {{ row.display_name || row.procedure_template || "-" }}
+                  </button>
+                  <span v-else>{{ row.display_name || row.procedure_template || "-" }}</span>
+                  <span v-if="getProcedureMeta(row)" class="procedure-meta">{{ getProcedureMeta(row) }}</span>
+                </div>
               </td>
-              <td class="tooth-cell">{{ formatToothLabel(row.tooth) }}</td>
               <td>
                 <div class="details-cell">
                   <button
                     v-if="row.derma_detail_text"
                     type="button"
-                    class="detail-chip derma-detail-chip"
+                    class="chart-pill detail-text"
+                    data-tone="accent"
                     :title="row.derma_detail_text"
                     @click.stop="openProcedure(row)"
                   >
@@ -255,24 +259,23 @@
                   <button
                     v-else-if="enableLabCases && rowAllowsSurfaces(row)"
                     type="button"
-                    class="detail-chip detail-chip-button"
+                    class="chart-pill"
                     data-test="procedure-edit-surfaces"
-                    :class="{ muted: !formatSurfaceText(row) }"
                     :disabled="!isEditable(row)"
                     @click="isEditable(row) ? $emit('edit-surfaces', row) : null"
                   >
                     <i class="fa-solid fa-layer-group"></i>
                     <span>{{ formatSurfaceText(row) || __("Details") }}</span>
                   </button>
-                  <span v-else class="detail-chip muted">
+                  <span v-else class="chart-pill detail-empty">
                     <i class="fa-solid fa-layer-group"></i>
                     <span>{{ __("No details") }}</span>
                   </span>
 
                   <template v-if="enableLabCases && row.lab_case_name">
                     <button
-                      class="detail-chip detail-chip-button"
-                      :class="labCaseStatusClass(row.lab_case_status)"
+                      class="chart-pill"
+                      :data-tone="labCaseTone(row.lab_case_status)"
                       type="button"
                       data-test="procedure-open-lab-case"
                       @click="$emit('open-lab-case', row)"
@@ -283,7 +286,8 @@
                   </template>
                   <template v-else-if="enableLabCases && row.lab_case_recommended && isEditable(row)">
                     <button
-                      class="detail-chip detail-chip-button lab-suggested"
+                      class="chart-pill"
+                      data-tone="caution"
                       type="button"
                       data-test="procedure-create-lab-case"
                       @click="$emit('create-lab-case', row)"
@@ -293,14 +297,14 @@
                     </button>
                   </template>
 
-                  <span v-if="rowIsInsurance(row)" class="detail-chip insurance-locked-label">
+                  <span v-if="rowIsInsurance(row)" class="chart-pill" data-tone="info">
                     <i class="fa-solid fa-shield-halved"></i>
                     <span>{{ __("Insurance") }}</span>
                   </span>
                   <button
                     v-if="consumableOwners(row).length"
                     type="button"
-                    class="detail-chip detail-chip-button"
+                    class="chart-pill"
                     data-test="procedure-toggle-consumables"
                     :aria-expanded="isConsumablesOpen(row)"
                     :title="__('Materials consumed')"
@@ -314,7 +318,7 @@
                   <button
                     v-if="row.derma_captures_variables_per_procedure"
                     type="button"
-                    class="detail-chip detail-chip-button"
+                    class="chart-pill"
                     data-test="procedure-edit-variables"
                     :title="__('Recorded once for the whole procedure')"
                     :disabled="readOnly"
@@ -323,7 +327,7 @@
                     <i class="fa-solid fa-sliders"></i>
                     <span>{{ row.derma_procedure_variables_text || __("Add details") }}</span>
                   </button>
-                  <span v-if="row.derma_artifact_text" class="detail-chip derma-artifact-chip">
+                  <span v-if="row.derma_artifact_text" class="chart-pill" data-tone="info">
                     <i class="fa-regular fa-images"></i>
                     <span>{{ row.derma_artifact_text }}</span>
                   </span>
@@ -447,7 +451,7 @@
               </td>
             </tr>
             <tr v-if="isConsumablesOpen(row)" class="consumables-row" data-test="procedure-consumables-row">
-              <td colspan="7">
+              <td colspan="6">
                 <ConsumablesEditor
                   v-for="owner in consumableOwners(row)"
                   :key="owner.name"
@@ -601,6 +605,11 @@ function compareToothLabels(a, b) {
   if (Number.isFinite(left)) return -1
   if (Number.isFinite(right)) return 1
   return String(a).localeCompare(String(b), undefined, { numeric: true })
+}
+
+function getProcedureMeta(row) {
+  const area = normalizeTooth(row?.tooth) ? formatToothLabel(row.tooth) : ""
+  return [row?.procedure_code, area].filter(Boolean).join(" · ")
 }
 
 function getDoctorLabel(row) {
@@ -1811,13 +1820,12 @@ function statusTone(status) {
   return STATUS_TONES[status] || "neutral"
 }
 
-function labCaseStatusClass(status) {
+function labCaseTone(status) {
   const key = (status || "").toString().toLowerCase()
-  if (["delivered", "closed"].includes(key)) return "pill-completed"
-  if (["cancelled"].includes(key)) return "pill-cancelled"
-  if (["ready for delivery", "quality checked", "received in clinic"].includes(key)) return "pill-in-progress"
-  if (["sent", "in production", "received by lab", "shipped"].includes(key)) return "pill-pending"
-  return "pill-draft"
+  if (["delivered", "closed"].includes(key)) return "ok"
+  if (["cancelled"].includes(key)) return "danger"
+  if (["ready for delivery", "quality checked", "received in clinic", "sent", "in production", "received by lab", "shipped"].includes(key)) return "caution"
+  return "neutral"
 }
 
 function formatSurfaceText(row) {
@@ -2119,25 +2127,21 @@ function handleRowDoubleClick(row, event) {
   padding: 4px 10px;
 }
 
-/* Below this the eight columns cannot all hold their content, so the wrapper
+/* Below this the six columns cannot all hold their content, so the wrapper
    scrolls the whole table rather than clipping the Actions column off the end. */
 .dental-chart-page .procedure-table {
   width: 100%;
-  min-width: 860px;
+  min-width: 760px;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
 .dental-chart-page .procedure-table .col-status {
-  width: 9%;
+  width: 11%;
 }
 
 .dental-chart-page .procedure-table .col-procedure {
-  width: 21%;
-}
-
-.dental-chart-page .procedure-table .col-tooth {
-  width: 7%;
+  width: 23%;
 }
 
 .dental-chart-page .procedure-table .col-details {
@@ -2145,28 +2149,73 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-price {
-  width: 10%;
+  width: 14%;
 }
 
 .dental-chart-page .procedure-table .col-doctor {
   width: 13%;
 }
 
-/* Two icon buttons plus their count badge: never less than ~86px. */
+/* Up to three 30px icon buttons plus the annotation count badge. */
 .dental-chart-page .procedure-table .col-actions {
-  width: 13%;
+  width: 12%;
 }
 
 .dental-chart-page .procedure-table th {
-  background: var(--chart-surface);
-  font-weight: 700;
-  padding: 10px;
-  border-bottom: 1px solid var(--chart-border);
-  text-align: left;
-  font-size: 13px;
   position: sticky;
   top: 0;
   z-index: 1;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--chart-border);
+  background: var(--chart-surface-muted);
+  color: var(--chart-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.dental-chart-page .procedure-date-row td {
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid var(--chart-border);
+  background: var(--chart-surface);
+  color: var(--chart-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dental-chart-page .procedure-table .cell-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.dental-chart-page .procedure-table .procedure-meta {
+  color: var(--chart-muted);
+  font-size: 12px;
+}
+
+.dental-chart-page .procedure-table .details-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dental-chart-page .procedure-table .detail-text {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.dental-chart-page .procedure-table .detail-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dental-chart-page .procedure-table .detail-empty {
+  color: var(--chart-muted);
 }
 
 .dental-chart-page .procedure-table .price-meta {
@@ -2179,82 +2228,6 @@ function handleRowDoubleClick(row, event) {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.dental-chart-page .procedure-table .tooth-cell {
-  color: var(--chart-text-soft);
-  font-weight: 700;
-}
-
-.dental-chart-page .procedure-table .details-cell {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.dental-chart-page .procedure-table .detail-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  min-height: 24px;
-  border: 1px solid var(--chart-border);
-  background: var(--chart-surface-muted);
-  color: var(--chart-text-soft);
-  border-radius: 999px;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.dental-chart-page .procedure-table .detail-chip span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dental-chart-page .procedure-table .detail-chip i {
-  flex: 0 0 auto;
-  color: var(--chart-muted);
-  font-size: 10px;
-}
-
-.dental-chart-page .procedure-table .detail-chip.muted {
-  color: var(--chart-muted);
-  background: var(--chart-surface-muted);
-}
-
-.dental-chart-page .procedure-table .detail-chip-button {
-  cursor: pointer;
-}
-
-.dental-chart-page .procedure-table .detail-chip-button:disabled {
-  cursor: default;
-  opacity: 0.8;
-}
-
-.dental-chart-page .procedure-table .derma-detail-chip {
-  max-width: 280px;
-  border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
-  background: var(--chart-accent-soft);
-  color: var(--chart-accent-text);
-  cursor: pointer;
-}
-
-.dental-chart-page .procedure-table .derma-artifact-chip {
-  border-color: var(--chart-border-strong);
-  background: var(--chart-info-soft);
-  color: var(--chart-info-text);
-}
-
-.dental-chart-page .procedure-table .lab-suggested {
-  border-color: var(--chart-caution-border);
-  background: var(--chart-caution-soft);
-  color: var(--chart-caution-text);
 }
 
 .dental-chart-page .procedure-table .lab-case-cell {
@@ -2342,18 +2315,6 @@ function handleRowDoubleClick(row, event) {
   font-size: 13px;
 }
 
-.dental-chart-page .procedure-table .procedure-code {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--chart-text);
-  background: var(--chart-border);
-  padding: 2px 6px;
-  border-radius: 999px;
-  margin-right: 6px;
-  display: inline-flex;
-  align-items: center;
-}
-
 .dental-chart-page .procedure-table .procedure-open-link {
   border: 0;
   background: transparent;
@@ -2378,42 +2339,6 @@ function handleRowDoubleClick(row, event) {
   outline: none;
   color: var(--chart-info-text);
   border-bottom-color: var(--chart-info-text);
-}
-
-.dental-chart-page .procedure-table .pill-draft {
-  background: var(--chart-border);
-  color: var(--chart-text-soft);
-  border-color: var(--chart-border-strong);
-}
-
-.dental-chart-page .procedure-table .pill-pending {
-  background: var(--chart-caution-soft);
-  color: var(--chart-caution-text);
-  border-color: var(--chart-caution-border);
-}
-
-.dental-chart-page .procedure-table .pill-in-progress {
-  background: var(--chart-info-soft);
-  color: var(--chart-info-text);
-  border-color: var(--chart-border-strong);
-}
-
-.dental-chart-page .procedure-table .pill-submitted {
-  background: var(--chart-info-soft);
-  color: var(--chart-info-text);
-  border-color: var(--chart-border-strong);
-}
-
-.dental-chart-page .procedure-table .pill-completed {
-  background: var(--chart-ok-soft);
-  color: var(--chart-ok-text);
-  border-color: var(--chart-ok-soft);
-}
-
-.dental-chart-page .procedure-table .pill-cancelled {
-  background: var(--chart-danger-soft);
-  color: var(--chart-danger-text);
-  border-color: var(--chart-danger-border);
 }
 
 .dental-chart-page .procedure-table .inline-input {
@@ -2498,54 +2423,6 @@ function handleRowDoubleClick(row, event) {
 .dental-chart-page .procedure-table .ghost.small {
   background: var(--chart-surface-muted);
   padding: 6px 10px;
-}
-
-.dental-chart-page .procedure-table .insurance-locked-label {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--chart-border-strong);
-  border-radius: 999px;
-  color: var(--chart-info-text);
-  background: var(--chart-info-soft);
-  padding: 6px;
-  line-height: 1;
-  font-weight: 700;
-}
-
-.consent-badge {
-  display: block;
-  margin-top: 4px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.consent-badge.consented {
-  border: 1px solid var(--chart-ok-soft);
-  background: var(--chart-ok-soft);
-  color: var(--chart-ok-text);
-}
-
-.consent-badge.needed {
-  border: 1px solid var(--chart-caution-border);
-  background: var(--chart-caution-soft);
-  color: var(--chart-caution-text);
-}
-
-.consent-badge:disabled {
-  cursor: default;
-  opacity: 0.7;
-}
-
-.dental-chart-page .procedure-date-row td {
-  background: var(--chart-surface-muted);
-  color: var(--chart-text-soft);
-  padding: 12px 14px 8px;
-  font-size: 16px;
-  font-weight: 800;
-  border-bottom: 1px solid var(--chart-border);
 }
 
 .dental-chart-page .procedure-empty {
