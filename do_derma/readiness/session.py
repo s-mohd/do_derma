@@ -17,12 +17,16 @@ def get_session_readiness(
 ) -> dict[str, Any]:
 	"""Every readiness item for one session, plus what completion should do about them."""
 	settings = get_readiness_settings()
-	marks = api._get_marks(patient, appointment=appointment, encounter=encounter) if patient else []
-	procedures = procedure_consumables.get_carriers(
-		api._get_derma_procedures(patient, appointment=appointment, encounter=encounter) if patient else []
+	marks, procedure_rows = inventory.select_open_work(
+		api._get_marks(patient, appointment=appointment, encounter=encounter) if patient else [],
+		api._get_derma_procedures(patient, appointment=appointment, encounter=encounter) if patient else [],
 	)
+	procedures = procedure_consumables.get_carriers(procedure_rows)
 	items = [
-		*[_as_item(row, inventory.SOURCE) for row in inventory.build(marks, procedures, expiring_soon_days=settings["expiring_soon_days"])],
+		*[
+			_as_item(row, inventory.SOURCE)
+			for row in inventory.build(marks, procedures, expiring_soon_days=settings["expiring_soon_days"])
+		],
 		*[_as_item(row, followup.SOURCE) for row in followup.build(marks)],
 	]
 	if settings["todo_downgrades_blockers"]:

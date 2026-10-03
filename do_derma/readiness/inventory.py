@@ -6,7 +6,7 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, nowdate
+from frappe.utils import cint, flt, getdate, nowdate
 
 from do_derma import api
 from do_derma.consumables import batches
@@ -28,6 +28,17 @@ TEMPLATE_FIELDS = [
 	"custom_derma_category",
 	"custom_derma_product_tracking_required",
 ]
+
+
+def select_open_work(
+	marks: list[dict[str, Any]], procedure_rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+	"""The marks and procedures readiness still judges: a submitted procedure has posted its
+	stock, so neither it nor the marks it carries are checked again."""
+	submitted = {row.get("name") for row in procedure_rows if cint(row.get("docstatus")) != 0}
+	open_marks = [mark for mark in marks if mark.get("clinical_procedure") not in submitted]
+	open_rows = [row for row in procedure_rows if row.get("name") not in submitted]
+	return open_marks, open_rows
 
 
 def build(

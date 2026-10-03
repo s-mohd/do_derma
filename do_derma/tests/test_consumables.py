@@ -1222,3 +1222,54 @@ class TestBatchMinorFindings(ConsumableHelpers, IntegrationTestCase):
 			inventory.build([{"name": "MARK-X", "consumables": [line]}])
 
 		self.assertEqual(len(calls), 1)
+
+
+class TestReadinessSkipsSubmittedWork(ConsumableHelpers, IntegrationTestCase):
+	"""A submitted procedure has posted its stock, so readiness no longer checks it."""
+
+	def setUp(self):
+		self.item = self._make_stock_item()
+
+	def line(self, qty=4):
+		return {
+			"item_code": self.item,
+			"item_name": self.item,
+			"qty": qty,
+			"uom": "Nos",
+			"conversion_factor": 1,
+			"stock_uom": "Nos",
+		}
+
+	def test_a_submitted_procedure_is_left_out(self):
+		procedures = [
+			{"name": "CP-OPEN", "docstatus": 0, "consumables": [self.line()]},
+			{"name": "CP-DONE", "docstatus": 1, "consumables": [self.line()]},
+		]
+		marks, rows = inventory.select_open_work([], procedures)
+
+		self.assertEqual([row["name"] for row in rows], ["CP-OPEN"])
+		self.assertEqual(marks, [])
+
+	def test_a_mark_on_a_submitted_procedure_is_left_out(self):
+		marks = [
+			{"name": "MARK-OPEN", "clinical_procedure": "CP-OPEN"},
+			{"name": "MARK-DONE", "clinical_procedure": "CP-DONE"},
+			{"name": "MARK-LOOSE", "clinical_procedure": ""},
+		]
+		procedures = [{"name": "CP-OPEN", "docstatus": 0}, {"name": "CP-DONE", "docstatus": 1}]
+		kept, _rows = inventory.select_open_work(marks, procedures)
+
+		self.assertEqual([mark["name"] for mark in kept], ["MARK-OPEN", "MARK-LOOSE"])
+
+	def test_session_readiness_ignores_a_submitted_procedures_shortage(self):
+		from do_derma.readiness import session
+
+		procedures = [{"name": "CP-DONE", "docstatus": 1, "consumables": [self.line()]}]
+		with (
+			patch.object(session.api, "_get_marks", return_value=[]),
+			patch.object(session.api, "_get_derma_procedures", return_value=procedures),
+			patch.object(batches, "get_available_qty", return_value=1),
+		):
+			readiness = session.get_session_readiness("PATIENT")
+
+		self.assertEqual([item for item in readiness["items"] if item["source"] == inventory.SOURCE], [])

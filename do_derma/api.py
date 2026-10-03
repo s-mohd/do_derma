@@ -2307,11 +2307,13 @@ def get_inventory_readiness(
 		patient = frappe.db.get_value("Patient Encounter", encounter, "patient")
 	if not patient:
 		return []
-	return inventory.build(
+	marks, procedure_rows = inventory.select_open_work(
 		_get_marks(patient, appointment=appointment, encounter=encounter),
-		consumable_procedures.get_carriers(
-			_get_derma_procedures(patient, appointment=appointment, encounter=encounter)
-		),
+		_get_derma_procedures(patient, appointment=appointment, encounter=encounter),
+	)
+	return inventory.build(
+		marks,
+		consumable_procedures.get_carriers(procedure_rows),
 		expiring_soon_days=get_readiness_settings()["expiring_soon_days"],
 	)
 
