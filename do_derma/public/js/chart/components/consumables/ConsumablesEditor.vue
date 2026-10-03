@@ -73,7 +73,7 @@
                 class="chart-pill"
                 :data-tone="row.batch.is_short ? 'caution' : 'neutral'"
                 data-test="consumable-batch-stock"
-              >{{ __("{0} left").replace("{0}", row.batch.available_qty) }}</span>
+              >{{ __("{0} left", [row.batch.available_qty]) }}</span>
               <span
                 v-if="row.batch.expiry_date"
                 class="chart-pill"
@@ -311,7 +311,7 @@ function isBatchTracked(itemCode) {
 
 function batchLabel(batch) {
   const expiry = batch.expiry_date ? ` · ${__("exp")} ${formatDate(batch.expiry_date)}` : ""
-  return `${batch.name} · ${__("{0} left").replace("{0}", batch.qty)}${expiry}`
+  return `${batch.name} · ${__("{0} left", [batch.qty])}${expiry}`
 }
 
 function formatDate(value) {
@@ -328,9 +328,9 @@ function expiryTone(batch) {
 }
 
 function expiryLabel(batch) {
-  if (batch.is_expired) return __("expired {0}").replace("{0}", formatDate(batch.expiry_date))
+  if (batch.is_expired) return __("expired {0}", [formatDate(batch.expiry_date)])
   if (!batch.is_expiring_soon) return formatDate(batch.expiry_date)
-  return batch.days_to_expiry === 0 ? __("expires today") : __("in {0} days").replace("{0}", batch.days_to_expiry)
+  return batch.days_to_expiry === 0 ? __("expires today") : __("in {0} days", [batch.days_to_expiry])
 }
 
 function loadOptionsForRows() {

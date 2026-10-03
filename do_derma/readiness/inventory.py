@@ -1,4 +1,4 @@
-"""Product, lot, expiry and stock readiness for the marks in one session."""
+"""Product, lot, expiry and stock readiness for the marks and procedures in one session."""
 
 from __future__ import annotations
 
@@ -114,6 +114,7 @@ def _record_contribution(
 	name = carrier.get("name")
 	if name and name not in row[carrier_field]:
 		row[carrier_field].append(name)
+	# A group spanning procedures in different warehouses checks stock in the first one's.
 	if row["warehouse"] is None and name:
 		doctype = "Clinical Procedure" if carrier_field == PROCEDURE_CARRIERS else "Derma Chart Mark"
 		row["warehouse"] = get_warehouse(doctype, name) or ""
@@ -150,7 +151,7 @@ def _new_consumable_group(consumable: dict[str, Any]) -> tuple[str, dict[str, An
 		product_item=item_code,
 		product_name=consumable.get("item_name") or _item_display_name(item_code) or item_code,
 		lot_no=batch_no,
-		expiry_date=_batch_expiry(batch_no) or "",
+		expiry_date=batches.get_batch_expiry(batch_no) or "",
 		dose_unit=consumable.get("uom") or "",
 		is_lot_required=_is_batch_tracked(item_code),
 	)
@@ -258,12 +259,6 @@ def _balance_notices(row: dict[str, Any], available_qty: float | None) -> list[s
 	if row.get("product_item") and available_qty is None:
 		return [unavailable]
 	return []
-
-
-def _batch_expiry(batch_no: str) -> Any:
-	if not batch_no or not api._has_doctype("Batch"):
-		return None
-	return frappe.db.get_value("Batch", batch_no, "expiry_date")
 
 
 def _is_batch_tracked(item_code: str | None) -> bool:

@@ -74,11 +74,13 @@ def get_readiness_settings() -> dict[str, Any]:
 
 def is_single_value_stored(fieldname: str) -> bool:
 	"""Whether the singleton has a row for the field; get_single_value casts a missing Int to 0."""
-	return bool(
-		frappe.db.sql(
-			"select 1 from tabSingles where doctype=%s and field=%s", (SETTINGS_DOCTYPE, fieldname)
-		)
+	singles = frappe.qb.DocType("Singles")
+	query = (
+		frappe.qb.from_(singles)
+		.select(singles.field)
+		.where((singles.doctype == SETTINGS_DOCTYPE) & (singles.field == fieldname))
 	)
+	return bool(query.run())
 
 
 def ensure_readiness_defaults() -> None:

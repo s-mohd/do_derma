@@ -1178,3 +1178,47 @@ class TestBatchReviewFindings(ConsumableHelpers, DermaTestHelpers, IntegrationTe
 			batches.annotate_rows([dict(row) for row in rows], "Clinical Procedure", None, 30)
 
 		self.assertEqual(get_batch_qty.call_count, 1)
+
+
+class TestBatchMinorFindings(ConsumableHelpers, IntegrationTestCase):
+	"""Small fixes from the materials review."""
+
+	def test_quantities_read_as_people_write_them(self):
+		self.assertEqual(batches.format_quantity(3), "3")
+		self.assertEqual(batches.format_quantity(2.5), "2.5")
+		self.assertEqual(batches.format_quantity(0.00001), "0.00001")
+
+	def test_a_malformed_expiry_is_neither_expired_nor_a_crash(self):
+		with patch.object(batches, "get_available_qty", return_value=None):
+			facts = batches.get_batch_facts("ITEM", None, None, 1, 30, expiry_date="not-a-date")
+
+		self.assertFalse(facts["is_expired"] or facts["is_expiring_soon"])
+		self.assertIsNone(facts["days_to_expiry"])
+
+	def test_readiness_reads_a_lot_expiry_once(self):
+		item = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(item, expiry_date=add_days(nowdate(), 90))
+		line = {
+			"item_code": item,
+			"item_name": item,
+			"qty": 1,
+			"uom": "Nos",
+			"conversion_factor": 1,
+			"stock_uom": "Nos",
+			"batch_no": lot,
+		}
+		original = frappe.db.get_value
+		calls = []
+
+		def counting(doctype, *args, **kwargs):
+			if doctype == "Batch":
+				calls.append(args)
+			return original(doctype, *args, **kwargs)
+
+		with (
+			patch.object(batches, "get_available_qty", return_value=10),
+			patch.object(frappe.db, "get_value", side_effect=counting),
+		):
+			inventory.build([{"name": "MARK-X", "consumables": [line]}])
+
+		self.assertEqual(len(calls), 1)

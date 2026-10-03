@@ -41,7 +41,7 @@ def get_batch_facts(
 ) -> dict[str, Any]:
 	"""Lot, stock left and expiry for one line, judged against the expiring-soon window."""
 	expiry_date = get_batch_expiry(batch_no) or expiry_date
-	days = date_diff(getdate(expiry_date), getdate(today or nowdate())) if expiry_date else None
+	days = get_days_to_expiry(expiry_date, today)
 	available = get_available_qty(item_code, batch_no, warehouse)
 	return {
 		"name": batch_no or "",
@@ -53,6 +53,16 @@ def get_batch_facts(
 		"is_expiring_soon": days is not None and 0 <= days <= window_days and window_days > 0,
 		"is_short": available is not None and line_qty is not None and flt(line_qty) > flt(available),
 	}
+
+
+def get_days_to_expiry(expiry_date: Any, today: Any = None) -> int | None:
+	"""Days from today to expiry; None when there is no date or it cannot be read."""
+	if not expiry_date:
+		return None
+	try:
+		return date_diff(getdate(expiry_date), getdate(today or nowdate()))
+	except Exception:
+		return None
 
 
 @request_cache
@@ -92,7 +102,7 @@ def get_line_notices(facts: dict[str, Any]) -> list[dict[str, str]]:
 		)
 		notices.append({"message": message, "tone": "caution"})
 	if facts.get("is_short"):
-		left, needed = _quantity(facts["available_qty"]), _quantity(facts["line_qty"])
+		left, needed = format_quantity(facts["available_qty"]), format_quantity(facts["line_qty"])
 		message = (_("This lot has {0} left;") if facts.get("name") else _("{0} left in stock;")).format(left)
 		uses = _("these lines use {0}.") if facts.get("line_count", 1) > 1 else _("the line uses {0}.")
 		message = f"{message} {uses.format(needed)}"
@@ -100,9 +110,9 @@ def get_line_notices(facts: dict[str, Any]) -> list[dict[str, str]]:
 	return notices
 
 
-def _quantity(value: Any) -> str:
-	number = flt(value)
-	return str(int(number)) if number == int(number) else f"{number:g}"
+def format_quantity(value: Any) -> str:
+	"""A quantity as a person writes it: 3, 2.5, 0.00001."""
+	return f"{flt(value):.6f}".rstrip("0").rstrip(".") or "0"
 
 
 def annotate_rows(
