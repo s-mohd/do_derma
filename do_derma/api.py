@@ -4598,6 +4598,10 @@ def _load_visit_drawings(encounter: str) -> list[dict[str, Any]]:
 	return _load_annotations_for_parents(parents, include_scene=False)
 
 
+def _load_visit_procedure_titles(doc) -> list[str]:
+	return [row["title"] for row in _get_visit_summary_procedures(doc)]
+
+
 @frappe.whitelist()
 def get_previous_visits(patient: str, current_encounter: str | None = None, start: int = 0, page_length: int = 5):
 	_ensure_clinical_access()
@@ -4611,6 +4615,7 @@ def get_previous_visits(patient: str, current_encounter: str | None = None, star
 		cint(start),
 		max(1, min(cint(page_length) or 5, 20)),
 		_load_visit_drawings,
+		_load_visit_procedure_titles,
 	)
 
 

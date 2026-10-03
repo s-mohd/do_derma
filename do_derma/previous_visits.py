@@ -20,6 +20,7 @@ def get_page(
 	start: int,
 	page_length: int,
 	load_drawings: Callable[[str], list[dict[str, Any]]],
+	load_procedures: Callable[[Any], list[str]],
 ) -> dict[str, Any]:
 	"""Visits before the open one with a drawing or an assessment, newest first.
 
@@ -34,7 +35,7 @@ def get_page(
 		if not batch:
 			return {"visits": visits, "has_more": False, "next_start": offset}
 		for row in batch:
-			visit = _build_visit(row, load_drawings)
+			visit = _build_visit(row, load_drawings, load_procedures)
 			if visit and len(visits) == page_length:
 				return {"visits": visits, "has_more": True, "next_start": offset}
 			if visit:
@@ -119,15 +120,18 @@ def _get_encounters(
 	)
 
 
-def _build_visit(row, load_drawings) -> dict[str, Any] | None:
+def _build_visit(row, load_drawings, load_procedures) -> dict[str, Any] | None:
 	drawings = load_drawings(row.name)
-	preview = assessment.get_preview(frappe.get_doc("Patient Encounter", row.name))
+	doc = frappe.get_doc("Patient Encounter", row.name)
+	preview = assessment.get_preview(doc)
 	if not drawings and not preview:
 		return None
 	return {
 		"encounter": row.name,
 		"visit_date": row.visit_date,
 		"practitioner_name": row.practitioner_name or row.practitioner or "",
+		"mode_label": _(assessment.MODE_LABELS[assessment.get_assessment_mode(doc)]),
+		"procedures": load_procedures(doc),
 		"drawings": drawings,
 		"assessment": preview,
 	}

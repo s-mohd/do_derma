@@ -313,3 +313,60 @@ class TestLatestVisit(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(str(chart["visit_date"]), add_days(nowdate(), -50))
 		self.assertEqual(previous_visits.get_latest_encounter(self.patient), booked_recently.name)
 		self.assertNotEqual(booked_long_ago.name, chart["latest_encounter"])
+
+
+class TestPreviousVisitHeader(PrescriptionHelpers, IntegrationTestCase):
+	def setUp(self):
+		super().setUp()
+		self.patient = self._make_patient()
+
+	def _assessed(self, mode, fieldname, text="Mild erythema."):
+		encounter = self._make_encounter(self.patient)
+		encounter.db_set(assessment.MODE_FIELD, mode)
+		encounter.db_set(fieldname, text)
+		return encounter
+
+	def _structured_text_field(self):
+		for row in assessment.get_structured_layout():
+			if row.get("is_value_field") and row.get("fieldtype") in TEXT_TYPES:
+				return row["fieldname"]
+		self.skipTest("This site's structured layout has no text field.")
+
+	def _visits(self):
+		return {visit["encounter"]: visit for visit in api.get_previous_visits(self.patient)["visits"]}
+
+	def test_each_visit_names_its_format(self):
+		if not assessment.soap_is_supported():
+			self.skipTest("SOAP custom fields are not installed on this site")
+		structured = self._assessed(assessment.STRUCTURED, self._structured_text_field())
+		soap = self._assessed(assessment.SOAP, assessment.SOAP_FIELDS[0])
+
+		visits = self._visits()
+
+		self.assertEqual(visits[structured.name]["mode_label"], "Structured Assessment")
+		self.assertEqual(visits[soap.name]["mode_label"], "SOAP Note")
+
+	def test_each_visit_lists_its_procedures_without_cancelled_ones(self):
+		field = api._get_clinical_procedure_encounter_field()
+		if not field:
+			self.skipTest("Clinical Procedure has no encounter link on this site.")
+		encounter = self._assessed(assessment.STRUCTURED, self._structured_text_field())
+		kept, cancelled = (self._make_clinical_procedure(self.patient) for _ in range(2))
+		for procedure in (kept, cancelled):
+			procedure.db_set(field, encounter.name)
+		cancelled.db_set("docstatus", 2)
+
+		titles = self._visits()[encounter.name]["procedures"]
+
+		summary = api.get_visit_summary(encounter.name)["procedures"]
+		self.assertEqual(titles, [row["title"] for row in summary])
+		self.assertEqual(len(titles), 1)
+
+	def test_a_visit_with_only_procedures_is_still_not_listed(self):
+		field = api._get_clinical_procedure_encounter_field()
+		if not field:
+			self.skipTest("Clinical Procedure has no encounter link on this site.")
+		encounter = self._make_encounter(self.patient)
+		self._make_clinical_procedure(self.patient).db_set(field, encounter.name)
+
+		self.assertEqual(self._visits(), {})
