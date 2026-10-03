@@ -342,12 +342,13 @@
                       data-test="procedure-price"
                       :data-row="row.name"
                       :aria-expanded="overrideListOpenRow === row.name ? 'true' : 'false'"
+                      :aria-controls="`price-editor-${row.name}`"
                       :title="__('Change price')"
                       @click.stop="overrideListOpenRow === row.name ? closeOverrideList() : openOverrideList(row)"
                     >
                       {{ formatCurrency(displayPrice(row)) || "—" }}
                     </button>
-                    <div v-if="overrideListOpenRow === row.name" class="override-popover">
+                    <div v-if="overrideListOpenRow === row.name" :id="`price-editor-${row.name}`" class="override-popover">
                       <input
                         type="number"
                         class="inline-input"
@@ -387,7 +388,7 @@
                     </div>
                   </div>
                   <span v-else class="price-amount">{{ formatCurrency(displayPrice(row)) || "—" }}</span>
-                  <span class="price-meta">{{ displayPriceList(row) }}</span>
+                  <span v-if="displayPriceList(row)" class="price-meta">{{ displayPriceList(row) }}</span>
                   <span v-if="isNoCharge(row)" class="chart-pill" data-tone="neutral">{{ __("No charge") }}</span>
                   <span v-else-if="hasAnyOverride(row)" class="chart-pill" data-tone="caution">{{ __("Override") }}</span>
                   <span
@@ -870,7 +871,6 @@ const filteredRows = computed(() =>
 
 const historyStats = computed(() => {
   const stats = {
-    drafts: 0,
     missingNotes: 0,
     labFollowUp: 0,
     billingReview: 0,
@@ -878,7 +878,6 @@ const historyStats = computed(() => {
   for (const row of filteredRows.value) {
     const missingNote = !getRowNoteRawValue(row)
     const labFollowUp = rowNeedsLabFollowUp(row)
-    if (isEditable(row)) stats.drafts += 1
     if (missingNote) stats.missingNotes += 1
     if (labFollowUp) stats.labFollowUp += 1
     if (rowNeedsBillingReview(row)) stats.billingReview += 1
@@ -910,6 +909,8 @@ function isAttentionActive(key) {
 const attentionChips = computed(() =>
   Object.entries(ATTENTION_FILTERS)
     .filter(([key]) => key !== "lab" || props.enableLabCases)
+    // A select narrowed to another value already owns that dimension; the chip would widen it.
+    .filter(([key, config]) => config.filter.value === "all" || isAttentionActive(key))
     .map(([key, config]) => ({ key, count: historyStats.value[config.stat], label: config.label }))
     .filter((chip) => chip.count > 0 || isAttentionActive(chip.key))
 )
@@ -1482,7 +1483,7 @@ function normalizePriceListName(value) {
 function displayPriceList(row) {
   const frozen = row.price_list_used || row.price_list
   const value = normalizePriceListName(getEditValue(row, "price_list") || frozen || props.defaultPriceList)
-  if (!value) return "—"
+  if (!value) return ""
   return value === CUSTOM_PRICE_LIST || value === "Custom" ? "Custom" : value
 }
 
@@ -2112,7 +2113,7 @@ function handleRowDoubleClick(row, event) {
    scrolls the whole table rather than clipping the Actions column off the end. */
 .dental-chart-page .procedure-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 800px;
   border-collapse: collapse;
   table-layout: fixed;
 }
@@ -2137,7 +2138,7 @@ function handleRowDoubleClick(row, event) {
   width: 13%;
 }
 
-/* Up to three 30px icon buttons plus the annotation count badge. */
+/* Up to three 28px icon buttons plus the annotation count badge. */
 .dental-chart-page .procedure-table .col-actions {
   width: 12%;
 }
@@ -2198,6 +2199,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .detail-text span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -2212,11 +2214,6 @@ function handleRowDoubleClick(row, event) {
   margin-top: 4px;
 }
 
-.dental-chart-page .procedure-table .ghost.small {
-  background: var(--chart-surface-muted);
-  padding: 4px 8px;
-}
-
 .dental-chart-page .procedure-table td.row-actions {
   white-space: nowrap;
   padding-left: 6px;
@@ -2225,8 +2222,8 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .icon-btn {
   position: relative;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -2348,6 +2345,12 @@ function handleRowDoubleClick(row, event) {
   cursor: pointer;
 }
 
+.dental-chart-page .procedure-table .price-trigger:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--chart-focus);
+}
+
 .dental-chart-page .procedure-table .price-trigger:hover,
 .dental-chart-page .procedure-table .price-trigger[aria-expanded="true"] {
   border-bottom-color: var(--chart-accent);
@@ -2363,7 +2366,7 @@ function handleRowDoubleClick(row, event) {
   border: 1px solid var(--chart-border);
   border-radius: 10px;
   background: var(--chart-surface);
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--chart-shadow);
 }
 
 .dental-chart-page .procedure-table .override-popover-footer {
@@ -2567,14 +2570,6 @@ function handleRowDoubleClick(row, event) {
 
   .dental-chart-page .procedure-history-controls {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .dental-chart-page .history-search {
-    grid-column: 1 / -1;
-  }
-
-  .dental-chart-page .clear-filters-btn {
-    grid-column: 1 / -1;
   }
 
   :global(.procedure-note-dialog .modal-dialog) {

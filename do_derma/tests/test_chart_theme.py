@@ -450,7 +450,10 @@ class TestProcedurePanelRestyle(TestCase):
 		picker = get_element(
 			price, '<div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker"'
 		)
-		popover = get_element(picker, '<div v-if="overrideListOpenRow === row.name" class="override-popover"')
+		popover = get_element(
+			picker,
+			'<div v-if="overrideListOpenRow === row.name" :id="`price-editor-${row.name}`" class="override-popover"',
+		)
 		self.assertLess(picker.index('data-test="procedure-price"'), picker.index("override-popover"))
 		for part in ('class="inline-input"', "no-charge-btn", "override-option"):
 			self.assertIn(part, popover)
@@ -522,3 +525,59 @@ class TestProcedurePanelRestyle(TestCase):
 		self.assertIn('document.activeElement?.closest?.(".override-popover")', close)
 		self.assertIn(".price-trigger[data-row=", close)
 		self.assertIn('class="override-picker" @keydown.escape.stop="closeOverrideList"', template)
+
+	def test_long_detail_text_ends_in_an_ellipsis(self):
+		_, _, style = get_panel_parts()
+		self.assertRegex(style, r"\.detail-text span \{[^}]*min-width: 0;[^}]*text-overflow: ellipsis;")
+
+	def test_scoped_rules_never_repeat_a_selector(self):
+		_, _, style = get_panel_parts()
+		style = re.sub(r"/\*.*?\*/", "", style, flags=re.S).split("@media", 1)[0]
+		selectors = [selector.strip() for selector in re.findall(r"(?:^|\})\s*([^{}@]+?)\s*\{", style)]
+		repeated = {selector for selector in selectors if selectors.count(selector) > 1}
+		self.assertEqual(repeated, set())
+
+	def test_narrow_rules_only_place_grid_children(self):
+		_, _, style = get_panel_parts()
+		narrow = style[style.index("@media (max-width: 768px)") :]
+		self.assertNotIn(".history-search", narrow)
+		self.assertNotIn(".clear-filters-btn", narrow)
+
+	def test_price_editor_reads_the_chart_shadow_and_focus_tokens(self):
+		template, _, style = get_panel_parts()
+		self.assertRegex(style, r"\.override-popover \{[^}]*box-shadow: var\(--chart-shadow\);")
+		self.assertNotIn("rgba(", style)
+		self.assertRegex(style, r"\.price-trigger:focus-visible \{[^}]*box-shadow: var\(--chart-focus\);")
+		trigger = get_element(
+			template,
+			'<button\n                      type="button"\n                      class="price-trigger"',
+		)
+		self.assertIn(':aria-controls="`price-editor-${row.name}`"', trigger)
+		self.assertIn(':id="`price-editor-${row.name}`"', template)
+
+	def test_history_stats_carry_only_what_the_chips_read(self):
+		_, script, _ = get_panel_parts()
+		self.assertNotIn("drafts", script)
+
+	def test_a_chip_hides_while_its_select_holds_another_value(self):
+		_, script, _ = get_panel_parts()
+		self.assertIn('config.filter.value === "all" || isAttentionActive(key)', script)
+
+	def test_three_action_buttons_fit_the_narrowest_table(self):
+		_, _, style = get_panel_parts()
+		width = int(re.search(r"\.procedure-table \{[^}]*min-width: (\d+)px;", style).group(1))
+		share = int(re.search(r"\.col-actions \{\s*width: (\d+)%;", style).group(1))
+		button = int(re.search(r"\.procedure-table \.icon-btn \{[^}]*width: (\d+)px;", style).group(1))
+		padding = sum(
+			map(
+				int,
+				re.search(
+					r"td\.row-actions \{[^}]*padding-left: (\d+)px;\s*padding-right: (\d+)px;", style
+				).groups(),
+			)
+		)
+		self.assertGreaterEqual(width * share / 100, 3 * button + padding)
+
+	def test_a_procedure_without_a_price_list_shows_no_placeholder_line(self):
+		template, _, _ = get_panel_parts()
+		self.assertIn('<span v-if="displayPriceList(row)" class="price-meta">', template)
