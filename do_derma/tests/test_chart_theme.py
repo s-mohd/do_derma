@@ -475,3 +475,19 @@ class TestProcedurePanelRestyle(TestCase):
 		status = get_element(template, '<td class="status-cell"')
 		self.assertIn('data-tone="ok"', status)
 		self.assertIn('data-tone="danger"', status)
+
+	def test_every_scoped_class_has_a_user(self):
+		markup, style = PROCEDURE_PANEL.read_text().split("<style scoped>", 1)
+		style = re.sub(r"/\*.*?\*/", "", style, flags=re.S)
+		rendered_by_desk = {
+			"dental-chart-page",
+			"modal-dialog",
+			"modal-content",
+			"modal-header",
+			"modal-footer",
+			"frappe-control",
+			"ql-editor",
+		}
+		classes = set(re.findall(r"\.([a-zA-Z][\w-]*)", style)) - rendered_by_desk
+		unused = {name for name in classes if not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", markup)}
+		self.assertEqual(unused, set())

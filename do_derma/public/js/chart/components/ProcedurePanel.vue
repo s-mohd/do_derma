@@ -1895,7 +1895,7 @@ function handleRowDoubleClick(row, event) {
   const target = event?.target
   if (
     target?.closest?.(
-      "input, textarea, select, button, a, .override-popover, .surface-cell .clickable, .lab-case-cell"
+      "input, textarea, select, button, a, .override-popover"
     )
   ) {
     return
@@ -1915,6 +1915,8 @@ function handleRowDoubleClick(row, event) {
   gap: 8px;
   align-items: center;
   margin-bottom: 10px;
+  padding: 0;
+  border-bottom: 0;
 }
 
 .dental-chart-page .procedure-primary-toolbar > .history-search {
@@ -1928,27 +1930,6 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-primary-toolbar button {
   white-space: nowrap;
-}
-
-.dental-chart-page .proc-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.dental-chart-page .proc-tabs button {
-  border: 1px solid var(--chart-border);
-  background: var(--chart-surface);
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.dental-chart-page .proc-tabs button.active {
-  background: var(--chart-info-soft);
-  border-color: var(--chart-border-strong);
-  color: var(--chart-info-text);
 }
 
 .dental-chart-page .panel-actions {
@@ -1973,14 +1954,6 @@ function handleRowDoubleClick(row, event) {
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 12px;
-}
-
-.dental-chart-page .panel-actions .session-badge {
-  background: var(--chart-info-soft);
-  color: var(--chart-info-text);
-  border-radius: 12px;
-  padding: 6px 10px;
-  font-weight: 700;
 }
 
 .dental-chart-page .procedure-history-controls {
@@ -2224,25 +2197,6 @@ function handleRowDoubleClick(row, event) {
   margin-top: 4px;
 }
 
-.dental-chart-page .procedure-table .surface-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dental-chart-page .procedure-table .lab-case-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.dental-chart-page .procedure-table .surface-cell .clickable {
-  cursor: pointer;
-  color: var(--chart-blue);
-  font-weight: 600;
-}
-
 .dental-chart-page .procedure-table .ghost.small {
   background: var(--chart-surface-muted);
   padding: 4px 8px;
@@ -2484,10 +2438,6 @@ function handleRowDoubleClick(row, event) {
   background: var(--chart-surface-muted);
   border: 1px solid var(--chart-border-strong);
   color: var(--chart-text-soft);
-}
-
-.dental-chart-page .invoice-btn.complete {
-  background: var(--chart-blue);
 }
 
 :global(.procedure-note-dialog .modal-dialog) {

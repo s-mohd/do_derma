@@ -2236,31 +2236,6 @@
   min-height: 280px;
 }
 
-.history-search {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 520px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  padding: 0 9px;
-  background: var(--derma-white);
-}
-
-.history-search input {
-  border: 0;
-  outline: 0;
-  width: 100%;
-  padding: 9px 0;
-}
-
-.panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 /* One scroll owner. The wrapper used to cap itself and scroll, so reaching an expanded
    materials row's controls meant scrolling the page and then the table. */
 .procedure-table-wrapper {
