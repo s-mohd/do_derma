@@ -66,15 +66,30 @@
             <span v-else>{{ row.uom || "-" }}</span>
           </td>
           <td>
+            <div v-if="hasBatchFacts(row)" class="consumable-batch" data-test="consumable-batch-facts">
+              <b v-if="row.batch.name">{{ row.batch.name }}</b>
+              <span
+                v-if="row.batch.available_qty !== null"
+                class="chart-pill"
+                :data-tone="row.batch.is_short ? 'caution' : 'neutral'"
+                data-test="consumable-batch-stock"
+              >{{ __("{0} left").replace("{0}", row.batch.available_qty) }}</span>
+              <span
+                v-if="row.batch.expiry_date"
+                class="chart-pill"
+                :data-tone="expiryTone(row.batch)"
+                data-test="consumable-batch-expiry"
+              >{{ expiryLabel(row.batch) }}</span>
+            </div>
             <select
               v-if="!readOnly && isBatchTracked(row.item_code)"
-              class="inline-input consumable-select"
+              class="inline-input consumable-select consumable-change"
               data-test="consumable-batch"
               :class="{ 'consumable-missing': !row.batch_no }"
               :value="row.batch_no || ''"
               @change="commitField(index, 'batch_no', $event.target.value)"
             >
-              <option value="">{{ __("Pick a batch") }}</option>
+              <option value="">{{ row.batch_no ? __("Change lot") : __("Pick a batch") }}</option>
               <option v-for="batch in batchOptions(row)" :key="batch.name" :value="batch.name">
                 {{ batchLabel(batch) }}
               </option>
@@ -82,7 +97,7 @@
             <span v-else-if="isOptionsLoading(row)" class="text-muted consumable-hint">
               {{ __("Loading batches...") }}
             </span>
-            <span v-else>{{ row.batch_no || "-" }}</span>
+            <span v-else-if="!row.batch?.name">{{ row.batch_no || "-" }}</span>
           </td>
           <td v-if="!readOnly">
             <button
@@ -94,6 +109,11 @@
             >
               {{ __("Remove") }}
             </button>
+          </td>
+        </tr>
+        <tr v-if="row.readiness_message" class="consumable-notice-row">
+          <td :colspan="readOnly ? 4 : 5">
+            <span class="chart-pill" :data-tone="row.readiness_tone" data-test="consumable-notice">{{ row.readiness_message }}</span>
           </td>
         </tr>
         <tr v-if="error && failedIndex === index" class="consumables-error-row">
@@ -290,8 +310,27 @@ function isBatchTracked(itemCode) {
 }
 
 function batchLabel(batch) {
-  const expiry = batch.expiry_date ? ` · ${__("exp")} ${batch.expiry_date}` : ""
-  return `${batch.name} (${batch.qty})${expiry}`
+  const expiry = batch.expiry_date ? ` · ${__("exp")} ${formatDate(batch.expiry_date)}` : ""
+  return `${batch.name} · ${__("{0} left").replace("{0}", batch.qty)}${expiry}`
+}
+
+function formatDate(value) {
+  return window.frappe?.datetime?.str_to_user?.(value) || value
+}
+
+function hasBatchFacts(row) {
+  return Boolean(row.batch && (row.batch.name || row.batch.available_qty !== null))
+}
+
+function expiryTone(batch) {
+  if (batch.is_expired) return "danger"
+  return batch.is_expiring_soon ? "caution" : "neutral"
+}
+
+function expiryLabel(batch) {
+  if (batch.is_expired) return __("expired {0}").replace("{0}", formatDate(batch.expiry_date))
+  if (!batch.is_expiring_soon) return formatDate(batch.expiry_date)
+  return batch.days_to_expiry === 0 ? __("expires today") : __("in {0} days").replace("{0}", batch.days_to_expiry)
 }
 
 function loadOptionsForRows() {
@@ -522,5 +561,22 @@ async function applyItem(itemCode) {
 
 .removed-chip {
   gap: 6px;
+}
+
+.consumable-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.consumable-notice-row td {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.consumable-notice-row .chart-pill {
+  white-space: normal;
 }
 </style>
