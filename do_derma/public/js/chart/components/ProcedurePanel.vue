@@ -131,6 +131,7 @@
         <span>{{ __("Lab") }}</span>
         <select v-model="labFilter">
           <option value="all">{{ __("All") }}</option>
+          <option value="follow_up">{{ __("Follow-up") }}</option>
           <option value="linked">{{ __("Linked") }}</option>
           <option value="suggested">{{ __("Suggested") }}</option>
           <option value="missing">{{ __("Needs case") }}</option>
@@ -150,6 +151,7 @@
         <span>{{ __("Billing") }}</span>
         <select v-model="billingFilter">
           <option value="all">{{ __("All") }}</option>
+          <option value="review">{{ __("Needs review") }}</option>
           <option value="override">{{ __("Override") }}</option>
           <option value="no_charge">{{ __("No charge") }}</option>
           <option value="insurance">{{ __("Insurance") }}</option>
@@ -687,8 +689,13 @@ function rowNeedsLabFollowUp(row) {
   return Boolean(row?.lab_case_recommended && !row?.lab_case_name)
 }
 
+function rowNeedsBillingReview(row) {
+  return hasAnyOverride(row) || rowIsInsurance(row)
+}
+
 function rowMatchesLabFilter(row) {
   if (labFilter.value === "all") return true
+  if (labFilter.value === "follow_up") return rowNeedsLabFollowUp(row)
   const status = String(row?.lab_case_status || "").toLowerCase()
   if (labFilter.value === "linked") return Boolean(row?.lab_case_name)
   if (labFilter.value === "suggested") return Boolean(row?.lab_case_recommended)
@@ -700,6 +707,7 @@ function rowMatchesLabFilter(row) {
 
 function rowMatchesBillingFilter(row) {
   if (billingFilter.value === "all") return true
+  if (billingFilter.value === "review") return rowNeedsBillingReview(row)
   if (billingFilter.value === "override") return hasAnyOverride(row) && !isNoCharge(row)
   if (billingFilter.value === "no_charge") return isNoCharge(row)
   if (billingFilter.value === "insurance") return rowIsInsurance(row)
@@ -894,7 +902,7 @@ const historyStats = computed(() => {
     if (isEditable(row)) stats.drafts += 1
     if (missingNote) stats.missingNotes += 1
     if (labFollowUp) stats.labFollowUp += 1
-    if (hasAnyOverride(row) || rowIsInsurance(row)) stats.billingReview += 1
+    if (rowNeedsBillingReview(row)) stats.billingReview += 1
   }
   return stats
 })

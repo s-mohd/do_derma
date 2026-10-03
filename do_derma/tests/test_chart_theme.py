@@ -373,3 +373,39 @@ class TestChartHasNoBodyMap(TestCase):
 				self.assertNotIn(
 					"||", line.split("selectedMark", 1)[1].split('|| ""', 1)[0].replace("?.", ""), line
 				)
+
+
+PROCEDURE_PANEL = CHART_DIR / "components" / "ProcedurePanel.vue"
+
+
+def get_panel_parts() -> tuple[str, str, str]:
+	"""Template, script and scoped style of the procedure panel."""
+	template, rest = PROCEDURE_PANEL.read_text().split("<script setup>", 1)
+	script, style = rest.split("<style scoped>", 1)
+	return template, script, style
+
+
+def get_element(markup: str, opening: str) -> str:
+	"""Markup from `opening` through its matching closing tag."""
+	start = markup.index(opening)
+	tag = re.match(r"<([\w-]+)", opening).group(1)
+	depth = 0
+	for match in re.finditer(rf"<(/?){tag}\b[^>]*?(/?)>", markup[start:]):
+		if match.group(2):
+			continue
+		depth += -1 if match.group(1) else 1
+		if depth == 0:
+			return markup[start : start + match.end()]
+	raise AssertionError(f"{opening} is never closed")
+
+
+class TestProcedurePanelRestyle(TestCase):
+	"""The Procedures tab wears the chart's shared vocabulary (spec 2026-10-03)."""
+
+	def test_attention_filters_reuse_the_counted_predicates(self):
+		template, script, _ = get_panel_parts()
+		self.assertIn('if (billingFilter.value === "review") return rowNeedsBillingReview(row)', script)
+		self.assertIn('if (labFilter.value === "follow_up") return rowNeedsLabFollowUp(row)', script)
+		self.assertIn("if (rowNeedsBillingReview(row)) stats.billingReview += 1", script)
+		self.assertIn('<option value="review">', template)
+		self.assertIn('<option value="follow_up">', template)
