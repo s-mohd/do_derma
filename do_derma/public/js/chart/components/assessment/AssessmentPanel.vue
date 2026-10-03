@@ -1,7 +1,46 @@
 <template>
   <section class="assessment-panel" data-test="assessment-panel">
+    <Teleport defer to="#chart-section-actions">
+      <template v-if="hasEncounter && !loading">
+        <span
+          v-if="headerStatus"
+          class="chart-pill"
+          :data-tone="saving ? null : 'caution'"
+          data-test="assessment-status"
+        >{{ headerStatus }}</span>
+        <button
+          v-if="canPrint"
+          type="button"
+          class="ghost small"
+          data-test="assessment-print"
+          :title="__('Print this note on the clinic letterhead')"
+          @click="printNote"
+        >
+          {{ __("Print") }}
+        </button>
+        <button
+          v-if="!editMode && canEdit"
+          type="button"
+          class="primary small"
+          data-test="assessment-edit"
+          @click="$emit('request-edit')"
+        >
+          {{ __("Edit") }}
+        </button>
+        <button
+          v-else-if="editMode"
+          type="button"
+          class="primary small"
+          data-test="assessment-save"
+          :disabled="saving || !isDirty"
+          @click="submitDraft"
+        >
+          {{ saving ? __("Saving...") : __("Save") }}
+        </button>
+      </template>
+    </Teleport>
     <p v-if="error" class="error-text" data-test="assessment-error">{{ error }}</p>
-    <p v-if="submittedNote" class="status-note">{{ submittedNote }}</p>
+    <p v-if="submittedNote" class="chart-pill status-note">{{ submittedNote }}</p>
 
     <div v-if="loading" class="empty-state">{{ __("Loading assessment...") }}</div>
 
@@ -45,63 +84,35 @@
         {{ otherFormatNote }}
       </p>
 
-      <details v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
-        <summary>{{ __("Patient advice") }}</summary>
-        <pre v-if="patientAdvice">{{ patientAdvice }}</pre>
-        <pre v-if="patientAdviceAr" dir="rtl">{{ patientAdviceAr }}</pre>
-        <small>{{ __("Edit the text on the Patient Encounter form. Tick the box below to print it under the note.") }}</small>
-      </details>
-
-      <footer class="assessment-footer">
-        <span class="footer-status">{{ footerStatus }}</span>
-        <label v-if="canPrint && hasAdvice" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
-          <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
-          {{ __("Include patient advice") }}
-        </label>
-        <select
-          v-if="canPrint && hasAdvice && includeAdvice"
-          class="advice-language"
-          data-test="assessment-advice-language"
-          :value="adviceLanguage"
-          :disabled="togglingAdvice"
-          :title="__('Which advice prints: Auto follows the language the report is written in')"
-          @change="setAdviceLanguage($event.target.value)"
-        >
-          <option value="Auto">{{ __("Auto (report language)") }}</option>
-          <option value="English">{{ __("English") }}</option>
-          <option value="Arabic">{{ __("Arabic") }}</option>
-          <option value="Both">{{ __("Both") }}</option>
-        </select>
-        <button
-          v-if="canPrint"
-          type="button"
-          class="ghost"
-          data-test="assessment-print"
-          :title="__('Print this note on the clinic letterhead')"
-          @click="printNote"
-        >
-          {{ __("Print") }}
-        </button>
-        <button
-          v-if="!editMode && canEdit"
-          type="button"
-          class="primary"
-          data-test="assessment-edit"
-          @click="$emit('request-edit')"
-        >
-          {{ __("Edit") }}
-        </button>
-        <button
-          v-else-if="editMode"
-          type="button"
-          class="primary"
-          data-test="assessment-save"
-          :disabled="saving || !isDirty"
-          @click="submitDraft"
-        >
-          {{ saving ? __("Saving...") : __("Save") }}
-        </button>
-      </footer>
+      <section v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
+        <header class="advice-head">
+          <strong class="chart-label">{{ __("Patient advice") }}</strong>
+          <label v-if="canPrint" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
+            <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
+            {{ __("Include in print") }}
+          </label>
+          <select
+            v-if="canPrint && includeAdvice"
+            class="advice-language"
+            data-test="assessment-advice-language"
+            :value="adviceLanguage"
+            :disabled="togglingAdvice"
+            :title="__('Which advice prints: Auto follows the language the report is written in')"
+            @change="setAdviceLanguage($event.target.value)"
+          >
+            <option value="Auto">{{ __("Auto (report language)") }}</option>
+            <option value="English">{{ __("English") }}</option>
+            <option value="Arabic">{{ __("Arabic") }}</option>
+            <option value="Both">{{ __("Both") }}</option>
+          </select>
+        </header>
+        <details>
+          <summary>{{ __("Show advice") }}</summary>
+          <pre v-if="patientAdvice">{{ patientAdvice }}</pre>
+          <pre v-if="patientAdviceAr" dir="rtl">{{ patientAdviceAr }}</pre>
+          <small>{{ __("Edit the text on the Patient Encounter form.") }}</small>
+        </details>
+      </section>
     </template>
   </section>
 </template>
@@ -244,11 +255,9 @@ const submittedNote = computed(() => {
     : __("Encounter is submitted. No assessment fields are marked Allow on Submit.")
 })
 
-const footerStatus = computed(() => {
+const headerStatus = computed(() => {
   if (props.saving) return __("Saving...")
-  if (props.editMode && isDirty.value) return __("Unsaved changes")
-  if (props.editMode) return __("No changes")
-  return isSubmitted.value ? "" : __("Read-only. Choose Edit to continue documenting.")
+  return props.editMode && isDirty.value ? __("Unsaved changes") : ""
 })
 
 watch(
@@ -275,11 +284,8 @@ function submitDraft() {
 
 <style scoped>
 .assessment-panel {
-  border: 1px solid var(--chart-border);
-  border-radius: 12px;
-  background: var(--chart-surface);
-  padding: 12px;
-  margin-bottom: 12px;
+  display: grid;
+  gap: 14px;
 }
 
 .error-text {
@@ -289,9 +295,9 @@ function submitDraft() {
 }
 
 .status-note {
-  color: var(--chart-caution-text);
-  font-size: 12px;
-  margin: 8px 0 0;
+  justify-self: start;
+  white-space: normal;
+  margin: 0;
 }
 
 .empty-state {
@@ -308,22 +314,6 @@ function submitDraft() {
 
 .empty-state p {
   margin: 0;
-}
-
-.assessment-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--chart-border);
-}
-
-.footer-status {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--chart-muted);
 }
 
 .advice-toggle {
@@ -344,17 +334,20 @@ function submitDraft() {
 }
 
 .advice-block {
-  margin-top: 10px;
-  border: 1px solid var(--chart-border);
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: var(--chart-surface-muted);
+  display: grid;
+  gap: 8px;
   font-size: 12px;
+}
+
+.advice-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 
 .advice-block summary {
   cursor: pointer;
-  font-weight: 600;
   color: var(--chart-text-soft);
 }
 

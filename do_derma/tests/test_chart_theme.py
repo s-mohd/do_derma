@@ -618,6 +618,53 @@ class TestProcedurePanelRestyle(TestCase):
 ASSESSMENT_DIR = CHART_DIR / "components" / "assessment"
 
 
+ASSESSMENT_HOOKS = (
+	"assessment-mode-toggle",
+	"assessment-section",
+	"assessment-start",
+	"assessment-panel",
+	"assessment-error",
+	"assessment-other-format",
+	"assessment-advice",
+	"assessment-advice-toggle",
+	"assessment-advice-language",
+	"assessment-print",
+	"assessment-edit",
+	"assessment-save",
+	"annotate-consultation",
+	"annotation-resume",
+	"annotation-delete",
+	"previous-visits",
+	"previous-visit",
+	"previous-visit-summary",
+	"previous-visit-show-all",
+	"previous-visits-more",
+	"previous-visits-collapse",
+	"voice-scribe",
+	"voice-start",
+	"voice-stop",
+	"voice-pause",
+	"voice-mic",
+	"voice-silence",
+	"voice-meter",
+	"voice-refine",
+	"voice-result",
+	"voice-waveform",
+)
+
+
+def get_assessment_block() -> str:
+	"""The Assessment tab's markup inside DermaChart.vue."""
+	chart = (CHART_DIR / "DermaChart.vue").read_text()
+	return chart.split("<template v-if=\"activeSection === 'assessment'\">", 1)[1].split(
+		"<template v-else-if=\"activeSection === 'procedures'\">", 1
+	)[0]
+
+
+def get_assessment_sources() -> str:
+	return get_assessment_block() + "".join(path.read_text() for path in ASSESSMENT_DIR.glob("*.vue"))
+
+
 class TestAssessmentRestyle(TestCase):
 	"""The Assessment tab wears the chart's shared vocabulary (spec 2026-10-03)."""
 
@@ -631,3 +678,29 @@ class TestAssessmentRestyle(TestCase):
 		self.assertIn("const PROCEDURE_PILLS = 3", script)
 		self.assertIn('<dt class="chart-label">', template)
 		self.assertNotIn("chart-inner-card", template)
+
+	def test_every_hook_survives(self):
+		sources = get_assessment_sources() + (CHART_DIR / "DermaChart.vue").read_text()
+		for hook in ASSESSMENT_HOOKS:
+			self.assertIn(f'data-test="{hook}"', sources)
+
+	def test_edit_save_and_print_live_in_the_card_header(self):
+		template, script, style = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		teleport = get_element(template, '<Teleport defer to="#chart-section-actions"')
+		self.assertIn('<template v-if="hasEncounter && !loading">', teleport)
+		for hook in ("assessment-print", "assessment-edit", "assessment-save", "assessment-status"):
+			self.assertIn(f'data-test="{hook}"', teleport)
+		self.assertNotIn("assessment-footer", template + style)
+		self.assertNotIn("Read-only. Choose Edit to continue documenting.", script)
+		self.assertNotIn('__("No changes")', script)
+		self.assertIn('__("Unsaved changes")', script)
+
+	def test_advice_print_choice_sits_with_the_advice(self):
+		template, _, _ = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		advice = get_element(template, '<section v-if="hasAdvice" class="advice-block"')
+		self.assertIn('data-test="assessment-advice-toggle"', advice)
+		self.assertIn('data-test="assessment-advice-language"', advice)
+
+	def test_the_assessment_panel_is_not_a_card_in_a_card(self):
+		_, _, style = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		self.assertNotRegex(get_rule_body(style, ".assessment-panel {"), r"border:|background:")
