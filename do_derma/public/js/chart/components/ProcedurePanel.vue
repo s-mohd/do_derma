@@ -327,51 +327,29 @@
                     <i class="fa-regular fa-images"></i>
                     <span>{{ row.derma_artifact_text }}</span>
                   </span>
-                  <span v-else-if="isNoCharge(row)" class="detail-chip no-charge-label">
-                    <i class="fa-solid fa-circle-dollar-to-slot"></i>
-                    <span>{{ __("No charge") }}</span>
-                  </span>
-                  <span v-else-if="hasAnyOverride(row)" class="detail-chip override-label">
-                    <i class="fa-solid fa-pen"></i>
-                    <span>{{ __("Override") }}</span>
-                  </span>
-
-                  <div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker compact" @keydown.escape="closeOverrideList">
-                    <input
-                      type="number"
-                      class="inline-input"
-                      :placeholder="__('Override')"
-                      :value="edits[row.name]?.price ?? row.price_override ?? ''"
-                      @focus="openOverrideList(row)"
-                      @click="openOverrideList(row)"
-                      @change="updatePriceManual(row, $event.target.value)"
-                    />
+                </div>
+              </td>
+              <td class="price-cell">
+                <div class="price-stack">
+                  <div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker" @keydown.escape="closeOverrideList">
                     <button
                       type="button"
-                      class="ghost small no-charge-btn"
-                      :class="{ active: isNoCharge(row) }"
-                      :title="__('Mark as no charge')"
-                      @click.stop="markNoCharge(row)"
+                      class="price-trigger"
+                      data-test="procedure-price"
+                      :aria-expanded="overrideListOpenRow === row.name ? 'true' : 'false'"
+                      :title="__('Change price')"
+                      @click.stop="overrideListOpenRow === row.name ? closeOverrideList() : openOverrideList(row)"
                     >
-                      {{ __("No charge") }}
+                      {{ formatCurrency(displayPrice(row)) || "—" }}
                     </button>
-                    <button
-                      v-if="hasAnyOverride(row)"
-                      type="button"
-                      class="ghost small reset-btn"
-                      :title="__('Clear override')"
-                      @click.stop="clearPriceOverride(row)"
-                    >
-                      {{ __("Reset") }}
-                    </button>
-                    <span
-                      v-if="isRowSaving(row)"
-                      class="chart-spinner"
-                      role="status"
-                      data-test="procedure-row-saving"
-                      :aria-label="__('Saving the price')"
-                    ></span>
-                    <div v-if="overrideListOpenRow === row.name" class="override-dropdown" @mousedown.prevent>
+                    <div v-if="overrideListOpenRow === row.name" class="override-popover">
+                      <input
+                        type="number"
+                        class="inline-input"
+                        :placeholder="__('Override')"
+                        :value="edits[row.name]?.price ?? row.price_override ?? ''"
+                        @change="updatePriceManual(row, $event.target.value); closeOverrideList()"
+                      />
                       <button
                         v-for="pl in getPriceListOptions(row)"
                         :key="pl"
@@ -381,14 +359,38 @@
                       >
                         {{ pl }}
                       </button>
+                      <div class="override-popover-footer">
+                        <button
+                          type="button"
+                          class="ghost small no-charge-btn"
+                          :title="__('Mark as no charge')"
+                          @click.stop="closeOverrideList(); markNoCharge(row)"
+                        >
+                          {{ __("No charge") }}
+                        </button>
+                        <button
+                          v-if="hasAnyOverride(row)"
+                          type="button"
+                          class="ghost small reset-btn"
+                          :title="__('Clear override')"
+                          @click.stop="closeOverrideList(); clearPriceOverride(row)"
+                        >
+                          {{ __("Reset") }}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </td>
-              <td>
-                <div class="price-readonly">
-                  <span>{{ formatCurrency(computedPrice(row)) || "—" }}</span>
+                  <span v-else class="price-amount">{{ formatCurrency(displayPrice(row)) || "—" }}</span>
                   <span class="price-meta">{{ displayPriceList(row) }}</span>
+                  <span v-if="isNoCharge(row)" class="chart-pill" data-tone="neutral">{{ __("No charge") }}</span>
+                  <span v-else-if="hasAnyOverride(row)" class="chart-pill" data-tone="caution">{{ __("Override") }}</span>
+                  <span
+                    v-if="isRowSaving(row)"
+                    class="chart-spinner"
+                    role="status"
+                    data-test="procedure-row-saving"
+                    :aria-label="__('Saving the price')"
+                  ></span>
                 </div>
               </td>
               <td>{{ row.practitioner_name || row.practitioner || "—" }}</td>
@@ -1885,7 +1887,7 @@ function handleRowDoubleClick(row, event) {
   const target = event?.target
   if (
     target?.closest?.(
-      "input, textarea, select, button, a, .override-dropdown, .surface-cell .clickable, .lab-case-cell"
+      "input, textarea, select, button, a, .override-popover, .surface-cell .clickable, .lab-case-cell"
     )
   ) {
     return
@@ -2167,31 +2169,10 @@ function handleRowDoubleClick(row, event) {
   z-index: 1;
 }
 
-.dental-chart-page .procedure-table .price-list-meta {
-  font-size: 11px;
-  color: var(--chart-muted);
-  margin-top: 4px;
-}
-
 .dental-chart-page .procedure-table .price-meta {
   font-size: 11px;
   color: var(--chart-muted);
   margin-top: 4px;
-}
-
-.dental-chart-page .procedure-table .price-readonly {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.dental-chart-page .procedure-table .price-source {
-  font-size: 11px;
-  color: var(--chart-blue);
-  background: var(--chart-info-soft);
-  padding: 2px 6px;
-  border-radius: 999px;
-  width: fit-content;
 }
 
 .dental-chart-page .procedure-table .surface-cell {
@@ -2274,12 +2255,6 @@ function handleRowDoubleClick(row, event) {
   border-color: var(--chart-caution-border);
   background: var(--chart-caution-soft);
   color: var(--chart-caution-text);
-}
-
-.dental-chart-page .procedure-table .override-label {
-  border-color: var(--chart-border-strong);
-  background: var(--chart-info-soft);
-  color: var(--chart-info-text);
 }
 
 .dental-chart-page .procedure-table .lab-case-cell {
@@ -2449,46 +2424,59 @@ function handleRowDoubleClick(row, event) {
   font-size: 12px;
 }
 
-.dental-chart-page .procedure-table .price-edit {
+.dental-chart-page .procedure-table .price-stack {
   display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dental-chart-page .procedure-table .price-edit.price-list-edit {
-  margin-top: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .dental-chart-page .procedure-table .override-picker {
-  position: relative;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
-  flex-wrap: wrap;
-  min-width: 220px;
-}
-
-.dental-chart-page .procedure-table .override-picker.compact {
-  min-width: 0;
-  flex: 1 1 170px;
-}
-
-.dental-chart-page .procedure-table .override-picker .inline-input {
-  flex: 1 1 90px;
-}
-
-.dental-chart-page .procedure-table .override-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  min-width: 100%;
   width: 100%;
-  background: var(--chart-surface);
+}
+
+.dental-chart-page .procedure-table .price-trigger,
+.dental-chart-page .procedure-table .price-amount {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  color: var(--chart-text);
+  font-weight: 600;
+}
+
+.dental-chart-page .procedure-table .price-trigger {
+  border-bottom-color: var(--chart-border-strong);
+  cursor: pointer;
+}
+
+.dental-chart-page .procedure-table .price-trigger:hover,
+.dental-chart-page .procedure-table .price-trigger[aria-expanded="true"] {
+  border-bottom-color: var(--chart-accent);
+}
+
+/* In flow, not absolute: the wrapper's overflow-x would clip a floating popover on the last rows. */
+.dental-chart-page .procedure-table .override-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
   border: 1px solid var(--chart-border);
-  border-radius: 8px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
-  padding: 6px;
-  z-index: 10;
+  border-radius: 10px;
+  background: var(--chart-surface);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+}
+
+.dental-chart-page .procedure-table .override-popover-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
 }
 
 .dental-chart-page .procedure-table .override-option {
@@ -2510,34 +2498,6 @@ function handleRowDoubleClick(row, event) {
 .dental-chart-page .procedure-table .ghost.small {
   background: var(--chart-surface-muted);
   padding: 6px 10px;
-}
-
-.dental-chart-page .procedure-table .reset-btn {
-  flex: 0 0 auto;
-}
-
-.dental-chart-page .procedure-table .no-charge-btn {
-  flex: 0 0 auto;
-  border-color: var(--chart-border-strong);
-  color: var(--chart-info-text);
-  background: var(--chart-info-soft);
-}
-
-.dental-chart-page .procedure-table .no-charge-btn.active,
-.dental-chart-page .procedure-table .no-charge-label {
-  border-color: var(--chart-ok-soft);
-  color: var(--chart-ok-text);
-  background: var(--chart-ok-soft);
-  font-weight: 700;
-}
-
-.dental-chart-page .procedure-table .no-charge-label {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--chart-ok-soft);
-  border-radius: 999px;
-  padding: 6px;
-  line-height: 1;
 }
 
 .dental-chart-page .procedure-table .insurance-locked-label {
