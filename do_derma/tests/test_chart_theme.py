@@ -499,3 +499,26 @@ class TestProcedurePanelRestyle(TestCase):
 	def test_stacked_cell_pills_wrap_inside_their_column(self):
 		_, _, style = get_panel_parts()
 		self.assertRegex(style, r"\.cell-stack \.chart-pill \{[^}]*white-space: normal;[^}]*max-width: 100%;")
+
+	def test_committing_a_typed_price_keeps_the_editor_for_the_next_click(self):
+		template, _, _ = get_panel_parts()
+		start = template.index('class="inline-input"')
+		price_input = template[start : template.index("/>", start)]
+		self.assertIn('@change="updatePriceManual(row, $event.target.value)"', price_input)
+		self.assertIn('@keydown.enter.prevent="closeOverrideList(); $event.target.blur()"', price_input)
+		self.assertNotIn("$event.target.value); closeOverrideList()", template)
+
+	def test_closing_the_price_editor_returns_focus_to_its_amount(self):
+		template, script, _ = get_panel_parts()
+		self.assertIn(
+			':data-row="row.name"',
+			get_element(
+				template,
+				'<button\n                      type="button"\n                      class="price-trigger"',
+			),
+		)
+		close = script[script.index("function closeOverrideList() {") :]
+		close = close[: close.index("\n}\n")]
+		self.assertIn('document.activeElement?.closest?.(".override-popover")', close)
+		self.assertIn(".price-trigger[data-row=", close)
+		self.assertIn('class="override-picker" @keydown.escape.stop="closeOverrideList"', template)

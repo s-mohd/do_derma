@@ -335,11 +335,12 @@
               </td>
               <td class="price-cell">
                 <div class="price-stack">
-                  <div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker" @keydown.escape="closeOverrideList">
+                  <div v-if="isEditable(row) && !rowIsInsurance(row)" class="override-picker" @keydown.escape.stop="closeOverrideList">
                     <button
                       type="button"
                       class="price-trigger"
                       data-test="procedure-price"
+                      :data-row="row.name"
                       :aria-expanded="overrideListOpenRow === row.name ? 'true' : 'false'"
                       :title="__('Change price')"
                       @click.stop="overrideListOpenRow === row.name ? closeOverrideList() : openOverrideList(row)"
@@ -352,7 +353,8 @@
                         class="inline-input"
                         :placeholder="__('Override')"
                         :value="edits[row.name]?.price ?? row.price_override ?? ''"
-                        @change="updatePriceManual(row, $event.target.value); closeOverrideList()"
+                        @change="updatePriceManual(row, $event.target.value)"
+                        @keydown.enter.prevent="closeOverrideList(); $event.target.blur()"
                       />
                       <button
                         v-for="pl in getPriceListOptions(row)"
@@ -1593,7 +1595,13 @@ function openOverrideList(row) {
 }
 
 function closeOverrideList() {
+  const openRow = overrideListOpenRow.value
+  // Focus inside the editor would fall to <body> when it unmounts; hand it back to the amount.
+  const hadFocus = Boolean(document.activeElement?.closest?.(".override-popover"))
   overrideListOpenRow.value = null
+  if (openRow && hadFocus) {
+    nextTick(() => document.querySelector(`.price-trigger[data-row="${CSS.escape(openRow)}"]`)?.focus())
+  }
   if (overrideOutsideHandler) {
     document.removeEventListener("click", overrideOutsideHandler)
     overrideOutsideHandler = null
