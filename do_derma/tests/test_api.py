@@ -1783,6 +1783,13 @@ class TestPhotoSetBodyView(DermaPhotoHelpers, IntegrationTestCase):
 		self.assertEqual(photo_set["body_view"], "Custom")
 		self.assertEqual(len(photo_set["photos"]), 1)
 
+	def test_a_photo_with_no_view_stores_none(self):
+		"""Frappe fills an empty Select with its first option, so silence must be written as ""."""
+		photo_set = self._make_photo_set()
+
+		self.assertEqual(photo_set["body_view"] or "", "")
+		self.assertEqual(frappe.db.get_value("Derma Photo Set", photo_set["name"], "body_view") or "", "")
+
 
 class TestUpdatePhotoStage(DermaPhotoHelpers, IntegrationTestCase):
 	"""A derived stage is a guess, so the clinician can correct it - on this visit only."""

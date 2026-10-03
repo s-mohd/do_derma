@@ -312,9 +312,6 @@
                   <strong class="chart-label">{{ __("Treatment Timeline") }}</strong>
                   <small>{{ visitTimeline.length ? __("{0} previous visit(s)").replace("{0}", visitTimeline.length) : __("No previous derma activity yet") }}</small>
                 </div>
-                <button type="button" class="ghost small" :disabled="chartOverlayMode === 'today'" @click="clearTimelineOverlay">
-                  {{ __("Clear Overlay") }}
-                </button>
               </header>
 
               <div v-if="visitTimeline.length" class="timeline-review-layout">
@@ -349,11 +346,6 @@
                     <div>
                       <strong>{{ formatDate(selectedTimelineVisit.date || selectedTimelineVisit.modified) || __("Selected visit") }}</strong>
                       <small>{{ selectedTimelineVisit.summary }}</small>
-                    </div>
-                    <div class="timeline-detail-actions">
-                      <button type="button" class="primary small" @click="overlayTimelineVisit(selectedTimelineVisit)">
-                        {{ __("Overlay Marks") }}
-                      </button>
                     </div>
                   </header>
 
@@ -593,7 +585,6 @@ import SectionCard from "./components/shell/SectionCard.vue"
 import PhotosPanel from "./components/photos/PhotosPanel.vue"
 import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import MarkResponseChips from "./components/MarkResponseChips.vue"
-import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
 import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
 import { useBrokenImages } from "../shared/broken_images.js"
@@ -687,14 +678,12 @@ const reopenPending = ref(false)
 const reopeningSession = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
-const selectedBodyTemplate = ref(null)
 const activeWorkspaceTab = ref("procedure_history")
 // A newly opened visit starts where the visit starts; a tab picked on this visit is
 // restored by hydrateDermaSectionPreference once the encounter is known.
 const activeSection = ref(DEFAULT_SECTION)
 const selectedMarkName = ref("")
 const selectedTimelineVisitKey = ref("")
-const chartOverlayMode = ref("today")
 const selectedPriceList = ref("")
 const defaultPriceList = ref("")
 const sessionProvider = ref("")
@@ -985,14 +974,6 @@ const assessmentEditableOnSubmitFields = computed(() => {
   return (layout || []).filter((row) => row.allow_on_submit).map((row) => row.fieldname).filter(Boolean)
 })
 
-const visibleMarks = computed(() => {
-  const templateName = selectedTemplate.value?.name
-  const bodyTemplate = selectedBodyTemplate.value?.name
-  return marks.value
-    .filter((mark) => (!templateName || mark.procedure_template === templateName) && (!bodyTemplate || mark.body_template === bodyTemplate))
-    .sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))
-})
-
 const selectedMark = computed(() => marks.value.find((mark) => mark.name === selectedMarkName.value) || null)
 
 const selectedTimelineVisit = computed(() => visitTimeline.value.find((visit) => visit.key === selectedTimelineVisitKey.value) || visitTimeline.value[0] || null)
@@ -1028,15 +1009,6 @@ watch(
 watch(
   () => activeWorkspaceTab.value,
   (tab) => ensureWorkspaceTab(tab)
-)
-
-watch(
-  () => visibleMarks.value.map((mark) => mark.name).join(","),
-  () => {
-    if (selectedMarkName.value && !visibleMarks.value.some((mark) => mark.name === selectedMarkName.value)) {
-      selectedMarkName.value = ""
-    }
-  }
 )
 
 /** The single owner of the "which tab" invariant: anything unrecognised lands on Assessment. */
@@ -1158,7 +1130,6 @@ async function load(context = props.context) {
 	    if (activeProcedureName.value && !procedures.value.some((row) => row.name === activeProcedureName.value || row.clinical_procedure === activeProcedureName.value)) {
 	      activeProcedureName.value = ""
 	    }
-	    ensureSelectedBodyTemplate()
     if (selectedMarkName.value && !marks.value.some((mark) => mark.name === selectedMarkName.value)) selectedMarkName.value = ""
     Object.keys(loadedTabs).forEach((key) => (loadedTabs[key] = false))
     await hydrateDermaSectionPreference()
@@ -1225,14 +1196,14 @@ async function createPhotoSetFromImages(images) {
           encounter: encounter.value.name,
           clinical_procedure: activeProcedure.value?.name || "",
           chart_mark: selectedMark.value?.name,
-          body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+          body_view: selectedMark.value?.body_view || "",
+          body_region: selectedMark.value?.body_region || "",
           treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
           notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
           photos: images.map((image) => ({
             image,
-            view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-            body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+            view: selectedMark.value?.body_view || "",
+            body_region: selectedMark.value?.body_region || "",
             treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
           })),
         },
@@ -1298,26 +1269,6 @@ async function deletePhoto({ photo }) {
 function selectTimelineVisit(visit) {
   if (!visit?.key) return
   selectedTimelineVisitKey.value = visit.key
-}
-
-function overlayTimelineVisit(visit = selectedTimelineVisit.value) {
-  if (!visit?.key) return
-  selectedTimelineVisitKey.value = visit.key
-  chartOverlayMode.value = "history"
-  const firstTemplate = (visit.marks || []).find((mark) => mark.body_template)?.body_template
-  if (firstTemplate) {
-    const template = bodyTemplates.value.find((row) => row.name === firstTemplate)
-    if (template) loadBodyTemplate(template)
-  }
-  frappe.show_alert({
-    message: __("Previous visit marks are now drawn on the body map above. Use Clear Overlay to remove them."),
-    indicator: "blue",
-  })
-}
-
-function clearTimelineOverlay() {
-  selectedTimelineVisitKey.value = ""
-  chartOverlayMode.value = "today"
 }
 
 function openClinicalProcedure(procedure) {
@@ -1419,7 +1370,7 @@ function markLabel(mark) {
 
 function markDetail(mark) {
   const bits = [
-    mark.body_view || selectedBodyTemplate.value?.title,
+    mark.body_view,
     mark.dose ? `${formatNumber(mark.dose)} ${mark.dose_unit || ""}`.trim() : "",
     mark.product_name,
     mark.status,
@@ -1690,11 +1641,6 @@ function annotationIdentityLine(annotation) {
   ]
     .filter(Boolean)
     .join(" · ")
-}
-
-function loadBodyTemplate(template = selectedBodyTemplate.value) {
-  if (!template) return
-  selectedBodyTemplate.value = template
 }
 
 /** Excalidraw and React ship as their own bundle so they stay out of the chart's first load. */
@@ -2581,51 +2527,6 @@ function contextArgs() {
     appointment: appointment.value.name || props.context?.appointment,
     patient: patient.value.name || props.context?.patient,
   }
-}
-
-function ensureSelectedBodyTemplate(force = false) {
-  if (!bodyTemplates.value.length) {
-    selectedBodyTemplate.value = null
-    return
-  }
-  const stillAvailable = selectedBodyTemplate.value?.name && bodyTemplates.value.some((row) => row.name === selectedBodyTemplate.value.name)
-  if (!force && stillAvailable) return
-
-  const allowed = allowedBodyTemplates(selectedTemplate.value)
-  const isAllowed = (row) => allowed.includes(String(row.name).toLowerCase())
-  const gender = preferredTemplateGender()
-  const genderMatch = (row) => row.gender === gender
-  const categoryDefault = selectedTemplate.value?.derma_category_defaults?.default_body_template || categorySettings(selectedTemplate.value?.custom_derma_category)?.default_body_template
-  selectedBodyTemplate.value =
-    bodyTemplates.value.find((row) => row.name === categoryDefault && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => row.name === categoryDefault) ||
-    bodyTemplates.value.find((row) => isAllowed(row) && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => isAllowed(row)) ||
-    preferredBodyTemplate("Body") ||
-    preferredBodyTemplate("Face") ||
-    bodyTemplates.value.find((row) => row.image && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => row.image) ||
-    bodyTemplates.value[0] ||
-    null
-}
-
-function preferredBodyTemplate(templateType = "Body") {
-  const gender = preferredTemplateGender()
-  const type = String(templateType || "").toLowerCase()
-  const rows = bodyTemplates.value.filter((row) => row.image && String(row.template_type || "").toLowerCase() === type)
-  if (!rows.length) return null
-  const frontMatch = (row) => /front/i.test([row.name, row.title, row.view_key].filter(Boolean).join(" "))
-  return (
-    rows.find((row) => row.gender === gender && frontMatch(row)) ||
-    rows.find((row) => row.gender === gender) ||
-    rows.find(frontMatch) ||
-    rows[0]
-  )
-}
-
-function categorySettings(category) {
-  if (!category) return null
-  return categories.value.find((row) => row.name === category || row.title === category) || null
 }
 
 function normalizeBodyTemplate(template) {

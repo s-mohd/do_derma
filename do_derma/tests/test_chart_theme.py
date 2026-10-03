@@ -343,3 +343,33 @@ class TestChartStylesheetStructure(TestCase):
 
 	def test_no_declaration_is_shadowed_by_a_later_rule_with_the_same_selector(self):
 		self.assertEqual(get_shadowed_declarations(CHART_CSS.read_text()), [])
+
+
+class TestChartHasNoBodyMap(TestCase):
+	"""The chart page has no body map: no overlay that claims to draw on one, and no hidden
+	body template that labels photos."""
+
+	DEAD = (
+		"selectedBodyTemplate",
+		"ensureSelectedBodyTemplate",
+		"loadBodyTemplate",
+		"visibleMarks",
+		"chartOverlayMode",
+		"overlayTimelineVisit",
+		"clearTimelineOverlay",
+		"body map above",
+		"Overlay Marks",
+		"Clear Overlay",
+	)
+
+	def test_no_body_map_code_remains(self):
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		self.assertEqual([name for name in self.DEAD if name in chart], [])
+
+	def test_a_photo_takes_its_body_view_from_its_mark_only(self):
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		for line in re.findall(r"(?:body_view|view|body_region):\s*[^\n]+", chart):
+			if "selectedMark" in line:
+				self.assertNotIn(
+					"||", line.split("selectedMark", 1)[1].split('|| ""', 1)[0].replace("?.", ""), line
+				)

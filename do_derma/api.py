@@ -4411,11 +4411,14 @@ def _attach_photo_files(doc) -> None:
 		)
 
 
-def _normalize_derma_body_view(value: Any) -> str | None:
-	"""The chart names body templates freely; the set stores one of a fixed set of views."""
+def _normalize_derma_body_view(value: Any) -> str:
+	"""The chart names body templates freely; the set stores one of a fixed set of views.
+
+	No view is written as "": Frappe fills an empty Select with its first option on insert.
+	"""
 	view = str(value or "").strip()
 	if not view:
-		return None
+		return ""
 	options = frappe.get_meta("Derma Photo Set").get_field("body_view").options.split("\n")
 	offered = [option for option in options if option]
 	for option in offered:
