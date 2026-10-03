@@ -778,3 +778,8 @@ class TestAssessmentRestyle(TestCase):
 			"border-top: 1px solid var(--chart-border);", get_rule_body(css, ".clinical-soap-stack > * + * {")
 		)
 		self.assertNotIn(".encounter-annotation-history {", css)
+
+	def test_format_switch_leads_the_header_and_drawings_align(self):
+		css = CHART_CSS.read_text()
+		self.assertIn("order: -1;", get_rule_body(css, ".tab-mode-toggle {"))
+		self.assertIn("padding: 0;", get_rule_body(css, ".clinical-soap-stack .chart-annotation-list {"))

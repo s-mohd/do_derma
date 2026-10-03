@@ -433,6 +433,7 @@
 /* The decorations are absolutely positioned, so the label needs room beside them. */
 
 .tab-mode-toggle {
+  order: -1;
   display: inline-flex;
   padding: 2px;
   border: 1px solid var(--chart-border);
@@ -545,6 +546,10 @@
 .clinical-soap-stack .chart-annotation-history > header {
   padding: 0 0 8px;
   border-bottom: 0;
+}
+
+.clinical-soap-stack .chart-annotation-list {
+  padding: 0;
 }
 
 .chart-annotation-history {
