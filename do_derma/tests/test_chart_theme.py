@@ -491,3 +491,7 @@ class TestProcedurePanelRestyle(TestCase):
 		classes = set(re.findall(r"\.([a-zA-Z][\w-]*)", style)) - rendered_by_desk
 		unused = {name for name in classes if not re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", markup)}
 		self.assertEqual(unused, set())
+
+	def test_stacked_cell_pills_wrap_inside_their_column(self):
+		_, _, style = get_panel_parts()
+		self.assertRegex(style, r"\.cell-stack \.chart-pill \{[^}]*white-space: normal;[^}]*max-width: 100%;")

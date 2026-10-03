@@ -2110,7 +2110,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-status {
-  width: 11%;
+  width: 13%;
 }
 
 .dental-chart-page .procedure-table .col-procedure {
@@ -2118,7 +2118,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-details {
-  width: 27%;
+  width: 25%;
 }
 
 .dental-chart-page .procedure-table .col-price {
@@ -2163,6 +2163,13 @@ function handleRowDoubleClick(row, event) {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+}
+
+/* Consent pills outgrow the status column at 1280px; wrap rather than spill into Procedure. */
+.dental-chart-page .procedure-table .cell-stack .chart-pill {
+  white-space: normal;
+  max-width: 100%;
+  text-align: left;
 }
 
 .dental-chart-page .procedure-table .procedure-meta {
