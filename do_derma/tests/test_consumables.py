@@ -7,7 +7,7 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, nowdate
 
 import do_derma.api as api
-from do_derma.consumables import defaults, snapshot
+from do_derma.consumables import batches, defaults, snapshot
 from do_derma.consumables import encounter as consumable_encounter
 from do_derma.readiness import inventory
 from do_derma.tests.test_api import DermaTestHelpers
@@ -946,3 +946,63 @@ class TestConsumableItemOptions(
 
 		with self.assertRaises(frappe.PermissionError):
 			api.get_consumable_item_options(self.item)
+
+
+class TestBatchFacts(ConsumableHelpers, IntegrationTestCase):
+	"""One owner for what a lot can tell the line and readiness."""
+
+	def setUp(self):
+		self.item = self._make_stock_item(has_batch_no=1)
+
+	def facts(self, days, available=10, line_qty=1, window=30):
+		batch = self._make_batch(self.item, expiry_date=add_days(nowdate(), days))
+		with patch.object(batches, "get_available_qty", return_value=available):
+			return batches.get_batch_facts(self.item, batch, None, line_qty, window)
+
+	def test_day_thirty_is_expiring_soon_and_day_thirty_one_is_not(self):
+		self.assertTrue(self.facts(30)["is_expiring_soon"])
+		self.assertFalse(self.facts(31)["is_expiring_soon"])
+
+	def test_today_is_expiring_soon_not_expired(self):
+		facts = self.facts(0)
+		self.assertTrue(facts["is_expiring_soon"])
+		self.assertFalse(facts["is_expired"])
+
+	def test_yesterday_is_expired_and_not_expiring_soon(self):
+		facts = self.facts(-1)
+		self.assertTrue(facts["is_expired"])
+		self.assertFalse(facts["is_expiring_soon"])
+
+	def test_a_window_of_zero_never_warns(self):
+		self.assertFalse(self.facts(0, window=0)["is_expiring_soon"])
+
+	def test_a_line_above_what_is_left_is_short(self):
+		self.assertTrue(self.facts(90, available=3, line_qty=5)["is_short"])
+		self.assertFalse(self.facts(90, available=5, line_qty=5)["is_short"])
+
+	def test_unknown_stock_or_quantity_is_never_short(self):
+		self.assertFalse(self.facts(90, available=None, line_qty=5)["is_short"])
+		self.assertFalse(self.facts(90, available=3, line_qty=None)["is_short"])
+
+	def test_a_free_text_expiry_counts_without_a_batch(self):
+		with patch.object(batches, "get_available_qty", return_value=None):
+			facts = batches.get_batch_facts(self.item, None, None, 1, 30, expiry_date=add_days(nowdate(), 5))
+		self.assertEqual(facts["days_to_expiry"], 5)
+
+	def test_notices_name_the_shortfall_and_the_expiry(self):
+		notices = batches.get_line_notices(self.facts(12, available=3, line_qty=5))
+		messages = [notice["message"] for notice in notices]
+		self.assertIn("Expires in 12 days", messages[0])
+		self.assertEqual(messages[1], "This lot has 3 left; the line uses 5.")
+		self.assertEqual({notice["tone"] for notice in notices}, {"caution"})
+
+	def test_an_expired_lot_is_a_danger_notice(self):
+		notices = batches.get_line_notices(self.facts(-1))
+		self.assertEqual(notices[0], {"message": "Product is expired.", "tone": "danger"})
+
+	def test_stock_in_another_warehouse_does_not_count(self):
+		batch = self._make_batch(self.item, expiry_date=add_days(nowdate(), 90))
+		warehouse = frappe.db.get_value("Warehouse", {"is_group": 0}, "name")
+		with patch("erpnext.stock.doctype.batch.batch.get_batch_qty", return_value=0) as get_batch_qty:
+			self.assertEqual(batches.get_available_qty(self.item, batch, warehouse), 0)
+		get_batch_qty.assert_called_once_with(batch_no=batch, warehouse=warehouse)
