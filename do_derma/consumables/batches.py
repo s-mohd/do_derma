@@ -82,3 +82,26 @@ def get_line_notices(facts: dict[str, Any]) -> list[dict[str, str]]:
 def _quantity(value: Any) -> str:
 	number = flt(value)
 	return str(int(number)) if number == int(number) else f"{number:g}"
+
+
+def annotate_rows(
+	rows: list[dict[str, Any]], owner_doctype: str, owner_name: str | None, window_days: int
+) -> None:
+	"""Attach each line's lot facts and its worst notice, the shape the editor renders."""
+	from do_derma.consumables.items import get_warehouse
+
+	warehouse = get_warehouse(owner_doctype, owner_name)
+	for row in rows or []:
+		if not row.get("item_code"):
+			row.update(batch=None, readiness_message="", readiness_tone="")
+			continue
+		factor = flt(row.get("conversion_factor"))
+		line_qty = flt(row.get("qty")) * factor if factor else None
+		facts = get_batch_facts(
+			row["item_code"], row.get("batch_no") or None, warehouse, line_qty, window_days
+		)
+		notices = get_line_notices(facts)
+		tones = {notice["tone"] for notice in notices}
+		row["batch"] = facts
+		row["readiness_message"] = " ".join(notice["message"] for notice in notices)
+		row["readiness_tone"] = "danger" if "danger" in tones else ("caution" if tones else "")

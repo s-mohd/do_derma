@@ -6,8 +6,9 @@ from typing import Any
 
 import frappe
 
-from do_derma.consumables import conversion, snapshot
+from do_derma.consumables import batches, conversion, snapshot
 from do_derma.consumables.defaults import CONSUMABLE_FIELDS, select_fields
+from do_derma.settings import get_readiness_settings
 
 
 def hydrate(mark_rows: list[dict[str, Any]]) -> None:
@@ -17,11 +18,13 @@ def hydrate(mark_rows: list[dict[str, Any]]) -> None:
 	names = [row.get("name") for row in mark_rows if row.get("name")]
 	live = _live_rows(names)
 	frozen = _frozen_rows(names)
+	window = get_readiness_settings()["expiring_soon_days"]
 	for mark in mark_rows:
 		name = mark.get("name")
 		defaults = frozen.get(name, [])
 		compared = snapshot.compare(live.get(name, []), defaults)
 		mark["consumables"] = compared["consumables"]
+		batches.annotate_rows(mark["consumables"], "Derma Chart Mark", name, window)
 		mark["removed_consumables"] = compared["removed"]
 		mark["default_consumables"] = defaults
 
@@ -30,6 +33,12 @@ def get_payload(mark_doc) -> dict[str, Any]:
 	"""The shape both the chart read and a save answer with, so the panel can swap state."""
 	frozen = snapshot.load(mark_doc.default_consumables_json)
 	compared = snapshot.compare(select_fields(mark_doc.consumables), frozen)
+	batches.annotate_rows(
+		compared["consumables"],
+		"Derma Chart Mark",
+		mark_doc.name,
+		get_readiness_settings()["expiring_soon_days"],
+	)
 	return {
 		"owner_doctype": "Derma Chart Mark",
 		"owner_name": mark_doc.name,

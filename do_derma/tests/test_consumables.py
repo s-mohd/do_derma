@@ -819,6 +819,20 @@ class TestProcedureOwnedConsumables(
 		self.assertEqual([line["item_code"] for line in row["default_consumables"]], [self.item])
 		self.assertEqual([line["item_code"] for line in row["removed_consumables"]], [self.item])
 
+	def test_payload_lines_carry_batch_facts(self):
+		api.save_consumables("Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}])
+
+		line = self._payload_procedure()["consumables"][0]
+		self.assertIn("batch", line)
+		self.assertIn(line["readiness_tone"], {"", "caution", "danger"})
+
+	def test_a_save_answers_with_batch_facts(self):
+		result = api.save_consumables(
+			"Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}]
+		)
+
+		self.assertIn("batch", result["consumables"][0])
+
 	def test_saving_records_the_rows_on_the_procedure_itself(self):
 		result = api.save_consumables(
 			"Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}]
@@ -1056,3 +1070,29 @@ class TestBatchFacts(ConsumableHelpers, IntegrationTestCase):
 		with patch("erpnext.stock.doctype.batch.batch.get_batch_qty", return_value=0) as get_batch_qty:
 			self.assertEqual(batches.get_available_qty(self.item, batch, warehouse), 0)
 		get_batch_qty.assert_called_once_with(batch_no=batch, warehouse=warehouse)
+
+
+class TestConsumablePayloadBatch(ConsumableHelpers, IntegrationTestCase):
+	"""The editor reads the same facts readiness does."""
+
+	def test_payload_describes_an_expired_batch_with_no_stock(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), -3))
+		rows = [{"item_code": batched, "qty": 1, "conversion_factor": 1, "batch_no": lot}]
+		with patch.object(batches, "get_available_qty", return_value=0):
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+
+		self.assertEqual(rows[0]["batch"]["name"], lot)
+		self.assertTrue(rows[0]["batch"]["is_expired"])
+		self.assertEqual(rows[0]["readiness_tone"], "danger")
+		self.assertEqual(
+			rows[0]["readiness_message"], "Product is expired. This lot has 0 left; the line uses 1."
+		)
+
+	def test_a_healthy_line_carries_facts_and_no_message(self):
+		rows = [{"item_code": self._make_stock_item(), "qty": 1, "conversion_factor": 1}]
+		with patch.object(batches, "get_available_qty", return_value=10):
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+
+		self.assertEqual(rows[0]["batch"]["available_qty"], 10)
+		self.assertEqual((rows[0]["readiness_message"], rows[0]["readiness_tone"]), ("", ""))
