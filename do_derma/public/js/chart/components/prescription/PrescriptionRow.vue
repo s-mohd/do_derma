@@ -164,6 +164,7 @@ const medicationLabel = computed(() => {
 const rowElement = ref(null)
 const preview = ref(null)
 let pickerHost = null
+let control = null
 let previewTimer = null
 
 watch(
@@ -185,7 +186,7 @@ function setPickerHost(element) {
 function mountPicker(field) {
   if (!pickerHost || !window.frappe?.ui?.form?.make_control) return
   pickerHost.innerHTML = ""
-  const control = frappe.ui.form.make_control({
+  control = frappe.ui.form.make_control({
     parent: pickerHost,
     df: {
       fieldtype: "Link",
@@ -207,6 +208,14 @@ function mountPicker(field) {
   control.last_value = current
   control.$input?.focus()
 }
+
+// Save calls this so a typed value desk is still validating reaches the row first.
+async function commitPicker() {
+  if (!props.openField || !control?.$input) return
+  await control.parse_validate_and_set_in_model(control.get_input_value())
+}
+
+defineExpose({ commitPicker })
 
 function closePicker(field) {
   emit("close-picker")

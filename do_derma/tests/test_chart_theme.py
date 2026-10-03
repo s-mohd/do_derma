@@ -998,3 +998,13 @@ class TestPrescriptionPanelRestyle(TestCase):
 		save = template[start : template.index(">", start)]
 		self.assertIn("saving", save)
 		self.assertIn("!isDirty", save)
+
+	def test_save_commits_a_typed_picker_value_first(self):
+		"""Desk validates a typed link on blur, after Save's click would have sent the rows."""
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		start = template.index('data-test="prescription-save"')
+		save = template[start : template.index(">", start)]
+		self.assertIn("@mousedown.prevent", save)
+		self.assertLess(script.index(".commitPicker()"), script.index('emit("save"'))
+		_, row_script, _ = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("defineExpose({ commitPicker })", row_script)

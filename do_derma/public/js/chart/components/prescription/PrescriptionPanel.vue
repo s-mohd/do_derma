@@ -22,7 +22,8 @@
           type="button"
           class="primary small"
           data-test="prescription-save"
-          :disabled="loading || saving || !isDirty"
+          :disabled="loading || saving || (!isDirty && !openPicker)"
+          @mousedown.prevent
           @click="save"
         >
           {{ saving ? __("Saving...") : __("Save") }}
@@ -80,6 +81,7 @@
         <PrescriptionRow
           v-for="draft in drafts"
           :key="draft.key"
+          :ref="(component) => (rowComponents[draft.key] = component)"
           :row="draft"
           :read-only="!canEdit"
           :open-field="openPicker?.key === draft.key ? openPicker.field : ''"
@@ -127,6 +129,7 @@ const props = defineProps({
 const emit = defineEmits(["save"])
 
 let nextKey = 0
+const rowComponents = {}
 const drafts = ref([])
 const snapshot = ref("")
 const openPicker = ref(null)
@@ -245,8 +248,9 @@ async function applyMedication(draft, medication) {
   }
 }
 
-function save() {
+async function save() {
   if (!canEdit.value || props.saving || props.loading) return
+  await rowComponents[openPicker.value?.key]?.commitPicker()
   showMissing.value = true
   if (validationError.value) return
   showMissing.value = false
