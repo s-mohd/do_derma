@@ -860,3 +860,48 @@ class TestAssessmentRestyle(TestCase):
 			"background: transparent;",
 			get_rule_body(style, ".field-control-host:deep(.table-multiselect input) {"),
 		)
+
+
+PRESCRIPTION_DIR = CHART_DIR / "components" / "prescription"
+PRESCRIPTION_PANEL = PRESCRIPTION_DIR / "PrescriptionPanel.vue"
+PRESCRIPTION_ROW = PRESCRIPTION_DIR / "PrescriptionRow.vue"
+
+
+class TestPrescriptionRow(TestCase):
+	"""One editable prescription line in the chart vocabulary (spec 2026-10-03)."""
+
+	def test_link_cells_mount_desk_link_controls(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("frappe.ui.form.make_control", script)
+		self.assertIn('fieldtype: "Link"', script)
+		self.assertIn("only_select: 1", script)
+		self.assertNotIn('"Table"', script)
+
+	def test_pickers_keep_escape_from_desk(self):
+		template, _, _ = get_component_parts(PRESCRIPTION_ROW)
+		hosts = re.findall(r'<div[^>]*class="picker-host"[^>]*>', template)
+		self.assertEqual(len(hosts), 3)
+		for host in hosts:
+			self.assertIn("@keydown.escape.stop", host)
+
+	def test_drug_code_sits_under_the_medication(self):
+		template, _, _ = get_component_parts(PRESCRIPTION_ROW)
+		medication = get_element(template, '<td class="medication-cell"')
+		self.assertIn('data-test="prescription-choose-item"', medication)
+		self.assertIn("row.linkedItems.length > 1", medication)
+		self.assertIn('class="chart-spinner"', medication)
+
+	def test_comment_and_delete_live_in_the_actions_cluster(self):
+		template, _, _ = get_component_parts(PRESCRIPTION_ROW)
+		actions = get_element(template, '<td class="row-actions"')
+		for hook in ("prescription-comment", "prescription-delete"):
+			self.assertIn(f'data-test="{hook}"', actions)
+		self.assertIn('class="comment-preview"', actions)
+		self.assertIn('data-test="prescription-comment-input"', template)
+
+	def test_delete_turns_red_only_on_hover(self):
+		_, _, style = get_component_parts(PRESCRIPTION_ROW)
+		self.assertNotRegex(style, r"\.icon-btn\.danger \{")
+		self.assertRegex(
+			style, r"\.icon-btn\.danger:hover:not\(:disabled\)[^{]*\{[^}]*var\(--chart-danger-text\)"
+		)
