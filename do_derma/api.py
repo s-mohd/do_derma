@@ -4599,7 +4599,25 @@ def _load_visit_drawings(encounter: str) -> list[dict[str, Any]]:
 
 
 def _load_visit_procedure_titles(doc) -> list[str]:
-	return [row["title"] for row in _get_visit_summary_procedures(doc)]
+	"""A visit's non-cancelled procedure titles, named as the summary names them, without the full rows."""
+	field = _get_clinical_procedure_encounter_field()
+	if not field:
+		return []
+	rows = frappe.get_all(
+		"Clinical Procedure",
+		filters={field: doc.name, "docstatus": ["<", 2]},
+		fields=["name", "procedure_template"],
+		order_by="modified desc",
+		limit=200,
+	)
+	template_names = list({row.procedure_template for row in rows if row.procedure_template})
+	labels = {}
+	if template_names:
+		templates = frappe.get_all(
+			"Clinical Procedure Template", filters={"name": ["in", template_names]}, fields=["name", "template"]
+		)
+		labels = {template.name: template.template or template.name for template in templates}
+	return [labels.get(row.procedure_template) or row.procedure_template or row.name for row in rows]
 
 
 @frappe.whitelist()

@@ -370,3 +370,15 @@ class TestPreviousVisitHeader(PrescriptionHelpers, IntegrationTestCase):
 		self._make_clinical_procedure(self.patient).db_set(field, encounter.name)
 
 		self.assertEqual(self._visits(), {})
+
+	def test_listing_procedures_skips_the_full_procedure_rows(self):
+		field = api._get_clinical_procedure_encounter_field()
+		if not field:
+			self.skipTest("Clinical Procedure has no encounter link on this site.")
+		encounter = self._assessed(assessment.STRUCTURED, self._structured_text_field())
+		self._make_clinical_procedure(self.patient).db_set(field, encounter.name)
+
+		with patch.object(api, "_get_derma_procedures", side_effect=AssertionError("full rows loaded")):
+			titles = self._visits()[encounter.name]["procedures"]
+
+		self.assertEqual(len(titles), 1)
