@@ -81,6 +81,19 @@ class TestDermaPrescriptions(PrescriptionHelpers, IntegrationTestCase):
 		)
 		self.assertEqual([row["drug_name"] for row in saved["drug_prescription"]], ["Only"])
 
+	def test_a_resent_row_keeps_fields_the_tab_does_not_show(self):
+		"""The tab resends each loaded row whole, so hidden fields survive a comment edit."""
+		encounter = self._make_encounter(self._make_patient())
+		saved = api.set_derma_prescriptions(
+			payload=json.dumps([self._row(interval=2, interval_uom="Day")]), encounter=encounter.name
+		)
+		resent = {**saved["drug_prescription"][0], "comment": "After meals"}
+		saved = api.set_derma_prescriptions(
+			payload=json.dumps([resent], default=str), encounter=encounter.name
+		)
+		row = saved["drug_prescription"][0]
+		self.assertEqual((row["interval"], row["interval_uom"], row["comment"]), (2, "Day", "After meals"))
+
 	def test_an_absurd_repeat_count_is_refused(self):
 		encounter = self._make_encounter(self._make_patient())
 		with self.assertRaises(frappe.ValidationError):
@@ -120,14 +133,18 @@ class TestOrderedPrescriptions(PrescriptionHelpers, IntegrationTestCase):
 
 	def _ordered_encounter(self):
 		encounter = self._make_encounter(self._make_patient())
-		api.set_derma_prescriptions(payload=json.dumps([self._row(drug_name="Ordered")]), encounter=encounter.name)
+		api.set_derma_prescriptions(
+			payload=json.dumps([self._row(drug_name="Ordered")]), encounter=encounter.name
+		)
 		row = frappe.get_doc("Patient Encounter", encounter.name).drug_prescription[0]
 		frappe.db.set_value(row.doctype, row.name, "medication_request", "MR-DERMA-TEST")
 		return encounter
 
 	def test_an_ordered_row_survives_a_save_that_omits_it(self):
 		encounter = self._ordered_encounter()
-		saved = api.set_derma_prescriptions(payload=json.dumps([self._row(drug_name="New")]), encounter=encounter.name)
+		saved = api.set_derma_prescriptions(
+			payload=json.dumps([self._row(drug_name="New")]), encounter=encounter.name
+		)
 		self.assertEqual(
 			[(row["drug_name"], row.get("medication_request")) for row in saved["drug_prescription"]],
 			[("Ordered", "MR-DERMA-TEST"), ("New", None)],
