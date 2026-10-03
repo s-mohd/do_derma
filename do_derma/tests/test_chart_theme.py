@@ -162,7 +162,7 @@ class TestChartReviewFindings(TestCase):
 		self.assertRegex(hero, r'\.chart-hero-status\[data-tone="ok"\] \{[^}]*var\(--chart-ok-text\)')
 		self.assertRegex(hero, r'\.chart-hero-readiness\[data-tone="ok"\] \{[^}]*var\(--chart-ok-text\)')
 		self.assertRegex(procedures, r'Completed: "ok"')
-		self.assertRegex(procedures, r"\.note-presence-indicator\.present i \{[^}]*var\(--chart-ok\)")
+		self.assertRegex(procedures, r"\.note-dot \{[^}]*var\(--chart-ok\)")
 
 	def test_tokens_reach_content_rendered_outside_the_page(self):
 		css = CHART_CSS.read_text()
@@ -428,3 +428,15 @@ class TestProcedurePanelRestyle(TestCase):
 		footer = get_element(template, '<div class="procedure-load-more-row"')
 		self.assertIn('v-model.number="rowBatchSize"', footer)
 		self.assertEqual(template.count('v-model.number="rowBatchSize"'), 1)
+
+	def test_notes_live_in_the_actions_cluster(self):
+		template, _, style = get_panel_parts()
+		self.assertNotIn("note-presence-indicator", template + style)
+		self.assertNotRegex(template, r"<th>[^<]*Notes")
+		actions = get_element(template, '<td class="row-actions"')
+		self.assertIn('data-test="procedure-note"', actions)
+
+	def test_delete_turns_red_only_on_hover(self):
+		_, _, style = get_panel_parts()
+		self.assertNotRegex(style, r"\.icon-btn\.danger \{")
+		self.assertRegex(style, r"\.icon-btn\.danger:hover:not\(:disabled\)[^{]*\{[^}]*var\(--chart-danger-text\)")

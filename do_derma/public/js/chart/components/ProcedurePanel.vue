@@ -181,7 +181,6 @@
           <col class="col-tooth" />
           <col class="col-details" />
           <col class="col-price" />
-          <col class="col-notes" />
           <col class="col-doctor" />
           <col class="col-actions" />
         </colgroup>
@@ -192,7 +191,6 @@
             <th>{{ __("Area") }}</th>
             <th>Details</th>
             <th>Price</th>
-            <th>Notes</th>
             <th>Doctor</th>
             <th>Actions</th>
           </tr>
@@ -200,7 +198,7 @@
         <tbody>
           <template v-for="group in filteredGroups" :key="group.key">
             <tr class="procedure-date-row">
-              <td colspan="8">{{ formatGroupLabel(group) }}</td>
+              <td colspan="7">{{ formatGroupLabel(group) }}</td>
             </tr>
             <template v-for="row in group.items" :key="row.name">
             <tr @dblclick="handleRowDoubleClick(row, $event)">
@@ -393,45 +391,20 @@
                   <span class="price-meta">{{ displayPriceList(row) }}</span>
                 </div>
               </td>
-              <td>
-                <template v-if="isEditable(row)">
-                  <div class="note-cell">
-                    <button
-                      type="button"
-                      class="ghost small note-dialog-btn"
-                      :title="__('Open procedure note editor')"
-                      @click.stop="openProcedureNoteDialog(row)"
-                    >
-                      <i class="fa-regular fa-pen-to-square"></i>
-                      <span>{{ getRowNoteValue(row) ? __("Edit Note") : __("Add Note") }}</span>
-                    </button>
-                    <div class="note-presence-indicator" :class="{ present: Boolean(getRowNoteRawValue(row)) }">
-                      <i class="fa-solid fa-circle"></i>
-                      <span>{{ getRowNoteRawValue(row) ? __("Note added") : __("No note") }}</span>
-                    </div>
-                  </div>
-                </template>
-                <template v-else>
-                  <div v-if="getRowNoteRawValue(row)" class="note-readonly-cell">
-                    <button
-                      type="button"
-                      class="ghost small note-view-btn"
-                      :title="__('View procedure note')"
-                      @click.stop="openProcedureNoteDialog(row)"
-                    >
-                      <i class="fa-regular fa-eye"></i>
-                      <span>{{ __("View Note") }}</span>
-                    </button>
-                    <div class="note-presence-indicator present">
-                      <i class="fa-solid fa-circle"></i>
-                      <span>{{ __("Note added") }}</span>
-                    </div>
-                  </div>
-                  <span v-else>—</span>
-                </template>
-              </td>
               <td>{{ row.practitioner_name || row.practitioner || "—" }}</td>
               <td class="row-actions">
+                <button
+                  v-if="isEditable(row) || getRowNoteRawValue(row)"
+                  class="icon-btn"
+                  type="button"
+                  data-test="procedure-note"
+                  :title="noteLabel(row)"
+                  :aria-label="noteLabel(row)"
+                  @click.stop="openProcedureNoteDialog(row)"
+                >
+                  <i :class="isEditable(row) ? 'fa-regular fa-note-sticky' : 'fa-regular fa-eye'"></i>
+                  <span v-if="getRowNoteRawValue(row)" class="note-dot"></span>
+                </button>
                 <button
                   v-if="getProcedureName(row)"
                   class="icon-btn"
@@ -472,7 +445,7 @@
               </td>
             </tr>
             <tr v-if="isConsumablesOpen(row)" class="consumables-row" data-test="procedure-consumables-row">
-              <td colspan="8">
+              <td colspan="7">
                 <ConsumablesEditor
                   v-for="owner in consumableOwners(row)"
                   :key="owner.name"
@@ -1884,6 +1857,11 @@ function getProcedureName(row) {
   return name
 }
 
+function noteLabel(row) {
+  if (!isEditable(row)) return __("View note")
+  return getRowNoteRawValue(row) ? __("Edit note") : __("Add note")
+}
+
 function annotateLabel(row) {
   const count = Number(row?.annotation_count || 0)
   return count ? `${__("Annotate")} (${count})` : __("Annotate")
@@ -1907,7 +1885,7 @@ function handleRowDoubleClick(row, event) {
   const target = event?.target
   if (
     target?.closest?.(
-      "input, textarea, select, button, a, .override-dropdown, .note-cell, .surface-cell .clickable, .lab-case-cell"
+      "input, textarea, select, button, a, .override-dropdown, .surface-cell .clickable, .lab-case-cell"
     )
   ) {
     return
@@ -2149,7 +2127,7 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-status {
-  width: 8%;
+  width: 9%;
 }
 
 .dental-chart-page .procedure-table .col-procedure {
@@ -2161,24 +2139,20 @@ function handleRowDoubleClick(row, event) {
 }
 
 .dental-chart-page .procedure-table .col-details {
-  width: 22%;
+  width: 27%;
 }
 
 .dental-chart-page .procedure-table .col-price {
-  width: 8%;
-}
-
-.dental-chart-page .procedure-table .col-notes {
-  width: 12%;
+  width: 10%;
 }
 
 .dental-chart-page .procedure-table .col-doctor {
-  width: 12%;
+  width: 13%;
 }
 
 /* Two icon buttons plus their count badge: never less than ~86px. */
 .dental-chart-page .procedure-table .col-actions {
-  width: 10%;
+  width: 13%;
 }
 
 .dental-chart-page .procedure-table th {
@@ -2308,63 +2282,6 @@ function handleRowDoubleClick(row, event) {
   color: var(--chart-info-text);
 }
 
-.dental-chart-page .procedure-table .note-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.dental-chart-page .procedure-table .note-dialog-btn {
-  width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dental-chart-page .procedure-table .note-presence-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--chart-muted);
-  background: var(--chart-surface-muted);
-  border: 1px solid var(--chart-border);
-  border-radius: 999px;
-  padding: 3px 8px;
-}
-
-.dental-chart-page .procedure-table .note-presence-indicator i {
-  font-size: 8px;
-  color: var(--chart-faint);
-}
-
-.dental-chart-page .procedure-table .note-presence-indicator.present {
-  color: var(--chart-ok-text);
-  background: var(--chart-ok-soft);
-  border-color: var(--chart-ok-soft);
-}
-
-.dental-chart-page .procedure-table .note-presence-indicator.present i {
-  color: var(--chart-ok);
-}
-
-.dental-chart-page .procedure-table .note-readonly-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.dental-chart-page .procedure-table .note-view-btn {
-  width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .dental-chart-page .procedure-table .lab-case-cell {
   display: flex;
   align-items: center;
@@ -2391,28 +2308,41 @@ function handleRowDoubleClick(row, event) {
 
 .dental-chart-page .procedure-table .icon-btn {
   position: relative;
-  border: 1px solid var(--chart-border-strong);
-  background: var(--chart-surface-muted);
+  width: 30px;
+  height: 30px;
+  border: 0;
   border-radius: 8px;
-  padding: 5px 7px;
+  background: transparent;
+  color: var(--chart-muted);
   font-size: 13px;
-  color: var(--chart-text-soft);
   cursor: pointer;
 }
 
-.dental-chart-page .procedure-table .icon-btn + .icon-btn {
-  margin-left: 4px;
-}
-
-.dental-chart-page .procedure-table .icon-btn:hover {
-  border-color: var(--chart-faint);
+.dental-chart-page .procedure-table .icon-btn:hover:not(:disabled),
+.dental-chart-page .procedure-table .icon-btn:focus-visible {
   background: var(--chart-surface-muted);
+  color: var(--chart-text);
 }
 
-.dental-chart-page .procedure-table .icon-btn.danger {
-  border-color: var(--chart-danger-border);
+.dental-chart-page .procedure-table .icon-btn.danger:hover:not(:disabled),
+.dental-chart-page .procedure-table .icon-btn.danger:focus-visible {
   background: var(--chart-danger-soft);
   color: var(--chart-danger-text);
+}
+
+.dental-chart-page .procedure-table .icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.dental-chart-page .procedure-table .note-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--chart-ok);
 }
 
 .dental-chart-page .procedure-table .icon-btn .icon-badge {
