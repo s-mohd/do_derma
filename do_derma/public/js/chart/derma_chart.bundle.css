@@ -3396,10 +3396,6 @@ body.derma-annotation-open .modal-backdrop {
 
 /* Voice AI scribe (Assessment tab) */
 .voice-scribe {
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  padding: 10px 12px;
   display: grid;
   gap: 10px;
 }
@@ -3463,16 +3459,8 @@ body.derma-annotation-open .modal-backdrop {
   gap: 8px;
   flex-wrap: wrap;
 }
-.voice-result-head code {
-  font-size: 12px;
-  background: var(--derma-bg-muted);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-.voice-result details summary {
-  cursor: pointer;
-  color: var(--derma-text-muted);
-  font-size: 12px;
+.voice-result-head .chart-pill {
+  white-space: normal;
 }
 .voice-result pre {
   white-space: pre-wrap;

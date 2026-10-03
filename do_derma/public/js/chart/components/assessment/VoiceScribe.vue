@@ -4,7 +4,7 @@
       <button
         v-if="state === 'idle' || state === 'ready' || state === 'failed'"
         type="button"
-        class="primary small"
+        class="ghost small"
         data-test="voice-start"
         @click="startRecording"
       >
@@ -59,32 +59,47 @@
 
     <div v-if="summary && ['idle', 'ready', 'failed'].includes(state)" class="voice-result" data-test="voice-result">
       <div class="voice-result-head">
-        <b>{{ summary.diagnosis || __("No diagnosis suggested") }}</b>
-        <code v-if="summary.icd10">{{ summary.icd10 }}</code>
+        <span v-if="summary.diagnosis" class="chart-pill" data-test="voice-diagnosis">{{ summary.diagnosis }}</span>
+        <span v-else class="voice-hint">{{ __("No diagnosis suggested") }}</span>
+        <span v-if="summary.icd10" class="chart-pill" data-test="voice-icd10">{{ summary.icd10 }}</span>
+        <button
+          v-if="summary.followup_en || summary.followup_ar"
+          type="button"
+          class="ghost small"
+          data-test="voice-followup-toggle"
+          :aria-expanded="openExtra === 'followup' ? 'true' : 'false'"
+          @click="toggleExtra('followup')"
+        >
+          {{ __("WhatsApp follow-up") }}
+        </button>
+        <button
+          v-if="summary.soap_ar"
+          type="button"
+          class="ghost small"
+          data-test="voice-arabic-toggle"
+          :aria-expanded="openExtra === 'arabic' ? 'true' : 'false'"
+          @click="toggleExtra('arabic')"
+        >
+          {{ __("Arabic note") }}
+        </button>
       </div>
-      <details v-if="summary.followup_en || summary.followup_ar">
-        <summary>{{ __("WhatsApp follow-up for the patient") }}</summary>
-        <div class="voice-followups">
-          <div v-if="summary.followup_en">
-            <pre>{{ summary.followup_en }}</pre>
-            <button type="button" class="ghost small" @click="copy(summary.followup_en)">{{ __("Copy English") }}</button>
-          </div>
-          <div v-if="summary.followup_ar" dir="rtl">
-            <pre>{{ summary.followup_ar }}</pre>
-            <button type="button" class="ghost small" @click="copy(summary.followup_ar)">{{ __("نسخ العربية") }}</button>
-          </div>
+      <div v-if="openExtra === 'followup'" class="voice-followups">
+        <div v-if="summary.followup_en">
+          <pre>{{ summary.followup_en }}</pre>
+          <button type="button" class="ghost small" @click="copy(summary.followup_en)">{{ __("Copy English") }}</button>
         </div>
-      </details>
-      <details v-if="summary.soap_ar">
-        <summary>{{ __("Arabic note") }}</summary>
-        <pre dir="rtl">{{ summary.soap_ar }}</pre>
-      </details>
+        <div v-if="summary.followup_ar" dir="rtl">
+          <pre>{{ summary.followup_ar }}</pre>
+          <button type="button" class="ghost small" @click="copy(summary.followup_ar)">{{ __("نسخ العربية") }}</button>
+        </div>
+      </div>
+      <pre v-if="openExtra === 'arabic'" dir="rtl">{{ summary.soap_ar }}</pre>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   GOOD_RMS,
   HEARD_RMS,
@@ -149,6 +164,14 @@ let live = { from: 0, pieces: [], failed: false }
 
 const isCapturing = computed(() => state.value === "recording" || state.value === "paused")
 const summary = computed(() => result.value || (props.saved?.diagnosis || props.saved?.icd10 ? props.saved : null))
+const openExtra = ref("")
+watch(summary, () => {
+  openExtra.value = ""
+})
+
+function toggleExtra(name) {
+  openExtra.value = openExtra.value === name ? "" : name
+}
 const meterZone = computed(() => {
   const { level, peak } = meter.value
   if (peak >= LOUD_PEAK) return "loud"

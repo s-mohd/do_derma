@@ -737,3 +737,20 @@ class TestAssessmentRestyle(TestCase):
 			get_rule_body(structured_style, ".field-control-host:deep(.like-disabled-input) {"),
 		)
 		self.assertNotIn("--control-bg", soap_style + structured_style)
+
+	def test_dictation_result_is_pills_and_toggles(self):
+		template, script, _ = get_component_parts(ASSESSMENT_DIR / "VoiceScribe.vue")
+		result = get_element(
+			template,
+			"<div v-if=\"summary && ['idle', 'ready', 'failed'].includes(state)\" class=\"voice-result\"",
+		)
+		self.assertNotIn("<details", result)
+		self.assertNotIn("<code", result)
+		self.assertIn('data-test="voice-icd10"', result)
+		self.assertIn(":aria-expanded=", result)
+		self.assertRegex(template, r'class="ghost small"\s+data-test="voice-start"')
+		self.assertRegex(script, r'watch\(summary, \(\) => \{\s+openExtra\.value = ""')
+		css = CHART_CSS.read_text()
+		self.assertIn("white-space: normal;", get_rule_body(css, ".voice-result-head .chart-pill {"))
+		self.assertNotIn(".voice-result-head code", css)
+		self.assertNotRegex(get_rule_body(css, ".voice-scribe {"), r"border:|background:")
