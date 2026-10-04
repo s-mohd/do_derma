@@ -9,6 +9,7 @@
   "session_completion_section",
   "blocker_enforcement",
   "todo_downgrades_blockers",
+  "expiring_soon_days",
   "features_section",
   "enable_whatsapp_consent",
   "enable_lab_cases",
@@ -59,6 +60,14 @@
    "fieldname": "todo_downgrades_blockers",
    "fieldtype": "Check",
    "label": "An Open ToDo Downgrades A Blocker"
+  },
+  {
+   "default": "30",
+   "description": "Warn when a lot expires within this many days. 0 turns the warning off.",
+   "fieldname": "expiring_soon_days",
+   "fieldtype": "Int",
+   "label": "Expiring Soon (Days)",
+   "non_negative": 1
   },
   {
    "description": "Features that are not finished. Leave off unless the integration behind them is configured.",
@@ -180,7 +189,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-09-24 15:00:00",
+ "modified": "2026-10-03 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Do Derma",
  "name": "Derma Settings",

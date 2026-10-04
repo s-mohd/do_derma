@@ -1,11 +1,16 @@
 <template>
   <section class="voice-scribe" :data-state="state" data-test="voice-scribe">
+    <h3 class="assessment-block-title" data-tone="info">
+      <span class="block-icon" aria-hidden="true"><i class="fa-solid fa-microphone"></i></span>
+      {{ __("Dictation") }}
+    </h3>
     <div class="voice-scribe-row">
       <button
         v-if="state === 'idle' || state === 'ready' || state === 'failed'"
         type="button"
-        class="primary small"
+        class="ghost small"
         data-test="voice-start"
+        :title="__('Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.')"
         @click="startRecording"
       >
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -35,8 +40,14 @@
         <option v-for="mic in microphones" :key="mic.deviceId" :value="mic.deviceId">{{ mic.label || __("Microphone") }}</option>
       </select>
 
+      <form v-if="hasNote && !isCapturing" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
+        <input v-model="instruction" type="text" :placeholder="__('Ask the AI to adjust the note, e.g. add a 2-week follow-up and mention sun protection')" :disabled="refining" />
+        <button type="submit" class="ghost small" :disabled="refining || instruction.trim().length < 3">
+          <span v-if="refining" class="voice-spinner" aria-hidden="true"></span>{{ refining ? __("Adjusting...") : __("Adjust") }}
+        </button>
+      </form>
       <small class="voice-hint">
-        <template v-if="state === 'idle'">{{ __("Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.") }}</template>
+        <template v-if="state === 'idle' && !hasNote">{{ __("Record the visit (English / Arabic); the AI drafts the note in the current format for you to review.") }}</template>
         <template v-else-if="state === 'paused'">{{ __("Paused. Nothing is recorded until you press Resume.") }}</template>
         <template v-else-if="state === 'recording' && silenceWarning">
           <span class="voice-warning" data-test="voice-silence">{{ silenceWarning }}</span>
@@ -50,41 +61,50 @@
       </small>
     </div>
 
-    <form v-if="hasNote && !isCapturing" class="voice-refine" data-test="voice-refine" @submit.prevent="refine">
-      <input v-model="instruction" type="text" :placeholder="__('Ask the AI to adjust the note, e.g. add a 2-week follow-up and mention sun protection')" :disabled="refining" />
-      <button type="submit" class="ghost small" :disabled="refining || instruction.trim().length < 3">
-        <span v-if="refining" class="voice-spinner" aria-hidden="true"></span>{{ refining ? __("Adjusting...") : __("Adjust") }}
-      </button>
-    </form>
 
     <div v-if="summary && ['idle', 'ready', 'failed'].includes(state)" class="voice-result" data-test="voice-result">
       <div class="voice-result-head">
-        <b>{{ summary.diagnosis || __("No diagnosis suggested") }}</b>
-        <code v-if="summary.icd10">{{ summary.icd10 }}</code>
+        <span v-if="summary.diagnosis" class="chart-pill" data-tone="info" data-test="voice-diagnosis">{{ summary.diagnosis }}</span>
+        <span v-else class="voice-hint">{{ __("No diagnosis suggested") }}</span>
+        <span v-if="summary.icd10" class="chart-pill" data-tone="info" data-test="voice-icd10">{{ summary.icd10 }}</span>
+        <button
+          v-if="summary.followup_en || summary.followup_ar"
+          type="button"
+          class="ghost small"
+          data-test="voice-followup-toggle"
+          :aria-expanded="openExtra === 'followup' ? 'true' : 'false'"
+          @click="toggleExtra('followup')"
+        >
+          {{ __("WhatsApp follow-up") }}
+        </button>
+        <button
+          v-if="summary.soap_ar"
+          type="button"
+          class="ghost small"
+          data-test="voice-arabic-toggle"
+          :aria-expanded="openExtra === 'arabic' ? 'true' : 'false'"
+          @click="toggleExtra('arabic')"
+        >
+          {{ __("Arabic note") }}
+        </button>
       </div>
-      <details v-if="summary.followup_en || summary.followup_ar">
-        <summary>{{ __("WhatsApp follow-up for the patient") }}</summary>
-        <div class="voice-followups">
-          <div v-if="summary.followup_en">
-            <pre>{{ summary.followup_en }}</pre>
-            <button type="button" class="ghost small" @click="copy(summary.followup_en)">{{ __("Copy English") }}</button>
-          </div>
-          <div v-if="summary.followup_ar" dir="rtl">
-            <pre>{{ summary.followup_ar }}</pre>
-            <button type="button" class="ghost small" @click="copy(summary.followup_ar)">{{ __("نسخ العربية") }}</button>
-          </div>
+      <div v-if="openExtra === 'followup'" class="voice-followups">
+        <div v-if="summary.followup_en">
+          <pre>{{ summary.followup_en }}</pre>
+          <button type="button" class="ghost small" @click="copy(summary.followup_en)">{{ __("Copy English") }}</button>
         </div>
-      </details>
-      <details v-if="summary.soap_ar">
-        <summary>{{ __("Arabic note") }}</summary>
-        <pre dir="rtl">{{ summary.soap_ar }}</pre>
-      </details>
+        <div v-if="summary.followup_ar" dir="rtl">
+          <pre>{{ summary.followup_ar }}</pre>
+          <button type="button" class="ghost small" @click="copy(summary.followup_ar)">{{ __("نسخ العربية") }}</button>
+        </div>
+      </div>
+      <pre v-if="openExtra === 'arabic'" dir="rtl">{{ summary.soap_ar }}</pre>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   GOOD_RMS,
   HEARD_RMS,
@@ -149,6 +169,14 @@ let live = { from: 0, pieces: [], failed: false }
 
 const isCapturing = computed(() => state.value === "recording" || state.value === "paused")
 const summary = computed(() => result.value || (props.saved?.diagnosis || props.saved?.icd10 ? props.saved : null))
+const openExtra = ref("")
+watch(summary, () => {
+  openExtra.value = ""
+})
+
+function toggleExtra(name) {
+  openExtra.value = openExtra.value === name ? "" : name
+}
 const meterZone = computed(() => {
   const { level, peak } = meter.value
   if (peak >= LOUD_PEAK) return "loud"

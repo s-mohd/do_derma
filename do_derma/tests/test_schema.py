@@ -73,3 +73,13 @@ class TestEnsureDermaSchema(IntegrationTestCase):
 		"""A site without Healthcare Practitioner must not break the migrate."""
 		created = ensure_derma_schema()
 		self.assertIsInstance(created, dict)
+
+	def test_practitioner_gets_a_letter_head_link_next_to_the_document_mark(self):
+		ensure_derma_schema()
+		field = frappe.get_meta("Healthcare Practitioner").get_field("custom_derma_letter_head")
+		self.assertIsNotNone(field)
+		self.assertEqual((field.fieldtype, field.options), ("Link", "Letter Head"))
+		insert_after = frappe.db.get_value(
+			"Custom Field", {"dt": "Healthcare Practitioner", "fieldname": "custom_derma_letter_head"}, "insert_after"
+		)
+		self.assertEqual(insert_after, "custom_official_document_mark")

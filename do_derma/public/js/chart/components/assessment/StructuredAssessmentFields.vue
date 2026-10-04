@@ -1,5 +1,5 @@
 <template>
-  <div class="structured-fields" data-test="structured-assessment-fields">
+  <div class="structured-fields" :class="{ 'is-reading': !editMode }" data-test="structured-assessment-fields">
     <p v-if="!layout.length" class="fields-empty">
       {{ __("No structured assessment fields are configured. Set them in Derma Settings.") }}
     </p>
@@ -14,7 +14,7 @@
       class="fields-section"
       :class="{ 'has-separator': sectionIndex > 0 }"
     >
-      <h4 v-if="section.label" class="fields-section-title">{{ section.label }}</h4>
+      <h4 v-if="section.label" class="fields-section-title chart-label">{{ section.label }}</h4>
 
       <div class="fields-columns" :style="{ '--fields-columns': String(section.columns.length || 1) }">
         <section
@@ -401,6 +401,9 @@ async function makeControl(row) {
   host.innerHTML = ""
   const control = frappe?.ui?.form?.make_control?.({ parent: host, df, doc: workingDoc, render_input: true })
   if (!control) return
+  if (df.fieldtype === "Table MultiSelect") control.$input?.attr("placeholder", __("Add..."))
+  // Desk pins textareas at an inline 150px; clearing it lets them size to their text.
+  if (control.$input?.is("textarea")) control.$input.css("height", "")
 
   const updateRuntimeValue = () => {
     if (!props.editMode || !row?.fieldname) return
@@ -512,13 +515,13 @@ async function refreshControls() {
 }
 
 .fields-empty {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 14px;
   margin: 0;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .fields-section {
@@ -527,16 +530,12 @@ async function refreshControls() {
 }
 
 .fields-section.has-separator {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--chart-border);
   padding-top: 14px;
 }
 
 .fields-section-title {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.35;
-  font-weight: 700;
-  color: #0f172a;
 }
 
 .fields-columns {
@@ -564,25 +563,97 @@ async function refreshControls() {
 }
 
 .field-control-host:deep(.control-label) {
-  color: #1e293b;
-  font-size: 14px;
-  line-height: 1.3;
-  font-weight: 600;
-  letter-spacing: 0;
   margin-bottom: 6px;
-  text-transform: none;
+  color: var(--chart-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .field-control-host:deep(textarea.form-control),
 .field-control-host:deep(input.form-control),
 .field-control-host:deep(.control-input .form-control),
 .field-control-host:deep(.table-multiselect.form-control) {
-  background: var(--control-bg, #edeef0);
-  border-color: #e5e7eb;
-  border-radius: 12px;
+  background: var(--chart-surface);
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
 }
 
-.field-control-host:deep(.table-multiselect.form-control .tb-selected-value) {
-  margin-bottom: 6px;
+.field-control-host:deep(.table-multiselect input) {
+  margin: 0;
+  padding: 2px 4px;
+  background: transparent;
+  font-size: 13px;
+}
+
+.field-control-host:deep(textarea.form-control) {
+  height: auto;
+  min-height: 72px;
+  field-sizing: content;
+}
+
+.field-control-host:deep(.like-disabled-input) {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--chart-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.field-control-host:deep(.table-multiselect.form-control) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  height: auto;
+  padding: 3px 6px;
+}
+
+.field-control-host:deep(.table-multiselect .tb-selected-value) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: auto;
+  margin: 0;
+  padding: 1px 4px 1px 9px;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 999px;
+  background: var(--chart-surface-muted);
+  color: var(--chart-text-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  box-shadow: none;
+}
+
+.field-control-host:deep(.table-multiselect .link-field) {
+  flex: 1 1 120px;
+  min-width: 120px;
+}
+
+.structured-fields.is-reading .fields-column {
+  gap: 10px;
+}
+
+.structured-fields.is-reading .field-control-host:deep(.form-group) {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.structured-fields.is-reading .field-control-host:deep(.control-label) {
+  margin-bottom: 0;
+}
+
+@media (max-width: 1100px) {
+  .structured-fields.is-reading .field-control-host:deep(.form-group) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 </style>

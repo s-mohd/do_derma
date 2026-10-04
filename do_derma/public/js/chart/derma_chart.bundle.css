@@ -1,37 +1,193 @@
-:root {
-  --derma-white: #ffffff;
-  --derma-text-muted: #64748b;
-  --derma-brand: #0f766e;
-  --derma-border: #dbe5ef;
-  --derma-text-strong: #0f172a;
-  --derma-bg-subtle: #f8fafc;
-  --derma-border-subtle: #e2e8f0;
-  --derma-success-bg: #ecfdf5;
-  --derma-bg-muted: #eef2f7;
-  --derma-text-secondary: #334155;
-  --derma-border-muted: #cfdce6;
-  --derma-text-deep: #172033;
-  --derma-warning-bg: #fed7aa;
-  --derma-info-bg: #bfdbfe;
-  --derma-brand-light: #99f6e4;
-  --derma-navy: #1f344d;
-  --derma-warning-bg-subtle: #fff7ed;
-  --derma-danger: #b42318;
-  --derma-text-secondary-alt: #475569;
-  --derma-bg-faint: #fbfdff;
-  --derma-info-bg-subtle: #eff6ff;
-  --derma-info: #2563eb;
-  --derma-danger-bg: #fecaca;
-  --derma-bg-faint-alt: #f8fbfc;
-  --derma-border-faint: #e5e7eb;
-  --derma-border-light: #d1dbe8;
-  --derma-success-bg-alt: #bbf7d0;
-  --derma-text-strong-alt: #1e293b;
-  --derma-text-deepest: #111827;
+/* Patient Overview tokens (do_health --ov-*, light), the settings accent, and the old palette as aliases.
+   The studio and desk dialogs render outside the page, so they carry the tokens too. */
+.dental-chart-page.derma-chart-page,
+.derma-annotation-modal,
+.modal {
+  --chart-bg: #f3f5f8;
+  --chart-surface: #ffffff;
+  --chart-surface-muted: #f6f8fa;
+  --chart-border: rgba(15, 23, 42, 0.08);
+  --chart-border-strong: rgba(15, 23, 42, 0.15);
+  --chart-text: #0f172a;
+  --chart-text-soft: #334155;
+  --chart-muted: #64748b;
+  --chart-faint: #a3afbf;
+  --chart-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -18px rgba(15, 23, 42, 0.25);
+  --chart-radius: 14px;
+  --chart-focus: 0 0 0 3px rgba(37, 99, 235, 0.28);
+  --chart-danger: #e11d48;
+  --chart-danger-soft: #fff1f3;
+  --chart-danger-border: rgba(225, 29, 72, 0.22);
+  --chart-danger-text: #be123c;
+  --chart-caution: #d97706;
+  --chart-caution-soft: #fffaeb;
+  --chart-caution-border: rgba(217, 119, 6, 0.26);
+  --chart-caution-text: #b45309;
+  --chart-ok: #059669;
+  --chart-ok-soft: #ecfdf5;
+  --chart-ok-text: #047857;
+  --chart-info-soft: #eff5ff;
+  --chart-info-text: #1d4ed8;
+  --chart-teal: #0d9488;
+  --chart-violet: #7c3aed;
+  --chart-blue: #2563eb;
+  --chart-rose: #e11d48;
+  --chart-amber: #d97706;
+  --chart-brand: #16a34a;
+
+  --chart-accent: var(--do-health-header-accent, #16a34a);
+  --chart-accent-strong: color-mix(in srgb, var(--chart-accent) 70%, black);
+  --chart-accent-soft: color-mix(in srgb, var(--chart-accent) 10%, white);
+  --chart-accent-text: var(--chart-accent-strong);
+
+  --derma-white: var(--chart-surface);
+  --derma-bg-faint: var(--chart-surface);
+  --derma-bg-faint-alt: var(--chart-surface);
+  --derma-bg-subtle: var(--chart-surface-muted);
+  --derma-bg-muted: var(--chart-surface-muted);
+  --derma-text-strong: var(--chart-text);
+  --derma-text-strong-alt: var(--chart-text);
+  --derma-text-deep: var(--chart-text);
+  --derma-text-deepest: var(--chart-text);
+  --derma-navy: var(--chart-text);
+  --derma-text-secondary: var(--chart-text-soft);
+  --derma-text-secondary-alt: var(--chart-text-soft);
+  --derma-text-muted: var(--chart-muted);
+  --derma-border-subtle: var(--chart-border);
+  --derma-border-faint: var(--chart-border);
+  --derma-border: var(--chart-border-strong);
+  --derma-border-muted: var(--chart-border-strong);
+  --derma-border-light: var(--chart-border-strong);
+  --derma-brand: var(--chart-accent-strong);
+  --derma-brand-light: var(--chart-accent-soft);
+  --derma-success-bg: var(--chart-ok-soft);
+  --derma-success-bg-alt: var(--chart-ok-soft);
+  --derma-warning-bg-subtle: var(--chart-caution-soft);
+  --derma-warning-bg: var(--chart-caution-soft);
+  --derma-danger: var(--chart-danger-text);
+  --derma-danger-bg: var(--chart-danger-soft);
+  --derma-info: var(--chart-blue);
+  --derma-info-bg-subtle: var(--chart-info-soft);
+  --derma-info-bg: var(--chart-info-soft);
 }
 
-/* The chart is light-only: pin Frappe's dark-mode variables to their v16 light values. */
-[data-theme="dark"] .dental-chart-page.derma-chart-page {
+/* Desk dark mode: the Patient Overview's dark palette (do_health --ov-*, dark). The studio keeps the light block. */
+[data-theme="dark"] .dental-chart-page.derma-chart-page,
+[data-theme="dark"] .modal {
+  --chart-bg: #141414;
+  --chart-surface: #1e1e1e;
+  --chart-surface-muted: #262626;
+  --chart-border: rgba(255, 255, 255, 0.08);
+  --chart-border-strong: rgba(255, 255, 255, 0.16);
+  --chart-text: #f4f4f5;
+  --chart-text-soft: #d4d4d8;
+  --chart-muted: #a1a1aa;
+  --chart-faint: #71717a;
+  --chart-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 28px -18px rgba(0, 0, 0, 0.6);
+  --chart-focus: 0 0 0 3px rgba(96, 165, 250, 0.4);
+  --chart-danger: #f43f5e;
+  --chart-danger-soft: rgba(244, 63, 94, 0.12);
+  --chart-danger-border: rgba(244, 63, 94, 0.3);
+  --chart-danger-text: #fda4af;
+  --chart-caution: #f59e0b;
+  --chart-caution-soft: rgba(245, 158, 11, 0.12);
+  --chart-caution-border: rgba(245, 158, 11, 0.3);
+  --chart-caution-text: #fcd34d;
+  --chart-ok: #34d399;
+  --chart-ok-soft: rgba(52, 211, 153, 0.12);
+  --chart-ok-text: #6ee7b7;
+  --chart-info-soft: rgba(96, 165, 250, 0.12);
+  --chart-info-text: #93c5fd;
+  --chart-teal: #2dd4bf;
+  --chart-violet: #a78bfa;
+  --chart-blue: #60a5fa;
+  --chart-rose: #fb7185;
+  --chart-amber: #fbbf24;
+  --chart-brand: #22c55e;
+  --chart-accent-soft: color-mix(in srgb, var(--chart-accent) 18%, var(--chart-surface));
+  --chart-accent-text: color-mix(in srgb, var(--chart-accent) 70%, white);
+}
+
+/* Shared chart building blocks, mirroring the Patient Overview. */
+.dental-chart-page .chart-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 999px;
+  background: var(--chart-surface-muted);
+  color: var(--chart-text-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.dental-chart-page button.chart-pill {
+  cursor: pointer;
+}
+
+.dental-chart-page .chart-pill[data-tone="accent"],
+.dental-chart-page button.chart-pill[aria-pressed="true"] {
+  background: var(--chart-accent-soft);
+  border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
+  color: var(--chart-accent-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="ok"] {
+  background: var(--chart-ok-soft);
+  border-color: transparent;
+  color: var(--chart-ok-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="info"] {
+  background: var(--chart-info-soft);
+  border-color: transparent;
+  color: var(--chart-info-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="caution"] {
+  background: var(--chart-caution-soft);
+  border-color: var(--chart-caution-border);
+  color: var(--chart-caution-text);
+}
+
+.dental-chart-page .chart-pill[data-tone="danger"] {
+  background: var(--chart-danger-soft);
+  border-color: var(--chart-danger-border);
+  color: var(--chart-danger-text);
+}
+
+.dental-chart-page .chart-label {
+  margin: 0;
+  color: var(--chart-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dental-chart-page .chart-inner-card {
+  border: 1px solid var(--chart-border);
+  border-radius: 12px;
+  background: var(--chart-surface-muted);
+  box-shadow: none;
+}
+
+.dental-chart-page :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), select, textarea) {
+  border-color: var(--chart-border-strong);
+  border-radius: 8px;
+}
+
+.dental-chart-page :where(input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: var(--chart-focus);
+}
+
+/* The annotation studio stays light: pin Frappe's dark-mode variables to their v16 light values. */
+[data-theme="dark"] .derma-annotation-modal {
+  color-scheme: light;
   --alert-bg-danger: #fff7f7;
   --alert-bg-info: #f7fbfd;
   --alert-bg-success: #e4f5e9;
@@ -224,198 +380,16 @@
 
 .dental-chart-page.derma-chart-page {
   min-height: calc(100vh - 96px);
-  padding: 12px 16px 24px;
-  background: #f3f7f9;
+  background: var(--chart-bg);
   color: var(--derma-text-deep);
   color-scheme: light;
 }
 
-.derma-encounter-header {
-  display: grid;
-  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-}
-
-.encounter-patient {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-}
-
-.encounter-patient img,
-.patient-avatar {
-  width: 46px;
-  height: 46px;
-  border-radius: 999px;
-  border: 1px solid var(--derma-border);
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-  object-fit: cover;
-}
-
-.patient-avatar {
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-}
-
-.encounter-patient strong,
-.encounter-patient small,
-.encounter-chip b {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.encounter-patient strong {
-  color: var(--derma-text-strong);
-  font-size: 18px;
-  line-height: 1.15;
-}
-
-.encounter-patient small {
-  margin-top: 3px;
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.encounter-status-strip {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 1px;
-}
-
-.encounter-chip {
-  flex: 0 0 auto;
-  min-width: 104px;
-  max-width: 190px;
-  padding: 7px 9px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  font-size: 12px;
-  line-height: 1.25;
-}
-
-.encounter-chip b {
-  color: var(--derma-text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-
-.encounter-chip.active {
-  color: var(--derma-brand);
-}
-
-.encounter-chip.warning {
-  border-color: var(--derma-warning-bg);
-  background: var(--derma-warning-bg-subtle);
-  color: #9a3412;
-}
-
-.encounter-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.encounter-actions button.reopen {
-  background: #b45309;
-  border: 1px solid #b45309;
-  color: var(--derma-white);
-}
-
-.encounter-actions button.reopen:hover:not(:disabled) {
-  background: #92400e;
-  border-color: #92400e;
-}
-
-.encounter-completed-note {
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.derma-encounter-header.is-latest-visit {
-  --visit-accent: var(--derma-brand);
-  --visit-tint: var(--derma-success-bg);
-  border-left: 4px solid var(--visit-accent);
-}
-
-.derma-encounter-header.is-previous-visit {
-  --visit-accent: #2563eb;
-  --visit-tint: #eff6ff;
-  border-left: 4px solid var(--visit-accent);
-}
-
-.encounter-visit-strip {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--visit-tint);
-  color: var(--derma-text-muted);
-  font-size: 12.5px;
-}
-
-.encounter-visit-strip b {
-  color: var(--derma-text-strong);
-}
-
-.encounter-visit-pill {
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--visit-accent);
-  color: var(--derma-white);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.dental-chart-page .encounter-visit-strip .encounter-open-latest {
-  margin-left: auto;
-  padding: 5px 12px;
-  border: 1px solid var(--visit-accent);
-  border-radius: 8px;
-  background: var(--derma-white);
-  color: var(--visit-accent);
-  font-size: 12px;
-  font-weight: 700;
+[data-theme="dark"] .dental-chart-page.derma-chart-page {
+  color-scheme: dark;
 }
 
 .derma-mode-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
-}
-
-.derma-section-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -451,117 +425,37 @@
 }
 
 .derma-section-actions button:hover {
-  border-color: #5eead4;
-  color: var(--derma-brand);
-  background: #f0fdfa;
-}
-
-.derma-section-tabs {
-  min-width: 0;
-  display: flex;
-  align-items: stretch;
-  gap: 6px;
-  overflow-x: auto;
-}
-
-.derma-section-tabs button {
-  position: relative;
-  flex: 0 0 auto;
-  min-width: 118px;
-  display: grid;
-  gap: 2px;
-  padding: 11px 13px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  text-align: left;
-}
-
-.derma-section-tabs button span {
-  color: var(--derma-text-strong);
-  font-weight: 900;
-}
-
-.derma-section-tabs button small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.derma-section-tabs button.active {
-  border-color: var(--derma-brand-light);
-  background: var(--derma-success-bg);
-}
-
-.derma-section-tabs button.active span,
-.derma-section-tabs button.active small {
-  color: var(--derma-brand);
+  border-color: color-mix(in srgb, var(--chart-accent) 35%, transparent);
+  color: var(--chart-accent-text);
+  background: var(--chart-accent-soft);
 }
 
 /* The decorations are absolutely positioned, so the label needs room beside them. */
-.derma-section-tabs button:has(.tab-tick),
-.derma-section-tabs button:has(.tab-count) {
-  padding-right: 30px;
-}
 
-.derma-section-tabs button .tab-tick {
-  position: absolute;
-  top: 9px;
-  right: 10px;
-  font-style: normal;
-  font-weight: 900;
-  font-size: 12px;
-  line-height: 1;
-  color: var(--derma-brand);
-}
-
-.derma-section-tabs .tab-mode-toggle {
+.tab-mode-toggle {
+  order: -1;
   display: inline-flex;
-  width: max-content;
-  border: 1px solid var(--derma-brand-light);
-  border-radius: 999px;
-  overflow: hidden;
-  background: #ffffff;
+  padding: 2px;
+  border: 1px solid var(--chart-border);
+  border-radius: 9px;
+  background: var(--chart-surface-muted);
 }
 
-.derma-section-tabs .tab-mode-toggle span {
-  padding: 1px 8px;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 16px;
-  color: var(--derma-text-muted);
-  cursor: pointer;
+.dental-chart-page .tab-mode-toggle button {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--chart-muted);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: none;
 }
 
-.derma-section-tabs .tab-mode-toggle span[data-active="true"] {
-  background: var(--derma-brand);
-  color: #ffffff;
-}
-
-.derma-section-tabs .tab-mode-toggle[data-locked="true"] {
-  opacity: 0.6;
-}
-
-.derma-section-tabs .tab-mode-toggle[data-locked="true"] span {
-  cursor: not-allowed;
-}
-
-.derma-section-tabs button .tab-count {
-  position: absolute;
-  top: 7px;
-  right: 8px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--derma-brand);
-  color: #ffffff;
-  font-style: normal;
-  font-weight: 800;
-  font-size: 10px;
-  line-height: 17px;
-  text-align: center;
+.dental-chart-page .tab-mode-toggle button[data-active="true"] {
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 
 .derma-annotation-pick-list {
@@ -572,7 +466,7 @@
 }
 
 .derma-annotation-pick {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -591,10 +485,10 @@
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   overflow: hidden;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--chart-faint);
 }
 
 .derma-annotation-pick-preview img {
@@ -612,17 +506,14 @@
 
 .derma-annotation-pick-data {
   padding: 4px 10px 10px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   font-size: 12px;
   overflow-x: auto;
 }
 
 .derma-console-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(290px, 360px);
-  gap: 12px;
   align-items: start;
-  margin-top: 12px;
 }
 
 .derma-console-main,
@@ -632,30 +523,87 @@
 
 .derma-console-side {
   display: grid;
-  gap: 12px;
   align-content: start;
   position: sticky;
   top: 10px;
 }
 
-.clinical-notes-grid,
-.clinical-soap-stack,
-.procedure-work-grid {
+.clinical-notes-grid {
   min-width: 0;
 }
 
-.procedure-chart-stack {
-  min-width: 0;
+.clinical-soap-stack {
   display: grid;
-  gap: 12px;
+  gap: 24px;
+  min-width: 0;
+}
+
+.clinical-soap-stack .assessment-block-title {
+  margin: 0 0 10px;
+  color: var(--chart-text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.clinical-soap-stack .chart-inner-card {
+  padding: 12px 14px;
+}
+
+.dental-chart-page .assessment-block-title[data-tone] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dental-chart-page .assessment-block-title .block-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--chart-surface-muted);
+  color: var(--chart-muted);
+  font-size: 11px;
+}
+
+.dental-chart-page .assessment-block-title[data-tone="info"] .block-icon {
+  background: var(--chart-info-soft);
+  color: var(--chart-info-text);
+}
+
+.dental-chart-page .assessment-block-title[data-tone="accent"] .block-icon {
+  background: var(--chart-accent-soft);
+  color: var(--chart-accent-text);
+}
+
+.dental-chart-page .assessment-block-title[data-tone="ok"] .block-icon {
+  background: var(--chart-ok-soft);
+  color: var(--chart-ok-text);
+}
+
+/* Inner cards are surface-muted already. */
+.dental-chart-page .chart-inner-card .assessment-block-title[data-tone="neutral"] .block-icon {
+  border: 1px solid var(--chart-border-strong);
+  background: var(--chart-surface);
+}
+
+.clinical-soap-stack .chart-annotation-history > header .assessment-block-title {
+  margin: 0;
+}
+
+.clinical-soap-stack .chart-annotation-history > header {
+  padding: 0 0 8px;
+  border-bottom: 0;
+}
+
+.clinical-soap-stack .chart-annotation-list {
+  padding: 0;
 }
 
 .chart-annotation-history {
   min-width: 0;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 }
 
 .chart-annotation-history > header {
@@ -663,7 +611,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 13px;
   border-bottom: 1px solid var(--derma-bg-muted);
 }
 
@@ -683,7 +630,6 @@
   /* Wide enough for a full timestamp - 150px truncated every date to "14-08-202...". */
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px;
-  padding: 10px;
 }
 
 .chart-annotation-card {
@@ -726,7 +672,7 @@
 
 .chart-annotation-edit:hover {
   border-color: var(--derma-brand);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .chart-annotation-delete {
@@ -743,8 +689,8 @@
 }
 
 .chart-annotation-delete:hover {
-  border-color: var(--red-4, #e03131);
-  color: var(--red-4, #e03131);
+  border-color: var(--chart-danger);
+  color: var(--chart-danger);
 }
 
 .chart-annotation-list b {
@@ -766,14 +712,15 @@
 .previous-visit {
   display: grid;
   gap: 10px;
-  padding: 12px;
-  border-top: 1px solid var(--derma-border-subtle);
+  padding: 12px 0;
+  border-top: 1px solid var(--chart-border);
 }
 
 .previous-visit > header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
 }
 
 .previous-visit > header > button {
@@ -791,12 +738,10 @@
 .previous-visits-actions {
   display: flex;
   gap: 8px;
-  margin: 0 12px 12px;
 }
 
-.previous-visit > header small,
-.previous-visit-assessment dt {
-  color: var(--derma-text-muted);
+.previous-visit > header small {
+  color: var(--chart-muted);
 }
 
 .previous-visit-assessment {
@@ -962,7 +907,7 @@
   border: 1px solid var(--derma-border-subtle);
   border-radius: 7px;
   background: var(--derma-white);
-  color: #94a3b8;
+  color: var(--chart-faint);
   font-size: 10px;
   font-weight: 800;
 }
@@ -973,10 +918,6 @@
   object-fit: cover;
 }
 
-.encounter-annotation-history {
-  margin-top: 12px;
-}
-
 .derma-annotation-preview-dialog img {
   display: block;
   width: 100%;
@@ -984,7 +925,7 @@
   object-fit: contain;
   border: 1px solid var(--derma-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--chart-surface);
 }
 
 .derma-annotation-preview-data {
@@ -993,23 +934,11 @@
   overflow: auto;
   border: 1px solid var(--derma-border);
   border-radius: 8px;
-  background: #fff;
-}
-
-.procedure-work-grid {
-  display: grid;
-  grid-template-columns: minmax(310px, 380px) minmax(420px, 1fr);
-  gap: 12px;
-  align-items: start;
-  margin-top: 12px;
+  background: var(--chart-surface);
 }
 
 .section-panel {
   min-width: 0;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 }
 
 .section-panel > header {
@@ -1017,21 +946,18 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
   border-bottom: 1px solid var(--derma-border-subtle);
 }
 
 .section-panel > header strong {
   display: block;
   color: var(--derma-text-strong);
-  font-size: 16px;
 }
 
 .section-panel > header small {
   display: block;
   margin-top: 3px;
   color: var(--derma-text-muted);
-  font-size: 12px;
 }
 
 .derma-mode-switch {
@@ -1055,8 +981,7 @@
   text-align: left;
 }
 
-.derma-mode-switch button span,
-.active-procedure-chip {
+.derma-mode-switch button span {
   font-weight: 900;
 }
 
@@ -1069,11 +994,11 @@
 .derma-mode-switch button.active {
   border-color: var(--derma-brand-light);
   background: var(--derma-success-bg);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-mode-switch button.active small {
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-mode-context {
@@ -1084,48 +1009,15 @@
   min-width: 0;
 }
 
-.active-procedure-chip {
-  max-width: 220px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #1e3a8a;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.active-procedure-chip b {
-  color: var(--derma-info);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
 .derma-mode-grid,
 .derma-notes-grid,
 .derma-encounter-mode {
   margin-top: 12px;
 }
 
-.derma-mode-grid,
-.encounter-workspace-grid,
-.encounter-support-grid {
+.derma-mode-grid {
   display: grid;
   gap: 12px;
-}
-
-.encounter-workspace-grid {
-  grid-template-columns: minmax(560px, 1fr) minmax(320px, 420px);
-  align-items: stretch;
-}
-
-.encounter-support-grid {
-  grid-template-columns: minmax(460px, 0.9fr) minmax(320px, 420px);
-  align-items: start;
-  margin-top: 12px;
 }
 
 .derma-mode-grid {
@@ -1153,7 +1045,7 @@
   border: 1px solid var(--derma-border);
   border-radius: 8px;
   background:
-    radial-gradient(circle at 50% 38%, rgba(20, 184, 166, 0.08), transparent 34%),
+    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--chart-accent) 8%, transparent), transparent 34%),
     linear-gradient(180deg, var(--derma-white) 0%, var(--derma-bg-faint-alt) 100%);
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.035);
 }
@@ -1171,18 +1063,6 @@
   color: var(--derma-danger);
 }
 
-.start-kicker {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--derma-brand-light);
-  border-radius: 999px;
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 900;
-}
-
 .derma-start-card strong {
   color: var(--derma-text-strong);
   font-size: 28px;
@@ -1195,46 +1075,6 @@
   color: var(--derma-text-muted);
   font-size: 14px;
   line-height: 1.55;
-}
-
-.start-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
-  width: min(460px, 100%);
-  margin-top: 4px;
-}
-
-.start-metrics span {
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.76);
-  padding: 10px;
-}
-
-.start-metrics b,
-.start-metrics small {
-  display: block;
-}
-
-.start-metrics b {
-  color: var(--derma-text-strong);
-  font-size: 22px;
-  line-height: 1;
-}
-
-.start-metrics small {
-  margin-top: 5px;
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.start-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
 }
 
 .derma-main-workspace,
@@ -1299,28 +1139,6 @@
   font-size: 12px;
 }
 
-.command-empty,
-.command-section {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  padding: 14px;
-  overflow: auto;
-  min-height: 0;
-}
-
-.command-empty {
-  place-content: center;
-  text-align: center;
-  color: var(--derma-text-muted);
-}
-
-.command-empty strong {
-  color: var(--derma-text-strong);
-  font-size: 18px;
-}
-
-.command-empty p,
 .panel-muted {
   margin: 0;
   line-height: 1.45;
@@ -1334,21 +1152,11 @@
   overflow: hidden;
 }
 
-.workspace-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 7px;
-}
-
-.derma-main-workspace .derma-interactive-chart,
-.derma-main-workspace .procedure-first-empty {
+.derma-main-workspace .derma-interactive-chart {
   border-right: 0;
 }
 
 .derma-main-workspace .derma-excalidraw-canvas {
-  height: min(430px, 52vh);
-  min-height: 340px;
   border-right: 0;
 }
 
@@ -1377,52 +1185,8 @@
   max-height: none;
 }
 
-.chart-expand-button {
-  position: absolute;
-  top: 74px;
-  right: 14px;
-  z-index: 22;
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--derma-navy);
-  font-size: 20px;
-  font-weight: 900;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
-}
-
-.derma-main-workspace .native-chart-frame {
-  height: min(430px, 52vh);
-  min-height: 340px;
-  max-height: 430px;
-}
-
-.compact-chart-workspace .native-chart-frame,
-.compact-chart-workspace .derma-excalidraw-canvas,
-.compact-chart-workspace .embedded-excalidraw,
-.compact-chart-workspace .derma-excalidraw-host {
-  height: min(380px, 44vh);
-  min-height: 300px;
-  max-height: 400px;
-}
-
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-canvas,
-.derma-main-workspace.compact-chart-workspace.expanded .embedded-excalidraw,
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-host {
-  height: calc(100vh - 160px);
-  min-height: 560px;
-  max-height: none;
-}
-
 .derma-photo-workspace,
-.derma-notes-grid > section,
-.encounter-primary-panel > section,
-.encounter-side-stack > section,
-.encounter-snapshot-panel {
+.derma-notes-grid > section {
   min-width: 0;
   border: 1px solid var(--derma-border);
   border-radius: 8px;
@@ -1458,28 +1222,6 @@
   font-size: 12px;
 }
 
-.photo-mode-compare {
-  min-height: 420px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 0 16px;
-}
-
-.photo-mode-compare figure {
-  min-width: 0;
-  margin: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.photo-mode-compare figcaption {
-  color: var(--derma-text-secondary-alt);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .derma-photo-workspace > .ghost {
   justify-self: start;
   margin-left: 16px;
@@ -1490,77 +1232,6 @@
   grid-template-columns: minmax(420px, 1fr) minmax(360px, 0.9fr);
   gap: 12px;
   align-items: start;
-}
-
-.encounter-side-stack {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-
-.encounter-snapshot-panel {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-}
-
-.encounter-snapshot-panel > header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--derma-bg-muted);
-}
-
-.encounter-snapshot-panel strong,
-.encounter-snapshot-panel small {
-  display: block;
-}
-
-.encounter-snapshot-panel small {
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.encounter-stat-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.encounter-stat-row span {
-  padding: 10px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-}
-
-.encounter-stat-row b,
-.encounter-stat-row small {
-  display: block;
-}
-
-.encounter-stat-row b {
-  color: var(--derma-text-strong);
-  font-size: 20px;
-  line-height: 1;
-}
-
-.encounter-recent-list {
-  display: grid;
-  gap: 8px;
-}
-
-.encounter-recent-list button {
-  display: grid;
-  gap: 3px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  text-align: left;
 }
 
 .derma-right-workspace,
@@ -1579,70 +1250,11 @@
   overflow: hidden;
 }
 
-.quick-action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-.quick-action-grid button {
-  min-height: 48px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-bg-faint);
-  color: var(--derma-navy);
-  font-weight: 800;
-}
-
-.quick-action-grid button:hover:not(:disabled) {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-}
-
-.smart-alert-list {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-.smart-alert-list button {
-  display: grid;
-  gap: 3px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 9px 10px;
-  text-align: left;
-}
-
-.smart-alert-list button.warning {
-  border-color: var(--derma-warning-bg);
-  background: var(--derma-warning-bg-subtle);
-}
-
-.smart-alert-list button.danger {
-  border-color: var(--derma-danger-bg);
-  background: #fff1f2;
-}
-
-.smart-alert-list b,
-.smart-alert-list small {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .derma-chart-page button {
   font: inherit;
 }
 
-.chart-empty-state,
-.workspace-empty,
-.workspace-error {
+.chart-empty-state {
   min-height: 180px;
   display: grid;
   place-items: center;
@@ -1650,7 +1262,6 @@
   color: var(--derma-text-muted);
 }
 
-.workspace-error,
 .error-overlay {
   color: var(--derma-danger);
 }
@@ -1664,7 +1275,7 @@
 
 .skeleton-block {
   border-radius: 12px;
-  background: linear-gradient(90deg, #eef1f5 25%, #e2e7ee 37%, #eef1f5 63%);
+  background: linear-gradient(90deg, var(--chart-surface-muted) 25%, var(--chart-border-strong) 37%, var(--chart-surface-muted) 63%);
   background-size: 400% 100%;
   animation: derma-skeleton-shimmer 1.4s ease infinite;
 }
@@ -1707,7 +1318,7 @@
   padding: 6px 16px;
   margin-bottom: 12px;
   border-radius: 10px;
-  background: var(--derma-surface-muted, #f6f8fa);
+  background: var(--chart-surface-muted);
   color: var(--derma-text-muted);
   font-size: 13px;
 }
@@ -1760,27 +1371,12 @@
   padding: 10px 16px;
   margin-bottom: 12px;
   border-radius: 10px;
-  background: #fef3f2;
-  border: 1px solid #fda29b;
+  background: var(--chart-danger-soft);
+  border: 1px solid var(--chart-danger-border);
   color: var(--derma-danger);
   font-size: 13px;
 }
 
-.dental-chart-page .chart-topbar {
-  margin-bottom: 12px;
-}
-
-.dental-chart-page .topbar-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: stretch;
-}
-
-.dental-chart-page .session-shell,
-.dental-chart-page .mode-rail,
-.dental-chart-page .category-nav,
-.dental-chart-page .odontogram-shell,
 .dental-chart-page .derma-encounter-summary-panel,
 .dental-chart-page .workspace-shell {
   background: var(--derma-white);
@@ -1789,27 +1385,7 @@
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
 }
 
-.dental-chart-page .session-shell {
-  padding: 12px 14px;
-}
-
-.dental-chart-page .session-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.dental-chart-page .session-head-copy strong {
-  display: block;
-  font-size: 17px;
-  color: var(--derma-text-deepest);
-}
-
-.dental-chart-page .session-head-copy small,
-.dental-chart-page .mode-label,
-.dental-chart-page .derma-session-summary,
-.dental-chart-page .procedure-arm-panel small {
+.dental-chart-page .derma-session-summary {
   color: var(--derma-text-muted);
   font-size: 12px;
 }
@@ -1831,37 +1407,18 @@
 .dental-chart-page .derma-session-summary .attention {
   background: var(--derma-warning-bg-subtle);
   border-color: var(--derma-warning-bg);
-  color: #9a3412;
+  color: var(--chart-caution-text);
 }
 
-.dental-chart-page .mode-rail {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  min-width: 260px;
-}
-
-.dental-chart-page .primary-toggle {
-  display: flex;
-  gap: 8px;
-}
-
-.dental-chart-page .primary-toggle button,
-.dental-chart-page .context-lock-toggle,
 .dental-chart-page .ghost,
-.dental-chart-page .primary,
-.dental-chart-page .reopen,
-.dental-chart-page .workspace-tab,
-.dental-chart-page .category-tab>button,
-.dental-chart-page .category-menu button {
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  background: var(--derma-white);
-  color: var(--derma-navy);
-  padding: 8px 11px;
-  font-weight: 700;
+.dental-chart-page .primary {
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+  background: var(--chart-surface);
+  color: var(--chart-text);
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -1870,120 +1427,35 @@
   cursor: not-allowed;
 }
 
-.dental-chart-page .primary,
-.dental-chart-page .primary-toggle button.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-brand);
-  color: var(--derma-white);
+.dental-chart-page .primary {
+  border-color: var(--chart-accent-strong);
+  background: var(--chart-accent-strong);
+  color: white;
 }
 
-.dental-chart-page .ghost.small {
-  padding: 5px 8px;
+.dental-chart-page .ghost.small,
+.dental-chart-page .primary.small {
+  padding: 5px 10px;
   font-size: 12px;
 }
 
-.dental-chart-page .category-nav {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 14px;
-  padding: 10px 12px 6px;
-  margin: 12px 0 14px;
-  position: relative;
-  overflow: visible;
+.dental-chart-page .ghost:hover:not(:disabled) {
+  background: var(--chart-surface-muted);
 }
 
-.dental-chart-page .category-nav.wrap {
-  flex-wrap: wrap;
+.dental-chart-page .primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--chart-accent-strong) 88%, black);
 }
 
-.dental-chart-page .category-tab {
-  position: relative;
+.dental-chart-page .ghost.danger {
+  border-color: var(--chart-danger-border);
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
-.dental-chart-page .category-tab>button {
-  min-width: 96px;
-  height: 50px;
-  border-color: transparent;
-  display: grid;
-  align-content: center;
-  gap: 8px;
-}
-
-.dental-chart-page .category-tab.open>button,
-.dental-chart-page .category-tab>button:hover {
-  border-color: #cfd8e3;
-}
-
-.dental-chart-page .cat-label {
-  max-width: 96px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.dental-chart-page .cat-underline {
-  display: block;
-  height: 3px;
-  border-radius: 999px;
-}
-
-.dental-chart-page .category-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 25px);
-  left: 0;
-  min-width: 240px;
-  max-height: 320px;
-  overflow: auto;
-  padding: 8px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 8px;
-  background: var(--derma-white);
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.16);
-}
-
-.dental-chart-page .category-menu button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border-color: transparent;
-  margin-bottom: 3px;
-}
-
-.dental-chart-page .category-menu button:hover,
-.dental-chart-page .category-menu button.active {
-  background: var(--derma-success-bg);
-  border-color: var(--derma-brand-light);
-}
-
-.dental-chart-page .active-service {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dental-chart-page .badge,
-.dental-chart-page .pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 4px 8px;
-  background: #eef6ff;
-  color: #1f4e79;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.dental-chart-page .odontogram-shell {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
-  gap: 0;
-  height: clamp(560px, calc(100vh - 330px), 760px);
-  min-height: 560px;
-  overflow: hidden;
+.dental-chart-page :where(.primary, .ghost):focus-visible {
+  outline: none;
+  box-shadow: var(--chart-focus);
 }
 
 .dental-chart-page .loading-overlay,
@@ -1993,7 +1465,7 @@
   display: grid;
   place-items: center;
   z-index: 30;
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--chart-surface) 70%, transparent);
   font-weight: 800;
 }
 
@@ -2005,7 +1477,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   background:
-    radial-gradient(circle at 50% 42%, rgba(15, 118, 110, 0.045), transparent 34%),
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--chart-accent) 4.5%, transparent), transparent 34%),
     linear-gradient(180deg, var(--derma-white) 0%, var(--derma-bg-faint-alt) 100%);
 }
 
@@ -2023,281 +1495,8 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   background:
-    linear-gradient(180deg, var(--derma-white) 0%, #f7fbfc 100%);
+    linear-gradient(180deg, var(--derma-white) 0%, var(--chart-surface-muted) 100%);
   border-right: 1px solid var(--derma-border);
-}
-
-.native-chart-empty span {
-  color: var(--derma-text-muted);
-  font-size: 12px;
-}
-
-.native-view-arrow {
-  position: absolute;
-  top: 50%;
-  z-index: 5;
-  width: 34px;
-  height: 34px;
-  transform: translateY(-50%);
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--derma-navy);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
-  font-size: 24px;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-}
-
-.native-view-arrow.previous {
-  left: 12px;
-}
-
-.native-view-arrow.next {
-  right: 12px;
-}
-
-.native-view-arrow:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.native-chart-frame {
-  position: relative;
-  min-height: 0;
-  overflow: hidden;
-  cursor: default;
-  background:
-    linear-gradient(90deg, rgba(226, 232, 240, 0.36) 1px, transparent 1px),
-    linear-gradient(180deg, rgba(226, 232, 240, 0.36) 1px, transparent 1px),
-    var(--derma-white);
-  background-size: 32px 32px;
-}
-
-.native-chart-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-  user-select: none;
-  pointer-events: none;
-}
-
-.native-chart-empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 7px;
-  text-align: center;
-}
-
-.native-chart-empty strong {
-  color: var(--derma-text-strong);
-  font-size: 20px;
-}
-
-.native-region-layer {
-  position: absolute;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.native-region-layer polygon {
-  pointer-events: auto;
-  cursor: pointer;
-  stroke-width: 2;
-  transition: fill 0.16s ease, stroke-width 0.16s ease, filter 0.16s ease;
-}
-
-.native-region-layer polygon:hover,
-.native-region-layer polygon.active {
-  stroke-width: 3;
-  filter: drop-shadow(0 4px 12px rgba(20, 184, 166, 0.22));
-}
-
-.native-region-nav {
-  max-width: 46%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.native-region-nav button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  border: 1px solid var(--derma-border);
-  border-radius: 999px;
-  background: var(--derma-white);
-  color: var(--derma-navy);
-  padding: 4px 8px 4px 4px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.native-region-nav button span {
-  width: 21px;
-  height: 21px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: var(--derma-info-bg-subtle);
-  color: var(--derma-info);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.native-region-nav button:hover {
-  border-color: var(--derma-brand);
-  color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.native-chart-mark {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 28px;
-  height: 28px;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  z-index: 3;
-}
-
-.native-chart-mark.history {
-  opacity: 0.52;
-}
-
-.native-chart-mark.selected {
-  filter: drop-shadow(0 0 0.35rem rgba(15, 118, 110, 0.58));
-}
-
-.mark-dot {
-  width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--mark-color, #0ea5e9);
-  color: var(--derma-white);
-  font-size: 9px;
-  font-weight: 900;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
-}
-
-.mark-triangle {
-  width: 0;
-  height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-bottom: 19px solid var(--mark-color, #16a34a);
-  filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.2));
-}
-
-.mark-target {
-  width: 20px;
-  height: 20px;
-  border: 3px solid var(--mark-color, #f97316);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.92), 0 6px 12px rgba(15, 23, 42, 0.16);
-}
-
-.mark-x {
-  position: relative;
-  width: 24px;
-  height: 24px;
-}
-
-.mark-x::before,
-.mark-x::after {
-  content: "";
-  position: absolute;
-  top: 11px;
-  left: 2px;
-  width: 20px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--mark-color, #d4a000);
-}
-
-.mark-x::before {
-  transform: rotate(45deg);
-}
-
-.mark-x::after {
-  transform: rotate(-45deg);
-}
-
-.mark-hatch {
-  width: 24px;
-  height: 18px;
-  border-radius: 4px;
-  background:
-    repeating-linear-gradient(135deg, var(--mark-color, #dc2626) 0 3px, transparent 3px 7px);
-  border: 1px solid rgba(220, 38, 38, 0.3);
-}
-
-.native-view-strip {
-  display: flex;
-  gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--derma-bg-muted);
-  background: var(--derma-bg-faint);
-  overflow-x: auto;
-}
-
-.native-view-strip button {
-  min-width: 92px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  color: var(--derma-navy);
-  padding: 6px;
-  display: grid;
-  gap: 5px;
-  justify-items: center;
-}
-
-.native-view-strip button.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.native-view-strip img,
-.native-view-strip>button>span {
-  width: 70px;
-  height: 48px;
-  border-radius: 6px;
-  object-fit: cover;
-  background: var(--derma-bg-subtle);
-  border: 1px solid var(--derma-bg-muted);
-}
-
-.native-view-strip>button>span {
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-  color: var(--derma-text-muted);
-}
-
-.native-view-strip small {
-  max-width: 82px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--derma-text-muted);
-  font-size: 11px;
 }
 
 .derma-excalidraw-host {
@@ -2313,8 +1512,8 @@
 
 .embedded-excalidraw .excalidraw {
   --color-primary: var(--derma-brand);
-  --color-primary-darker: #0d5f5a;
-  --color-primary-darkest: #0b4d49;
+  --color-primary-darker: color-mix(in srgb, var(--chart-accent-strong) 85%, black);
+  --color-primary-darkest: color-mix(in srgb, var(--chart-accent-strong) 70%, black);
   --default-button-size: 1.78rem;
   --lg-button-size: 1.95rem;
   border: 0;
@@ -2342,37 +1541,6 @@
 .derma-canvas-empty span {
   max-width: 360px;
   font-size: 13px;
-}
-
-.procedure-first-empty {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 28px;
-  background:
-    radial-gradient(circle at 50% 40%, rgba(20, 184, 166, 0.08), transparent 34%),
-    linear-gradient(180deg, var(--derma-white) 0%, var(--derma-bg-faint-alt) 100%);
-  text-align: center;
-}
-
-.procedure-first-empty > div {
-  max-width: 460px;
-  display: grid;
-  gap: 8px;
-}
-
-.procedure-first-empty strong {
-  color: var(--derma-text-strong);
-  font-size: 24px;
-}
-
-.procedure-first-empty p {
-  margin: 0;
-  color: var(--derma-text-muted);
-  font-size: 14px;
-  line-height: 1.55;
 }
 
 .embedded-excalidraw .Island {
@@ -2416,104 +1584,10 @@
   transform: translate(2px, 1px);
 }
 
-.excalidraw-view-rotate {
-  position: absolute;
-  top: 50%;
-  left: 14px;
-  right: 14px;
-  z-index: 8;
-  display: flex;
-  justify-content: space-between;
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
-.excalidraw-view-rotate button {
-  pointer-events: auto;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--derma-info);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
-  font-size: 19px;
-  font-weight: 900;
-}
-
-.excalidraw-view-rotate button:hover {
-  border-color: var(--derma-brand);
-  color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.excalidraw-region-nav {
-  position: absolute;
-  inset: 0;
-  z-index: 10;
-  pointer-events: none;
-}
-
-.excalidraw-region-nav button {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--derma-text-secondary-alt);
-  padding: 4px 8px 4px 4px;
-  font-size: 12px;
-  font-weight: 800;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
-}
-
-.excalidraw-region-nav button span {
-  width: 21px;
-  height: 21px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--derma-info-bg-subtle);
-  color: var(--derma-info);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.excalidraw-region-nav button:hover {
-  border-color: var(--derma-brand);
-  color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
 .review-section-stack {
   display: grid;
-  gap: 12px;
 }
 
-.annotation-preview-empty {
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--derma-bg-muted), var(--derma-white));
-}
-
-.procedure-arm-panel {
-  border-left: 1px solid var(--derma-border);
-  background: var(--derma-bg-faint);
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-width: 0;
-  min-height: 0;
-}
-
-.procedure-arm-panel header,
-.procedure-arm-panel footer,
 .panel-heading,
 .procedure-primary-toolbar {
   display: flex;
@@ -2524,20 +1598,9 @@
   border-bottom: 1px solid var(--derma-bg-muted);
 }
 
-.procedure-arm-panel header strong,
 .panel-heading strong {
   display: block;
   color: var(--derma-text-deepest);
-}
-
-.procedure-arm-body {
-  padding: 14px;
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  overflow: auto;
-  min-height: 0;
-  max-height: none;
 }
 
 .derma-atlas-panel {
@@ -2563,12 +1626,6 @@
   white-space: nowrap;
 }
 
-.atlas-actions {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px 0;
-}
-
 .derma-atlas-panel p {
   margin: 0;
   padding: 10px 14px 14px;
@@ -2577,43 +1634,12 @@
   line-height: 1.45;
 }
 
-.procedure-arm-body label,
-.assessment-grid label,
-.table-field,
-.consent-create-row label {
+.table-field {
   display: grid;
   gap: 6px;
   color: var(--derma-text-secondary);
   font-size: 12px;
   font-weight: 800;
-}
-
-.procedure-arm-body input,
-.procedure-arm-body textarea,
-.assessment-grid input,
-.assessment-grid textarea,
-.editable-table input,
-.consent-create-row input {
-  width: 100%;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  padding: 8px 9px;
-  color: var(--derma-text-deep);
-  background: var(--derma-white);
-  font-weight: 500;
-}
-
-.procedure-draft-grid,
-.assessment-grid,
-.consent-create-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.procedure-arm-panel footer {
-  border-top: 1px solid var(--derma-bg-muted);
-  border-bottom: 0;
 }
 
 .derma-template-picker {
@@ -2639,161 +1665,6 @@
   display: block;
 }
 
-.template-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.template-type-tabs {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.template-type-tabs.compact {
-  padding-top: 0;
-}
-
-.template-type-tabs button {
-  flex: 0 0 auto;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 999px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  padding: 5px 9px;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.template-type-tabs button.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-  color: var(--derma-brand);
-}
-
-.template-thumb-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  max-height: 300px;
-  overflow: auto;
-}
-
-.template-thumb {
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  padding: 8px;
-  text-align: left;
-}
-
-.template-thumb:hover,
-.template-thumb.active {
-  border-color: var(--derma-brand);
-  box-shadow: inset 0 0 0 1px var(--derma-brand);
-}
-
-.template-thumb.suggested:not(.active) {
-  border-color: #bae6fd;
-  background: #f0f9ff;
-}
-
-.thumb-image {
-  height: 92px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--derma-bg-muted);
-  border-radius: 7px;
-  background: var(--derma-bg-faint);
-  overflow: hidden;
-}
-
-.thumb-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.thumb-copy strong {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--derma-text-strong);
-  font-size: 12px;
-}
-
-.thumb-copy small,
-.template-empty {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-}
-
-.thumb-copy em {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  margin-top: 5px;
-  border: 1px solid var(--derma-info-bg);
-  border-radius: 999px;
-  background: var(--derma-info-bg-subtle);
-  color: #1d4ed8;
-  padding: 2px 6px;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 800;
-}
-
-.template-empty {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding: 14px 0;
-  text-align: center;
-}
-
-.template-picker-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border-top: 1px solid var(--derma-border-faint);
-  padding-top: 8px;
-}
-
-.template-picker-footer small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  text-align: right;
-}
-
-.selected-region-panel {
-  display: grid;
-  gap: 3px;
-  border: 1px solid var(--derma-brand-light);
-  border-radius: 8px;
-  background: #f0fdfa;
-  padding: 10px 12px;
-}
-
-.selected-region-panel span {
-  color: var(--derma-brand);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.selected-region-panel strong {
-  color: var(--derma-text-strong);
-  font-size: 14px;
-}
-
 .derma-procedure-fields {
   display: grid;
   gap: 10px;
@@ -2811,52 +1682,6 @@
 .derma-procedure-fields header strong,
 .derma-procedure-fields header small {
   display: block;
-}
-
-.procedure-field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.procedure-field-grid label.wide {
-  grid-column: 1 / -1;
-}
-
-.procedure-field-grid label.missing select,
-.procedure-field-grid label.missing input,
-.procedure-field-grid label.missing textarea {
-  border-color: #f59e0b;
-  background: #fffaf0;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.08);
-}
-
-.procedure-field-grid em {
-  color: var(--derma-danger);
-  font-style: normal;
-}
-
-.procedure-field-grid input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-}
-
-.procedure-field-grid select,
-.procedure-field-grid input,
-.procedure-field-grid textarea {
-  width: 100%;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  padding: 8px 9px;
-  color: var(--derma-text-deep);
-  background: var(--derma-white);
-  font-weight: 500;
-}
-
-.procedure-field-empty {
-  color: var(--derma-text-muted);
-  font-size: 12px;
 }
 
 .derma-readiness-panel,
@@ -2915,33 +1740,6 @@
   display: block;
 }
 
-.command-state-grid,
-.totals-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.totals-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.command-state-grid span,
-.totals-grid span {
-  min-width: 0;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 9px;
-}
-
-.command-state-grid b,
-.command-state-grid small,
-.totals-grid b,
-.totals-grid small {
-  display: block;
-}
-
 .derma-active-procedure-panel dl {
   display: grid;
   gap: 8px;
@@ -2968,305 +1766,6 @@
   margin: 0;
   color: var(--derma-text-strong);
   font-weight: 700;
-}
-
-.procedure-workspace-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.command-state-grid b,
-.totals-grid b {
-  color: var(--derma-text-strong);
-  font-size: 17px;
-  line-height: 1.1;
-}
-
-.command-state-grid small,
-.totals-grid small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  margin-top: 4px;
-}
-
-.mark-list {
-  display: grid;
-  gap: 7px;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.mark-list-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.mark-row {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 18px 10px minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 7px;
-  background: var(--derma-bg-subtle);
-  padding: 8px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mark-row.active {
-  border-color: var(--derma-brand);
-  background: var(--derma-success-bg);
-}
-
-.mark-row.selected {
-  box-shadow: inset 0 0 0 1px var(--derma-brand);
-}
-
-.mark-row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-}
-
-.mark-swatch {
-  width: 10px;
-  height: 32px;
-  border-radius: 999px;
-}
-
-.mark-row b,
-.mark-row small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mark-row b {
-  color: var(--derma-text-deep);
-  font-size: 12px;
-}
-
-.mark-row small,
-.mark-row em {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-style: normal;
-}
-
-.readiness-list {
-  display: grid;
-  gap: 7px;
-}
-
-.readiness-item {
-  display: grid;
-  gap: 2px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 7px;
-  padding: 7px 8px;
-  background: var(--derma-bg-subtle);
-  text-align: left;
-  cursor: pointer;
-}
-
-.readiness-item b {
-  color: var(--derma-text-deep);
-  font-size: 12px;
-}
-
-.readiness-item small {
-  color: var(--derma-text-muted);
-}
-
-.readiness-item em {
-  justify-self: start;
-  margin-top: 3px;
-  color: var(--derma-brand);
-  font-size: 11px;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.readiness-item.ready {
-  border-color: var(--derma-success-bg-alt);
-  background: #f0fdf4;
-}
-
-.readiness-item.warning {
-  border-color: var(--derma-warning-bg);
-  background: var(--derma-warning-bg-subtle);
-}
-
-.mark-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.mark-detail-grid span {
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 9px;
-}
-
-.mark-detail-grid b,
-.mark-detail-grid small {
-  display: block;
-}
-
-.mark-detail-grid b {
-  color: var(--derma-text-strong);
-  font-size: 17px;
-  line-height: 1.1;
-}
-
-.mark-detail-grid small {
-  color: var(--derma-text-muted);
-  margin-top: 4px;
-}
-
-.mark-detail-list {
-  display: grid;
-  gap: 7px;
-  margin: 0;
-}
-
-.mark-detail-list div {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.mark-detail-list dt {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.mark-detail-list dd {
-  margin: 0;
-  color: var(--derma-text-deep);
-  font-size: 12px;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mark-status-select {
-  width: 100%;
-  min-height: 30px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  background: var(--derma-white);
-  color: var(--derma-text-deep);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.history-mark-list {
-  display: grid;
-  gap: 7px;
-  max-height: 170px;
-  overflow: auto;
-}
-
-.history-mark-row {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-  padding: 8px;
-}
-
-.history-mark-row input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-}
-
-.history-mark-row b,
-.history-mark-row small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.history-mark-row b {
-  color: var(--derma-text-secondary);
-  font-size: 12px;
-}
-
-.history-mark-row small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-}
-
-.photo-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.photo-set-strip {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  max-height: 210px;
-  overflow: auto;
-}
-
-.photo-set-strip button {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  padding: 7px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.photo-set-strip button.active {
-  border-color: var(--derma-brand);
-  box-shadow: inset 0 0 0 1px var(--derma-brand);
-}
-
-.photo-set-strip img {
-  width: 100%;
-  height: 74px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, var(--derma-bg-muted), var(--derma-white));
-  object-fit: cover;
-}
-
-.photo-set-strip b,
-.photo-set-strip small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.photo-set-strip b {
-  color: var(--derma-text-strong);
-  font-size: 12px;
-}
-
-.photo-set-strip small {
-  color: var(--derma-text-muted);
-  font-size: 11px;
 }
 
 .derma-artifacts-panel .ghost {
@@ -3296,13 +1795,6 @@
   color: var(--derma-text-muted);
   font-size: 12px;
   margin-top: 2px;
-}
-
-.derma-encounter-summary-panel .summary-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .derma-encounter-summary-panel pre {
@@ -3422,7 +1914,7 @@
 }
 
 .timeline-copy em {
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 11px;
   font-style: normal;
   font-weight: 800;
@@ -3438,8 +1930,7 @@
   padding: 12px;
 }
 
-.timeline-detail-actions,
-.compare-actions {
+.timeline-detail-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -3552,7 +2043,7 @@
 .response-chip-row button.active {
   border-color: var(--derma-brand);
   background: var(--derma-success-bg);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-followup-workspace,
@@ -3598,8 +2089,8 @@
 }
 
 .readiness-mode[data-mode="Block"] {
-  border-color: var(--derma-danger, #c0392b);
-  color: var(--derma-danger, #c0392b);
+  border-color: var(--chart-danger-text);
+  color: var(--chart-danger-text);
 }
 
 .readiness-blocker-list {
@@ -3612,7 +2103,7 @@
 
 .readiness-blocker-list li {
   border: 1px solid var(--derma-border);
-  border-left: 3px solid var(--derma-danger, #c0392b);
+  border-left: 3px solid var(--chart-danger-text);
   border-radius: 8px;
   background: var(--derma-white);
   padding: 8px 10px;
@@ -3689,40 +2180,40 @@
 
 .followup-card.high {
   border-color: var(--derma-danger-bg);
-  background: #fff7f7;
+  background: var(--chart-danger-soft);
 }
 
 .inventory-card.high,
 .inventory-card.blocked {
   border-color: var(--derma-danger-bg);
-  background: #fff7f7;
+  background: var(--chart-danger-soft);
 }
 
 .followup-card.medium {
   border-color: var(--derma-warning-bg);
-  background: #fffaf2;
+  background: var(--chart-caution-soft);
 }
 
 .inventory-card.medium,
 .inventory-card.warning {
   border-color: var(--derma-warning-bg);
-  background: #fffaf2;
+  background: var(--chart-caution-soft);
 }
 
 .followup-card.low {
   border-color: var(--derma-info-bg);
-  background: #f8fbff;
+  background: var(--chart-info-soft);
 }
 
 .inventory-card.low,
 .inventory-card.ready {
   border-color: var(--derma-success-bg-alt);
-  background: #f7fef9;
+  background: var(--chart-ok-soft);
 }
 
 .followup-card.done {
   border-color: var(--derma-success-bg-alt);
-  background: #f0fdf4;
+  background: var(--chart-ok-soft);
 }
 
 .followup-card > header,
@@ -3765,9 +2256,9 @@
 }
 
 .inventory-metrics span {
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--chart-surface) 72%, transparent);
   padding: 8px 10px;
 }
 
@@ -3796,19 +2287,6 @@
   }
 }
 
-.workspace-tab {
-  border-bottom-left-radius: 0 !important;
-  border-bottom-right-radius: 0 !important;
-  border-color: transparent !important;
-}
-
-.workspace-tab.active {
-  background: var(--derma-white);
-  color: var(--derma-brand);
-  border-color: var(--derma-border) !important;
-  border-bottom-color: var(--derma-white) !important;
-}
-
 .workspace-content {
   min-height: 280px;
   padding: 0;
@@ -3819,71 +2297,30 @@
   min-height: 280px;
 }
 
-.history-search {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 520px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 7px;
-  padding: 0 9px;
-  background: var(--derma-white);
-}
-
-.history-search input {
-  border: 0;
-  outline: 0;
-  width: 100%;
-  padding: 9px 0;
-}
-
-.panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 /* One scroll owner. The wrapper used to cap itself and scroll, so reaching an expanded
    materials row's controls meant scrolling the page and then the table. */
 .procedure-table-wrapper {
   overflow-x: auto;
 }
 
-.editable-table-wrapper {
-  max-height: 420px;
-  overflow: auto;
-}
-
-.procedure-table,
-.editable-table {
+.procedure-table {
   width: 100%;
   border-collapse: collapse;
 }
 
 .procedure-table th,
-.procedure-table td,
-.editable-table th,
-.editable-table td {
+.procedure-table td {
   padding: 10px 12px;
   border-bottom: 1px solid var(--derma-bg-muted);
   text-align: left;
   vertical-align: top;
 }
 
-.procedure-table th,
-.editable-table th {
-  color: var(--derma-text-secondary-alt);
-  background: var(--derma-bg-subtle);
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
 .procedure-open-link,
 .link {
   border: 0;
   background: transparent;
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-weight: 800;
   cursor: pointer;
   padding: 0;
@@ -3891,70 +2328,28 @@
 
 .pill.complete {
   background: var(--derma-success-bg);
-  color: #047857;
+  color: var(--chart-ok-text);
 }
 
 .pill.cancelled {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
 .pill.draft {
   background: var(--derma-warning-bg-subtle);
-  color: #c2410c;
+  color: var(--chart-caution-text);
 }
 
 .panel-heading {
   border-bottom: 1px solid var(--derma-bg-muted);
 }
 
-.assessment-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  padding: 14px;
-}
-
-.assessment-grid h4 {
-  grid-column: 1 / -1;
-  margin: 8px 0 0;
-  color: var(--derma-text-deepest);
-}
-
 .table-field {
   grid-column: 1 / -1;
 }
 
-.annotation-history-table {
-  padding: 12px 14px;
-  display: grid;
-  gap: 8px;
-}
-
-.annotation-history-table h4 {
-  margin: 0;
-}
-
-.annotation-history-table button {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid var(--derma-border);
-  border-radius: 7px;
-  background: var(--derma-white);
-  padding: 9px 10px;
-  text-align: left;
-}
-
-.consent-create-row {
-  padding: 14px;
-  border-bottom: 1px solid var(--derma-bg-muted);
-}
-
 @media (max-width: 1100px) {
-
-  .dental-chart-page .topbar-main,
-  .dental-chart-page .odontogram-shell {
-    grid-template-columns: 1fr;
-  }
 
   .derma-excalidraw-canvas,
   .derma-excalidraw-host,
@@ -3962,55 +2357,9 @@
     min-height: 520px;
   }
 
-  .compact-chart-workspace .derma-excalidraw-canvas,
-  .compact-chart-workspace .derma-excalidraw-host,
-  .compact-chart-workspace .embedded-excalidraw {
-    height: 360px;
-    min-height: 300px;
-    max-height: 380px;
-  }
-
   .derma-excalidraw-host {
     border-right: 0;
   }
-
-  .procedure-arm-panel {
-    border-left: 0;
-    border-top: 1px solid var(--derma-border);
-  }
-
-  .procedure-arm-body {
-    max-height: none;
-  }
-}
-
-.active-procedure-summary dl {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-}
-
-.active-procedure-summary dl div {
-  display: grid;
-  gap: 3px;
-  padding: 9px;
-  border: 1px solid var(--derma-border-subtle);
-  border-radius: 8px;
-  background: var(--derma-bg-subtle);
-}
-
-.active-procedure-summary dt {
-  color: var(--derma-text-muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.active-procedure-summary dd {
-  margin: 0;
-  color: var(--derma-text-strong);
-  font-weight: 800;
-  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1400px) {
@@ -4018,33 +2367,20 @@
     grid-template-columns: minmax(0, 1fr) minmax(260px, 330px);
   }
 
-  .clinical-notes-grid,
-  .procedure-work-grid {
+  .clinical-notes-grid {
     grid-template-columns: minmax(320px, 0.95fr) minmax(380px, 1.05fr);
   }
 
-  .derma-mode-grid,
-  .encounter-workspace-grid,
-  .encounter-support-grid {
+  .derma-mode-grid {
     grid-template-columns: minmax(460px, 1fr) minmax(260px, 330px);
   }
 
   .derma-encounter-grid {
     grid-template-columns: minmax(260px, 330px) minmax(440px, 1fr) minmax(260px, 320px);
   }
-
-  .derma-encounter-header {
-    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  }
-
-  .encounter-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-  }
 }
 
 @media (max-width: 1180px) {
-  .derma-section-bar,
   .derma-mode-bar {
     grid-template-columns: 1fr;
   }
@@ -4056,11 +2392,8 @@
 
   .derma-console-grid,
   .clinical-notes-grid,
-  .procedure-work-grid,
   .derma-mode-grid,
-  .derma-notes-grid,
-  .encounter-workspace-grid,
-  .encounter-support-grid {
+  .derma-notes-grid {
     grid-template-columns: 1fr;
   }
 
@@ -4086,26 +2419,12 @@
 
   .derma-console-grid,
   .clinical-notes-grid,
-  .procedure-work-grid,
   .derma-console-side,
-  .derma-section-bar,
-  .derma-encounter-header,
   .derma-encounter-grid,
   .derma-mode-grid,
   .derma-notes-grid,
-  .encounter-workspace-grid,
-  .encounter-support-grid,
   .derma-right-workspace {
     grid-template-columns: 1fr;
-  }
-
-  .derma-section-tabs {
-    gap: 4px;
-  }
-
-  .derma-section-tabs button {
-    min-width: 108px;
-    padding: 10px 11px;
   }
 
   .derma-encounter-grid {
@@ -4120,56 +2439,22 @@
     font-size: 22px;
   }
 
-  .start-metrics {
-    grid-template-columns: 1fr;
-  }
-
   .derma-main-workspace {
     min-height: auto;
   }
 
-  .derma-main-workspace .native-chart-frame,
   .derma-main-workspace .derma-excalidraw-canvas {
     height: 360px;
     min-height: 320px;
   }
 
-  .photo-mode-compare {
-    grid-template-columns: 1fr;
-  }
-
-  .encounter-status-strip,
-  .encounter-actions,
-  .workspace-header-actions {
-    justify-content: flex-start;
-  }
-
-  .quick-action-grid,
-  .procedure-field-grid {
-    grid-template-columns: 1fr;
-  }
-
 }
 
 @media (max-width: 600px) {
-  .derma-section-tabs {
-    overflow-x: auto;
-    flex-wrap: nowrap;
-  }
-
-  .derma-section-tabs button {
-    min-width: 96px;
-  }
 
   .followup-list,
   .inventory-list {
     grid-template-columns: 1fr;
-  }
-
-  .encounter-patient img,
-  .encounter-patient .patient-avatar {
-    width: 36px;
-    height: 36px;
   }
 
   .skeleton-grid {
@@ -4177,107 +2462,26 @@
   }
 }
 
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-canvas,
-.derma-main-workspace.compact-chart-workspace.expanded .embedded-excalidraw,
-.derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-host {
-  height: calc(100vh - 160px) !important;
-  min-height: 560px !important;
-  max-height: none !important;
-}
-
 @media (max-width: 900px) {
   .derma-main-workspace.expanded {
     inset: 10px;
   }
-
-  .derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-canvas,
-  .derma-main-workspace.compact-chart-workspace.expanded .embedded-excalidraw,
-  .derma-main-workspace.compact-chart-workspace.expanded .derma-excalidraw-host {
-    height: calc(100vh - 120px) !important;
-    min-height: 420px !important;
-  }
 }
 
+/* Chart layout: these rules apply at every width, not only below 900px. */
 .dental-chart-page.derma-chart-page {
   padding: 8px 10px 18px;
   font-size: 13px;
 }
 
-.derma-encounter-header {
-  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-.encounter-patient {
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 9px;
-}
-
-.encounter-patient img,
-.patient-avatar {
-  width: 38px;
-  height: 38px;
-}
-
-.encounter-patient strong {
-  font-size: 16px;
-}
-
-.encounter-patient small {
-  font-size: 11px;
-}
-
-.encounter-status-strip {
-  gap: 6px;
-}
-
-.encounter-chip {
-  min-width: 92px;
-  max-width: 160px;
-  padding: 6px 8px;
-  font-size: 11px;
-}
-
-.encounter-chip b {
-  font-size: 9px;
-}
-
-.encounter-actions {
-  gap: 6px;
-}
-
-.derma-section-bar {
-  margin-top: 8px;
-  padding: 7px 8px;
-}
-
-.derma-section-tabs {
-  gap: 5px;
-}
-
-.derma-section-tabs button {
-  min-width: 104px;
-  padding: 8px 10px;
-}
-
-.derma-section-tabs button span {
-  font-size: 13px;
-}
-
-.derma-section-tabs button small {
-  font-size: 10px;
-}
-
 .derma-console-grid {
   grid-template-columns: minmax(0, 1fr) minmax(270px, 330px);
   gap: 10px;
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 .derma-console-side,
 .derma-quick-panel,
-.procedure-chart-stack,
 .review-section-stack {
   gap: 10px;
 }
@@ -4290,57 +2494,26 @@
   max-width: none;
 }
 
-.procedure-work-grid {
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 10px;
-  margin-top: 10px;
-}
-
 .section-panel > header,
 .derma-workspace-header,
 .derma-quick-panel > section > header,
-.chart-annotation-history > header,
-.encounter-snapshot-panel > header {
+.chart-annotation-history > header {
   padding: 10px 12px;
 }
 
 .section-panel > header strong,
 .derma-workspace-header strong,
-.chart-annotation-history > header strong,
-.encounter-snapshot-panel > header strong {
+.chart-annotation-history > header strong {
   font-size: 14px;
 }
 
 .section-panel > header small,
 .derma-workspace-header small,
-.chart-annotation-history > header small,
-.encounter-snapshot-panel > header small {
+.chart-annotation-history > header small {
   font-size: 11px;
 }
 
-.quick-action-grid {
-  gap: 7px;
-  padding: 10px 12px;
-}
-
-.quick-action-grid button {
-  min-height: 40px;
-  font-size: 13px;
-}
-
-.smart-alert-list {
-  gap: 7px;
-  padding: 10px 12px;
-}
-
-.smart-alert-list button {
-  padding: 8px 9px;
-}
-
-.derma-main-workspace .derma-excalidraw-canvas,
-.compact-chart-workspace .derma-excalidraw-canvas,
-.compact-chart-workspace .embedded-excalidraw,
-.compact-chart-workspace .derma-excalidraw-host {
+.derma-main-workspace .derma-excalidraw-canvas {
   height: min(430px, 50vh);
   min-height: 360px;
   max-height: 460px;
@@ -4351,48 +2524,12 @@
   padding: 7px 11px;
 }
 
-.chart-expand-button {
-  top: 58px;
-  right: 10px;
-  width: 32px;
-  height: 32px;
-  font-size: 17px;
-}
-
-.excalidraw-region-nav {
-  inset: 58px 58px 46px;
-  z-index: 4;
-}
-
-.excalidraw-region-nav button {
-  min-height: 26px;
-  padding: 3px 7px 3px 3px;
-  font-size: 11px;
-}
-
-.excalidraw-region-nav button span {
-  width: 19px;
-  height: 19px;
-  font-size: 14px;
-}
-
 .chart-annotation-list {
   padding: 9px 10px 10px;
 }
 
 .derma-console-grid.no-side {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.derma-console-grid.no-side .procedure-work-grid {
-  grid-template-columns: minmax(280px, 360px) minmax(560px, 1fr);
-}
-
-@media (max-width: 1180px) {
-  .derma-console-grid.no-side .procedure-work-grid,
-  .procedure-work-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .derma-annotation-modal {
@@ -4430,7 +2567,7 @@ body.derma-annotation-open .modal-backdrop {
   overflow: hidden;
   border: 1px solid var(--derma-border);
   border-radius: 10px;
-  background: #f8fbfd;
+  background: var(--chart-surface-muted);
   box-shadow: 0 30px 80px rgba(15, 23, 42, 0.24);
 }
 
@@ -4478,7 +2615,7 @@ body.derma-annotation-open .modal-backdrop {
   color: var(--derma-text-strong);
   border: 1px solid var(--derma-border-subtle);
   border-radius: 7px;
-  background: #fff;
+  background: var(--chart-surface);
 }
 
 .derma-annotation-search:focus {
@@ -4493,7 +2630,7 @@ body.derma-annotation-open .modal-backdrop {
   margin: 0 0 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #475569;
+  color: var(--chart-text-soft);
   cursor: pointer;
 }
 
@@ -4513,7 +2650,7 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-review-image img {
   max-width: 100%;
   max-height: 70vh;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 6px;
 }
 
@@ -4576,7 +2713,7 @@ body.derma-annotation-open .modal-backdrop {
   padding: 8px 16px;
   background: var(--derma-success-bg);
   border-bottom: 1px solid var(--derma-border);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 13px;
   font-weight: 700;
 }
@@ -4617,7 +2754,7 @@ body.derma-annotation-open .modal-backdrop {
   border: 1px solid var(--derma-brand);
   border-radius: 8px;
   background: var(--derma-white);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   padding: 3px 8px;
   font-size: 13px;
   font-weight: 800;
@@ -4634,7 +2771,7 @@ body.derma-annotation-open .modal-backdrop {
   border: 1px solid var(--derma-brand);
   border-radius: 8px;
   background: var(--derma-white);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   padding: 5px 12px;
   font-size: 12.5px;
   font-weight: 800;
@@ -4644,7 +2781,7 @@ body.derma-annotation-open .modal-backdrop {
 
 .derma-annotation-tagging-banner .stop-tagging:hover {
   background: var(--derma-brand);
-  color: var(--derma-white);
+  color: white;
 }
 
 .derma-annotation-header-actions button,
@@ -4661,13 +2798,13 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-header-actions button.primary {
   border-color: var(--derma-brand);
   background: var(--derma-brand);
-  color: var(--derma-white);
+  color: white;
 }
 
 .derma-annotation-header-actions button.active {
   border-color: var(--derma-brand);
   background: var(--derma-success-bg);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
 }
 
 .derma-annotation-header-actions button:disabled {
@@ -4683,7 +2820,7 @@ body.derma-annotation-open .modal-backdrop {
   gap: 10px;
   padding: 12px;
   overflow: auto;
-  background: #f3f7f9;
+  background: var(--chart-bg);
 }
 
 .derma-annotation-left {
@@ -4791,7 +2928,7 @@ body.derma-annotation-open .modal-backdrop {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: var(--treatment-color, #0ea5e9);
+  background: var(--treatment-color, var(--chart-blue));
 }
 
 .derma-template-list img {
@@ -4856,7 +2993,7 @@ body.derma-annotation-open .modal-backdrop {
   border-radius: 9px;
   background: var(--derma-white);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
@@ -4884,7 +3021,7 @@ body.derma-annotation-open .modal-backdrop {
 .derma-annotation-canvas .excalidraw {
   --color-primary: var(--derma-brand);
   --color-primary-darker: var(--derma-brand);
-  --color-primary-light: #ccfbf1;
+  --color-primary-light: var(--chart-accent-soft);
 }
 
 /* Excalidraw 0.17's UIOptions covers the canvas actions but not these two: the shape Library
@@ -4902,7 +3039,7 @@ body.derma-annotation-open .modal-backdrop {
 }
 
 .derma-variable-editor > strong {
-  color: var(--derma-brand);
+  color: var(--chart-accent-text);
   font-size: 12px;
 }
 
@@ -5050,66 +3187,14 @@ body.derma-annotation-open .modal-backdrop {
   }
 }
 
-.encounter-alert-chips {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 12px 10px;
-  border-top: 1px solid var(--derma-border-subtle);
-}
-
-.encounter-alert-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  max-width: 320px;
-  padding: 5px 10px;
-  border: 1px solid var(--derma-border-muted);
-  border-radius: 10px;
-  background: var(--derma-bg-subtle);
-  color: var(--derma-text-secondary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.encounter-alert-chip:hover {
-  border-color: var(--derma-brand);
-}
-
-.encounter-alert-chip b {
-  font-size: 11px;
-  color: var(--derma-text-strong);
-}
-
 /* A chip that blocks completion has to be readable where it sits: truncating it left the
    reason discoverable only inside the completion dialog. */
-.encounter-alert-chip small {
-  font-size: 10px;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.encounter-alert-chip.danger {
-  background: var(--derma-danger-bg, #fef2f2);
-  border-color: var(--derma-danger);
-}
-
-.encounter-alert-chip.danger b {
-  color: var(--derma-danger);
-}
-
-.encounter-alert-chip.warning {
-  background: var(--derma-warning-bg-subtle);
-  border-color: var(--derma-warning-bg);
-}
 
 .procedures-section-stack,
 .photos-section-stack {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-content: start;
 }
@@ -5142,22 +3227,6 @@ body.derma-annotation-open .modal-backdrop {
   align-items: center;
   gap: 7px;
   flex-wrap: wrap;
-}
-
-.photo-scope-chip {
-  border: 1px solid var(--derma-border-muted);
-  background: var(--derma-white);
-  border-radius: 999px;
-  padding: 4px 11px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.photo-scope-chip.active {
-  border-color: var(--derma-primary);
-  background: var(--derma-primary-bg-subtle);
-  color: var(--derma-primary);
 }
 
 .photo-required-row {
@@ -5255,8 +3324,8 @@ body.derma-annotation-open .modal-backdrop {
   bottom: 6px;
   padding: 2px 7px;
   border-radius: 999px;
-  background: var(--derma-text-strong);
-  color: var(--derma-white);
+  background: rgba(0, 0, 0, 0.72);
+  color: white;
   font-size: 11px;
   font-weight: 700;
 }
@@ -5318,7 +3387,7 @@ body.derma-annotation-open .modal-backdrop {
   max-height: 62vh;
   overflow: auto;
   border-radius: 8px;
-  background: var(--derma-text-strong);
+  background: rgba(0, 0, 0, 0.85);
 }
 
 .photo-viewer-stage img {
@@ -5389,10 +3458,6 @@ body.derma-annotation-open .modal-backdrop {
 
 /* Voice AI scribe (Assessment tab) */
 .voice-scribe {
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
-  padding: 10px 12px;
   display: grid;
   gap: 10px;
 }
@@ -5407,16 +3472,16 @@ body.derma-annotation-open .modal-backdrop {
   margin-right: 4px;
 }
 .voice-scribe .voice-stop {
-  border: 1px solid #dc2626;
-  background: #dc2626;
-  color: #fff;
+  border: 1px solid color-mix(in srgb, var(--chart-danger) 85%, black);
+  background: color-mix(in srgb, var(--chart-danger) 85%, black);
+  color: white;
   border-radius: 6px;
   padding: 5px 10px;
   font-weight: 600;
   animation: voice-pulse 1.2s ease-in-out infinite;
 }
 @keyframes voice-pulse {
-  50% { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.18); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--chart-danger) 18%, transparent); }
 }
 .voice-scribe .voice-mic {
   max-width: 220px;
@@ -5431,7 +3496,7 @@ body.derma-annotation-open .modal-backdrop {
   font-size: 12px;
 }
 .voice-scribe[data-state="failed"] .voice-hint {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
 }
 .voice-spinner {
   display: inline-block;
@@ -5448,6 +3513,9 @@ body.derma-annotation-open .modal-backdrop {
 .voice-result {
   display: grid;
   gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--chart-info-soft);
   font-size: 13px;
 }
 .voice-result-head {
@@ -5456,16 +3524,13 @@ body.derma-annotation-open .modal-backdrop {
   gap: 8px;
   flex-wrap: wrap;
 }
-.voice-result-head code {
-  font-size: 12px;
-  background: var(--derma-bg-muted);
-  padding: 1px 6px;
-  border-radius: 4px;
+.voice-result-head .chart-pill {
+  white-space: normal;
 }
-.voice-result details summary {
-  cursor: pointer;
-  color: var(--derma-text-muted);
-  font-size: 12px;
+
+/* The panel is already info-soft; the pills keep a surface so they still read as pills. */
+.voice-result .chart-pill[data-tone="info"] {
+  background: var(--chart-surface);
 }
 .voice-result pre {
   white-space: pre-wrap;
@@ -5486,13 +3551,13 @@ body.derma-annotation-open .modal-backdrop {
   min-width: 160px;
   height: 30px;
   border-radius: 6px;
-  background: #f4f4f5;
-  --wave-bar: #ef4444;
-  --wave-head: #dc2626;
+  background: var(--chart-surface-muted);
+  --wave-bar: var(--chart-danger);
+  --wave-head: var(--chart-danger-text);
 }
 .voice-waveform[data-paused="true"] {
-  --wave-bar: #a1a1aa;
-  --wave-head: #71717a;
+  --wave-bar: var(--chart-faint);
+  --wave-head: var(--chart-muted);
 }
 .voice-waveform canvas {
   display: block;
@@ -5501,14 +3566,14 @@ body.derma-annotation-open .modal-backdrop {
 }
 .voice-scribe .voice-level {
   font-weight: 600;
-  color: #15803d;
+  color: var(--chart-ok-text);
 }
 .voice-scribe .voice-level[data-zone="low"] {
-  color: #b45309;
+  color: var(--chart-caution-text);
 }
 .voice-scribe .voice-level[data-zone="quiet"],
 .voice-scribe .voice-level[data-zone="loud"] {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
 }
 .voice-scribe .voice-stop[data-paused="true"] {
   animation: none;
@@ -5518,15 +3583,12 @@ body.derma-annotation-open .modal-backdrop {
   flex-basis: 100%;
 }
 .voice-scribe .voice-warning {
-  color: #b45309;
+  color: var(--chart-caution-text);
   font-weight: 600;
 }
 
 /* AI documents (Review tab) */
 .ai-documents {
-  border: 1px solid var(--derma-border);
-  border-radius: 8px;
-  background: var(--derma-white);
   margin-bottom: 12px;
 }
 .ai-documents > header {
@@ -5540,8 +3602,6 @@ body.derma-annotation-open .modal-backdrop {
 }
 .ai-documents > header strong {
   display: block;
-  color: var(--derma-text-strong);
-  font-size: 14px;
 }
 .ai-documents > header small {
   color: var(--derma-text-muted);
@@ -5560,7 +3620,7 @@ body.derma-annotation-open .modal-backdrop {
   color: var(--derma-text-muted);
 }
 .ai-documents .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
 }
 .ai-documents-list {
   list-style: none;
@@ -5583,17 +3643,6 @@ body.derma-annotation-open .modal-backdrop {
 }
 .ai-doc-head small {
   color: var(--derma-text-muted);
-}
-.ai-doc-status {
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: var(--derma-bg-muted);
-  color: var(--derma-text-muted);
-}
-li[data-status="Issued"] .ai-doc-status {
-  background: #dcfce7;
-  color: #166534;
 }
 .ai-doc-buttons {
   margin-left: auto;
@@ -5622,17 +3671,21 @@ li[data-status="Issued"] .ai-doc-status {
 
 .voice-refine {
   display: flex;
+  flex: 1 1 320px;
   gap: 8px;
   align-items: center;
 }
 .voice-refine input {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--derma-border);
-  border-radius: 6px;
-  padding: 6px 10px;
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+  padding: 5px 10px;
   font-size: 13px;
-  background: var(--derma-white);
+  background: var(--chart-surface);
+}
+.voice-scribe .assessment-block-title {
+  margin: 0;
 }
 
 .dental-chart-page .consent-overlay {

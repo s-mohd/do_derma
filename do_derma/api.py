@@ -7,6 +7,7 @@ from typing import Any
 
 import frappe
 from do_health.api.appointment_methods import create_encounter_for_appointment
+from do_health.api.clinical_profile import build_clinical_profile
 from frappe import _
 from frappe.utils import cint, cstr, flt, now_datetime, nowdate
 from frappe.utils.file_manager import save_file
@@ -23,7 +24,7 @@ from do_derma.config.marker_size import (
 )
 from do_derma.consumables import marks as consumable_marks
 from do_derma.consumables import procedures as consumable_procedures
-from do_derma.printing import letterhead
+from do_derma.printing import pages
 from do_derma.schema import COMPLETION_OVERRIDE_FIELD
 from do_derma.settings import (
 	ENFORCEMENT_WARN,
@@ -2306,11 +2307,14 @@ def get_inventory_readiness(
 		patient = frappe.db.get_value("Patient Encounter", encounter, "patient")
 	if not patient:
 		return []
-	return inventory.build(
+	marks, procedure_rows = inventory.select_open_work(
 		_get_marks(patient, appointment=appointment, encounter=encounter),
-		consumable_procedures.get_carriers(
-			_get_derma_procedures(patient, appointment=appointment, encounter=encounter)
-		),
+		_get_derma_procedures(patient, appointment=appointment, encounter=encounter),
+	)
+	return inventory.build(
+		marks,
+		consumable_procedures.get_carriers(procedure_rows),
+		expiring_soon_days=get_readiness_settings()["expiring_soon_days"],
 	)
 
 
@@ -2328,7 +2332,7 @@ def _get_previous_marks(patient: str, current_encounter: str | None = None) -> l
 		limit=500,
 	)
 	visible = [row for row in rows if row.get("status") != "Archived"]
-	consumable_marks.hydrate(visible)
+	consumable_marks.hydrate(visible, is_current=False)
 	return visible
 
 
@@ -2462,9 +2466,6 @@ def get_chart_context(
 		"narrative": build_visit_narrative(findings, treatments),
 		"voice_scribe_enabled": voice.is_enabled(),
 		"voice_scribe": voice.client_config(),
-		"letterhead_logo": letterhead.get_logo_url(
-			(context["encounter"] or {}).get("practitioner_name") or (context["appointment"] or {}).get("practitioner_name")
-		),
 	}
 
 
@@ -2561,6 +2562,11 @@ def get_patient_derma_chart(
 			lambda: _get_previous_marks(patient, current_encounter=encounter_id),
 		),
 		"categories": section("categories", [], _get_categories),
+		"clinical_profile": section(
+			"clinical profile",
+			None,
+			lambda: build_clinical_profile(frappe.get_doc("Patient", patient)) if patient else None,
+		),
 		"timeline": section(
 			"patient timeline",
 			[],
@@ -3484,11 +3490,8 @@ def render_derma_consent_preview(payload=None):
 	return {"rendered_html": doc.get("rendered_html") or ""}
 
 
-@frappe.whitelist()
-def get_derma_consent_html(name: str):
-	_ensure_clinical_access()
-	if not name:
-		frappe.throw(_("Consent is required."), frappe.ValidationError)
+def get_consent_doc(name: str):
+	"""The consent under either consent doctype, rendered from its template if it never was."""
 	doctype = consent.ConsentDoctype().name
 	if not frappe.db.exists(doctype, name):
 		doctype = consent.CONSENT_FORM
@@ -3496,15 +3499,39 @@ def get_derma_consent_html(name: str):
 	if not doc.get("rendered_html") and doc.get("consent_form_template") and hasattr(doc, "render_template"):
 		doc.render_template()
 		doc.save(ignore_permissions=True)
+	return doc
+
+
+@frappe.whitelist()
+def get_derma_consent_html(name: str):
+	_ensure_clinical_access()
+	if not name:
+		frappe.throw(_("Consent is required."), frappe.ValidationError)
+	doc = get_consent_doc(name)
 	return {
 		"name": doc.name,
-		"doctype": doctype,
+		"doctype": doc.doctype,
 		"consent_form_template": doc.get("consent_form_template"),
 		"rendered_html": doc.get("rendered_html"),
 		"status": doc.get("status"),
 		"signed_by": doc.get("signed_by"),
 		"signed_on": doc.get("signed_on"),
 	}
+
+
+@frappe.whitelist()
+def get_derma_print_html(kind: str, name: str, body: str | None = None) -> dict[str, str]:
+	"""A whole printable page on the practitioner's Letter Head: {"title", "html"}."""
+	_ensure_clinical_access()
+	if not name:
+		frappe.throw(_("Choose what to print."), frappe.ValidationError)
+	if kind == "consent":
+		return pages.get_consent_page(get_consent_doc(name))
+	if kind == "blank_consent":
+		return pages.get_blank_consent_page(name, body)
+	if kind == "annotation":
+		return pages.get_annotation_page(name)
+	frappe.throw(_("Unknown printable: {0}").format(kind), frappe.ValidationError)
 
 
 @frappe.whitelist()
@@ -4404,11 +4431,14 @@ def _attach_photo_files(doc) -> None:
 		)
 
 
-def _normalize_derma_body_view(value: Any) -> str | None:
-	"""The chart names body templates freely; the set stores one of a fixed set of views."""
+def _normalize_derma_body_view(value: Any) -> str:
+	"""The chart names body templates freely; the set stores one of a fixed set of views.
+
+	No view is written as "": Frappe fills an empty Select with its first option on insert.
+	"""
 	view = str(value or "").strip()
 	if not view:
-		return None
+		return ""
 	options = frappe.get_meta("Derma Photo Set").get_field("body_view").options.split("\n")
 	offered = [option for option in options if option]
 	for option in offered:
@@ -4586,6 +4616,28 @@ def _load_visit_drawings(encounter: str) -> list[dict[str, Any]]:
 	return _load_annotations_for_parents(parents, include_scene=False)
 
 
+def _load_visit_procedure_titles(doc) -> list[str]:
+	"""A visit's non-cancelled procedure titles, named as the summary names them, without the full rows."""
+	field = _get_clinical_procedure_encounter_field()
+	if not field:
+		return []
+	rows = frappe.get_all(
+		"Clinical Procedure",
+		filters={field: doc.name, "docstatus": ["<", 2]},
+		fields=["name", "procedure_template"],
+		order_by="modified desc",
+		limit=200,
+	)
+	template_names = list({row.procedure_template for row in rows if row.procedure_template})
+	labels = {}
+	if template_names:
+		templates = frappe.get_all(
+			"Clinical Procedure Template", filters={"name": ["in", template_names]}, fields=["name", "template"]
+		)
+		labels = {template.name: template.template or template.name for template in templates}
+	return [labels.get(row.procedure_template) or row.procedure_template or row.name for row in rows]
+
+
 @frappe.whitelist()
 def get_previous_visits(patient: str, current_encounter: str | None = None, start: int = 0, page_length: int = 5):
 	_ensure_clinical_access()
@@ -4599,6 +4651,7 @@ def get_previous_visits(patient: str, current_encounter: str | None = None, star
 		cint(start),
 		max(1, min(cint(page_length) or 5, 20)),
 		_load_visit_drawings,
+		_load_visit_procedure_titles,
 	)
 
 

@@ -7,8 +7,10 @@ from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days, nowdate
 
 import do_derma.api as api
-from do_derma.consumables import defaults, snapshot
+from do_derma.consumables import batches, defaults, snapshot
 from do_derma.consumables import encounter as consumable_encounter
+from do_derma.consumables import marks as consumable_marks
+from do_derma.consumables import procedures as consumable_procedures
 from do_derma.readiness import inventory
 from do_derma.tests.test_api import DermaTestHelpers
 from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
@@ -635,15 +637,65 @@ class TestConsumablesInReadiness(
 		self.assertTrue(rows[0]["blocking"])
 		self.assertIn("Batch", rows[0]["message"])
 
-	def test_a_quantity_greater_than_the_available_balance_blocks(self):
-		with patch.object(inventory, "_stock_available_qty", return_value=1):
+	def test_a_quantity_greater_than_the_available_balance_warns(self):
+		with patch.object(batches, "get_available_qty", return_value=1):
 			rows = inventory.build([self._mark_with([self._line(self.item, qty=4)])])
 
-		self.assertTrue(rows[0]["blocking"])
-		self.assertIn("Insufficient", rows[0]["message"])
+		self.assertFalse(rows[0]["blocking"])
+		self.assertEqual(rows[0]["status"], "warning")
+		self.assertIn("1 left in stock; the line uses 4.", rows[0]["message"])
+
+	def test_a_short_lot_warns_though_other_lots_have_plenty(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), 90))
+		with patch.object(
+			batches,
+			"get_available_qty",
+			side_effect=lambda item, batch, warehouse: 3 if batch == lot else 100,
+		):
+			rows = inventory.build([self._mark_with([self._line(batched, qty=5, batch_no=lot)])])
+
+		self.assertFalse(rows[0]["blocking"])
+		self.assertIn("This lot has 3 left; the line uses 5.", rows[0]["message"])
+
+	def test_two_lines_on_one_lot_are_compared_together(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), 90))
+		lines = [self._line(batched, qty=2, batch_no=lot), self._line(batched, qty=2, batch_no=lot)]
+		with patch.object(batches, "get_available_qty", return_value=3):
+			rows = inventory.build([self._mark_with(lines)])
+
+		self.assertIn("the line uses 4", rows[0]["message"])
+
+	def test_an_expiring_lot_warns_within_the_window(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), 10))
+		with patch.object(batches, "get_available_qty", return_value=50):
+			rows = inventory.build(
+				[self._mark_with([self._line(batched, batch_no=lot)])], expiring_soon_days=30
+			)
+			quiet = inventory.build(
+				[self._mark_with([self._line(batched, batch_no=lot)])], expiring_soon_days=0
+			)
+
+		self.assertEqual(rows[0]["status"], "warning")
+		self.assertIn("Expires in 10 days", rows[0]["message"])
+		self.assertEqual(quiet[0]["status"], "ready")
+
+	def test_short_stock_alone_does_not_block_completion(self):
+		from do_derma.readiness.session import is_completion_blocked
+
+		with patch.object(batches, "get_available_qty", return_value=1):
+			rows = inventory.build([self._mark_with([self._line(self.item, qty=4)])])
+
+		self.assertFalse(
+			is_completion_blocked(
+				{"blockers": [row for row in rows if row["blocking"]], "enforcement": "Block"}
+			)
+		)
 
 	def test_a_unit_the_item_does_not_convert_is_uncheckable_rather_than_blocking(self):
-		with patch.object(inventory, "_stock_available_qty", return_value=1):
+		with patch.object(batches, "get_available_qty", return_value=1):
 			rows = inventory.build(
 				[self._mark_with([self._line(self.item, qty=4, uom="Box", conversion_factor=0)])]
 			)
@@ -768,6 +820,20 @@ class TestProcedureOwnedConsumables(
 		self.assertEqual(row["consumables"], [])
 		self.assertEqual([line["item_code"] for line in row["default_consumables"]], [self.item])
 		self.assertEqual([line["item_code"] for line in row["removed_consumables"]], [self.item])
+
+	def test_payload_lines_carry_batch_facts(self):
+		api.save_consumables("Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}])
+
+		line = self._payload_procedure()["consumables"][0]
+		self.assertIn("batch", line)
+		self.assertIn(line["readiness_tone"], {"", "caution", "danger"})
+
+	def test_a_save_answers_with_batch_facts(self):
+		result = api.save_consumables(
+			"Clinical Procedure", self.procedure.name, [{"item_code": self.item, "qty": 4}]
+		)
+
+		self.assertIn("batch", result["consumables"][0])
 
 	def test_saving_records_the_rows_on_the_procedure_itself(self):
 		result = api.save_consumables(
@@ -946,3 +1012,264 @@ class TestConsumableItemOptions(
 
 		with self.assertRaises(frappe.PermissionError):
 			api.get_consumable_item_options(self.item)
+
+
+class TestBatchFacts(ConsumableHelpers, IntegrationTestCase):
+	"""One owner for what a lot can tell the line and readiness."""
+
+	def setUp(self):
+		self.item = self._make_stock_item(has_batch_no=1)
+
+	def facts(self, days, available=10, line_qty=1, window=30):
+		batch = self._make_batch(self.item, expiry_date=add_days(nowdate(), days))
+		with patch.object(batches, "get_available_qty", return_value=available):
+			return batches.get_batch_facts(self.item, batch, None, line_qty, window)
+
+	def test_day_thirty_is_expiring_soon_and_day_thirty_one_is_not(self):
+		self.assertTrue(self.facts(30)["is_expiring_soon"])
+		self.assertFalse(self.facts(31)["is_expiring_soon"])
+
+	def test_today_is_expiring_soon_not_expired(self):
+		facts = self.facts(0)
+		self.assertTrue(facts["is_expiring_soon"])
+		self.assertFalse(facts["is_expired"])
+
+	def test_yesterday_is_expired_and_not_expiring_soon(self):
+		facts = self.facts(-1)
+		self.assertTrue(facts["is_expired"])
+		self.assertFalse(facts["is_expiring_soon"])
+
+	def test_a_window_of_zero_never_warns(self):
+		self.assertFalse(self.facts(0, window=0)["is_expiring_soon"])
+
+	def test_a_line_above_what_is_left_is_short(self):
+		self.assertTrue(self.facts(90, available=3, line_qty=5)["is_short"])
+		self.assertFalse(self.facts(90, available=5, line_qty=5)["is_short"])
+
+	def test_unknown_stock_or_quantity_is_never_short(self):
+		self.assertFalse(self.facts(90, available=None, line_qty=5)["is_short"])
+		self.assertFalse(self.facts(90, available=3, line_qty=None)["is_short"])
+
+	def test_a_free_text_expiry_counts_without_a_batch(self):
+		with patch.object(batches, "get_available_qty", return_value=None):
+			facts = batches.get_batch_facts(self.item, None, None, 1, 30, expiry_date=add_days(nowdate(), 5))
+		self.assertEqual(facts["days_to_expiry"], 5)
+
+	def test_notices_name_the_shortfall_and_the_expiry(self):
+		notices = batches.get_line_notices(self.facts(12, available=3, line_qty=5))
+		messages = [notice["message"] for notice in notices]
+		self.assertIn("Expires in 12 days", messages[0])
+		self.assertEqual(messages[1], "This lot has 3 left; the line uses 5.")
+		self.assertEqual({notice["tone"] for notice in notices}, {"caution"})
+
+	def test_an_expired_lot_is_a_danger_notice(self):
+		notices = batches.get_line_notices(self.facts(-1))
+		self.assertEqual(notices[0], {"message": "Product is expired.", "tone": "danger"})
+
+	def test_stock_in_another_warehouse_does_not_count(self):
+		batch = self._make_batch(self.item, expiry_date=add_days(nowdate(), 90))
+		warehouse = frappe.db.get_value("Warehouse", {"is_group": 0}, "name")
+		with patch("erpnext.stock.doctype.batch.batch.get_batch_qty", return_value=0) as get_batch_qty:
+			self.assertEqual(batches.get_available_qty(self.item, batch, warehouse), 0)
+		get_batch_qty.assert_called_once_with(batch_no=batch, warehouse=warehouse)
+
+
+class TestConsumablePayloadBatch(ConsumableHelpers, IntegrationTestCase):
+	"""The editor reads the same facts readiness does."""
+
+	def test_payload_describes_an_expired_batch_with_no_stock(self):
+		batched = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(batched, expiry_date=add_days(nowdate(), -3))
+		rows = [{"item_code": batched, "qty": 1, "conversion_factor": 1, "batch_no": lot}]
+		with patch.object(batches, "get_available_qty", return_value=0):
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+
+		self.assertEqual(rows[0]["batch"]["name"], lot)
+		self.assertTrue(rows[0]["batch"]["is_expired"])
+		self.assertEqual(rows[0]["readiness_tone"], "danger")
+		self.assertEqual(
+			rows[0]["readiness_message"], "Product is expired. This lot has 0 left; the line uses 1."
+		)
+
+	def test_a_healthy_line_carries_facts_and_no_message(self):
+		rows = [{"item_code": self._make_stock_item(), "qty": 1, "conversion_factor": 1}]
+		with patch.object(batches, "get_available_qty", return_value=10):
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+
+		self.assertEqual(rows[0]["batch"]["available_qty"], 10)
+		self.assertEqual((rows[0]["readiness_message"], rows[0]["readiness_tone"]), ("", ""))
+
+
+class TestBatchReviewFindings(ConsumableHelpers, DermaTestHelpers, IntegrationTestCase):
+	"""What the whole-branch review caught."""
+
+	def setUp(self):
+		self.item = self._make_stock_item(has_batch_no=1)
+		self.lot = self._make_batch(self.item, expiry_date=add_days(nowdate(), -3))
+
+	def test_lines_sharing_a_lot_are_compared_together(self):
+		fresh = self._make_batch(self.item, expiry_date=add_days(nowdate(), 200))
+		rows = [
+			{"item_code": self.item, "qty": 2, "conversion_factor": 1, "batch_no": fresh} for _ in range(2)
+		]
+		with patch.object(batches, "get_available_qty", return_value=3):
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+
+		self.assertTrue(all(row["batch"]["is_short"] for row in rows))
+		self.assertEqual(rows[0]["readiness_message"], "This lot has 3 left; these lines use 4.")
+
+	def test_a_past_line_keeps_its_lot_but_claims_nothing_today(self):
+		rows = [{"item_code": self.item, "qty": 1, "conversion_factor": 1, "batch_no": self.lot}]
+		with patch.object(batches, "get_available_qty", return_value=0) as available:
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30, is_current=False)
+
+		self.assertEqual(rows[0]["batch"]["name"], self.lot)
+		self.assertTrue(rows[0]["batch"]["expiry_date"])
+		self.assertFalse(rows[0]["batch"]["is_expired"] or rows[0]["batch"]["is_short"])
+		self.assertEqual((rows[0]["readiness_message"], rows[0]["readiness_tone"]), ("", ""))
+		available.assert_not_called()
+
+	def test_a_submitted_procedure_hydrates_as_past(self):
+		rows = [{"name": "HLC-CPR-X", "docstatus": 1, "procedure_template": ""}]
+		with patch.object(
+			consumable_procedures,
+			"_live_rows",
+			return_value={
+				"HLC-CPR-X": [
+					{"item_code": self.item, "qty": 1, "conversion_factor": 1, "batch_no": self.lot}
+				]
+			},
+		):
+			with patch.object(batches, "get_available_qty", return_value=0):
+				consumable_procedures.hydrate(rows)
+
+		self.assertEqual(rows[0]["consumables"][0]["readiness_message"], "")
+
+	def test_previous_marks_are_hydrated_as_past(self):
+		with patch.object(consumable_marks, "hydrate") as hydrate:
+			api._get_previous_marks(self._make_patient())
+
+		self.assertEqual(hydrate.call_args.kwargs.get("is_current"), False)
+
+	def test_the_inventory_endpoint_uses_the_clinic_window(self):
+		settings = {
+			"enforcement": "Warn",
+			"todo_downgrades_blockers": True,
+			"expiring_soon_days": 0,
+			"is_configurable": True,
+		}
+		with (
+			patch.object(api, "get_readiness_settings", return_value=settings),
+			patch.object(api, "_get_marks", return_value=[]),
+			patch.object(api, "_get_derma_procedures", return_value=[]),
+		):
+			with patch("do_derma.readiness.inventory.build", return_value=[]) as build:
+				api.get_inventory_readiness(patient=self._make_patient())
+
+		self.assertEqual(build.call_args.kwargs.get("expiring_soon_days"), 0)
+
+	def test_a_lot_is_looked_up_once_per_request(self):
+		fresh = self._make_batch(self.item, expiry_date=add_days(nowdate(), 200))
+		rows = [
+			{"item_code": self.item, "qty": 1, "conversion_factor": 1, "batch_no": fresh} for _ in range(3)
+		]
+		with patch("erpnext.stock.doctype.batch.batch.get_batch_qty", return_value=[]) as get_batch_qty:
+			batches.annotate_rows(rows, "Clinical Procedure", None, 30)
+			batches.annotate_rows([dict(row) for row in rows], "Clinical Procedure", None, 30)
+
+		self.assertEqual(get_batch_qty.call_count, 1)
+
+
+class TestBatchMinorFindings(ConsumableHelpers, IntegrationTestCase):
+	"""Small fixes from the materials review."""
+
+	def test_quantities_read_as_people_write_them(self):
+		self.assertEqual(batches.format_quantity(3), "3")
+		self.assertEqual(batches.format_quantity(2.5), "2.5")
+		self.assertEqual(batches.format_quantity(0.00001), "0.00001")
+
+	def test_a_malformed_expiry_is_neither_expired_nor_a_crash(self):
+		with patch.object(batches, "get_available_qty", return_value=None):
+			facts = batches.get_batch_facts("ITEM", None, None, 1, 30, expiry_date="not-a-date")
+
+		self.assertFalse(facts["is_expired"] or facts["is_expiring_soon"])
+		self.assertIsNone(facts["days_to_expiry"])
+
+	def test_readiness_reads_a_lot_expiry_once(self):
+		item = self._make_stock_item(has_batch_no=1)
+		lot = self._make_batch(item, expiry_date=add_days(nowdate(), 90))
+		line = {
+			"item_code": item,
+			"item_name": item,
+			"qty": 1,
+			"uom": "Nos",
+			"conversion_factor": 1,
+			"stock_uom": "Nos",
+			"batch_no": lot,
+		}
+		original = frappe.db.get_value
+		calls = []
+
+		def counting(doctype, *args, **kwargs):
+			if doctype == "Batch":
+				calls.append(args)
+			return original(doctype, *args, **kwargs)
+
+		with (
+			patch.object(batches, "get_available_qty", return_value=10),
+			patch.object(frappe.db, "get_value", side_effect=counting),
+		):
+			inventory.build([{"name": "MARK-X", "consumables": [line]}])
+
+		self.assertEqual(len(calls), 1)
+
+
+class TestReadinessSkipsSubmittedWork(ConsumableHelpers, IntegrationTestCase):
+	"""A submitted procedure has posted its stock, so readiness no longer checks it."""
+
+	def setUp(self):
+		self.item = self._make_stock_item()
+
+	def line(self, qty=4):
+		return {
+			"item_code": self.item,
+			"item_name": self.item,
+			"qty": qty,
+			"uom": "Nos",
+			"conversion_factor": 1,
+			"stock_uom": "Nos",
+		}
+
+	def test_a_submitted_procedure_is_left_out(self):
+		procedures = [
+			{"name": "CP-OPEN", "docstatus": 0, "consumables": [self.line()]},
+			{"name": "CP-DONE", "docstatus": 1, "consumables": [self.line()]},
+		]
+		marks, rows = inventory.select_open_work([], procedures)
+
+		self.assertEqual([row["name"] for row in rows], ["CP-OPEN"])
+		self.assertEqual(marks, [])
+
+	def test_a_mark_on_a_submitted_procedure_is_left_out(self):
+		marks = [
+			{"name": "MARK-OPEN", "clinical_procedure": "CP-OPEN"},
+			{"name": "MARK-DONE", "clinical_procedure": "CP-DONE"},
+			{"name": "MARK-LOOSE", "clinical_procedure": ""},
+		]
+		procedures = [{"name": "CP-OPEN", "docstatus": 0}, {"name": "CP-DONE", "docstatus": 1}]
+		kept, _rows = inventory.select_open_work(marks, procedures)
+
+		self.assertEqual([mark["name"] for mark in kept], ["MARK-OPEN", "MARK-LOOSE"])
+
+	def test_session_readiness_ignores_a_submitted_procedures_shortage(self):
+		from do_derma.readiness import session
+
+		procedures = [{"name": "CP-DONE", "docstatus": 1, "consumables": [self.line()]}]
+		with (
+			patch.object(session.api, "_get_marks", return_value=[]),
+			patch.object(session.api, "_get_derma_procedures", return_value=procedures),
+			patch.object(batches, "get_available_qty", return_value=1),
+		):
+			readiness = session.get_session_readiness("PATIENT")
+
+		self.assertEqual([item for item in readiness["items"] if item["source"] == inventory.SOURCE], [])

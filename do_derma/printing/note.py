@@ -13,7 +13,6 @@ from markupsafe import Markup, escape
 
 from do_derma import assessment
 from do_derma.assessment import HP, SOAP, STRUCTURED
-from do_derma.printing import letterhead
 from do_derma.printing.render import derma_print_text
 
 ARABIC = re.compile(r"[\u0600-\u06FF]")
@@ -84,13 +83,13 @@ PRINT_FORMATS = {
 	STRUCTURED: "Derma Assessment Note (Structured)",
 }
 TEMPLATE_MARKER = "<!-- derma-assessment-note v"
-TEMPLATE_VERSION = 20
+TEMPLATE_VERSION = 21
 
 TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
 """ + """
 {%- set patient = frappe.get_doc("Patient", doc.patient) if doc.patient else None -%}
 {%- set practitioner = frappe.get_doc("Healthcare Practitioner", doc.practitioner) if doc.practitioner else None -%}
-""" + letterhead.OPEN + """
+{{ derma_letterhead_open(practitioner) }}
 <div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.4;padding:0 24px;">
   <table style="width:100%;font-size:12px;margin-bottom:18px;border:1px solid #e5e7eb;"><tr>
     <td style="padding:6px 10px;white-space:nowrap;"><b>Patient:</b> {{ (patient and patient.patient_name) or '' }}</td>
@@ -101,9 +100,9 @@ TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
   {{ derma_diagnosis_html(doc) }}
   <div style="font-size:12px;">{{ derma_assessment_html(doc) }}</div>
   {{ derma_patient_advice_html(doc) }}
-""" + letterhead.SIGNATURE + """
+  {{ derma_practitioner_mark(practitioner) }}
 </div>
-""" + letterhead.CLOSE
+{{ derma_letterhead_close(practitioner) }}"""
 
 
 def template_for(mode: str | None) -> str:

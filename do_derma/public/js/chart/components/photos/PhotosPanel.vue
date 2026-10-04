@@ -6,25 +6,27 @@
           v-for="scope in availableScopes"
           :key="scope.key"
           type="button"
-          class="photo-scope-chip"
-          :class="{ active: scope.key === activeScope }"
+          class="chart-pill"
+          :aria-pressed="scope.key === activeScope ? 'true' : 'false'"
           :data-test="`photo-scope-${scope.key}`"
           @click="activeScope = scope.key"
         >
           {{ scope.label }}
         </button>
-        <small data-test="photo-count">{{ photoCountText }}</small>
+        <small class="chart-label" data-test="photo-count">{{ photoCountText }}</small>
       </div>
-      <button
-        type="button"
-        class="primary small"
-        data-test="photos-upload"
-        :disabled="Boolean(busy)"
-        @click="$emit('upload')"
-      >
-        <span v-if="busy === 'upload'" class="chart-spinner" aria-hidden="true"></span>
-        {{ busy === "upload" ? __("Saving photos...") : __("Upload Photo") }}
-      </button>
+      <Teleport defer to="#chart-section-actions">
+        <button
+          type="button"
+          class="primary small"
+          data-test="photos-upload"
+          :disabled="Boolean(busy)"
+          @click="$emit('upload')"
+        >
+          <span v-if="busy === 'upload'" class="chart-spinner" aria-hidden="true"></span>
+          {{ busy === "upload" ? __("Saving photos...") : __("Upload Photo") }}
+        </button>
+      </Teleport>
     </header>
 
     <div v-if="requiresBeforeAfter" class="photo-required-row" data-test="photo-required-slots">

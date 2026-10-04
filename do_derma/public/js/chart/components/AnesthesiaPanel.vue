@@ -180,9 +180,9 @@ function emitSave() {
 
 <style scoped>
 .workspace-panel {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--chart-border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--chart-surface);
   padding: 12px;
 }
 
@@ -197,13 +197,13 @@ function emitSave() {
 .panel-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #111827;
+  color: var(--chart-text);
 }
 
 .panel-header .meta {
   margin: 4px 0 0;
   font-size: 12px;
-  color: #64748b;
+  color: var(--chart-muted);
 }
 
 .actions {
@@ -212,44 +212,19 @@ function emitSave() {
   align-items: center;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid #d1d5db;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.ghost {
-  background: #f8fafc;
-  color: #334155;
-}
-
-button.primary {
-  border-color: #2563eb;
-  background: #2563eb;
-  color: #fff;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
   font-size: 12px;
   margin: 0 0 8px;
 }
 
 .empty-state {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 12px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .table-host:deep(.frappe-control) {

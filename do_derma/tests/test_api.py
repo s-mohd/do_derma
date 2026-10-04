@@ -617,6 +617,34 @@ class TestChartContextErrors(DermaTestHelpers, IntegrationTestCase):
 		self.assertEqual(chart["patient_id"], patient)
 		self.assertIsInstance(chart["procedures"], list)
 
+	def test_chart_carries_the_clinical_profile(self):
+		patient = self._make_patient()
+
+		chart = api.get_patient_derma_chart(patient_id=patient)
+
+		self.assertEqual(chart["clinical_profile"]["allergy_status"], "not_recorded")
+		self.assertEqual(chart["clinical_profile"]["medications"], [])
+
+	def test_clinical_profile_skips_recent_prescriptions(self):
+		patient = self._make_patient()
+		prescription = {"name": "Doxycycline", "encounter": "HLC-ENC-X"}
+
+		with patch("do_health.api.clinical_profile._recent_prescriptions", return_value=[prescription]):
+			chart = api.get_patient_derma_chart(patient_id=patient)
+
+		self.assertEqual(chart["clinical_profile"]["recent_prescriptions"], [])
+
+	def test_a_broken_clinical_profile_degrades_to_none(self):
+		patient = self._make_patient()
+		secret = "SELECT custom_allergies_table FROM tabPatient"
+
+		with patch.object(api, "build_clinical_profile", side_effect=ValueError(secret)):
+			chart = api.get_patient_derma_chart(patient_id=patient)
+
+		self.assertIsNone(chart["clinical_profile"])
+		self.assertEqual(chart["context_errors"], ["clinical profile"])
+		self.assertNotIn(secret, json.dumps(chart, default=str))
+
 
 class TestVisitContextPatientMismatch(DermaTestHelpers, IntegrationTestCase):
 	"""A patient argument that names someone else's encounter or appointment must be
@@ -1280,6 +1308,7 @@ class TestCompleteDermaSessionBlockers(DermaTestHelpers, IntegrationTestCase):
 		settings = {
 			"enforcement": enforcement,
 			"todo_downgrades_blockers": True,
+			"expiring_soon_days": 30,
 			"is_configurable": True,
 		}
 		with patch("do_derma.readiness.session.get_readiness_settings", return_value=settings):
@@ -1753,6 +1782,13 @@ class TestPhotoSetBodyView(DermaPhotoHelpers, IntegrationTestCase):
 
 		self.assertEqual(photo_set["body_view"], "Custom")
 		self.assertEqual(len(photo_set["photos"]), 1)
+
+	def test_a_photo_with_no_view_stores_none(self):
+		"""Frappe fills an empty Select with its first option, so silence must be written as ""."""
+		photo_set = self._make_photo_set()
+
+		self.assertEqual(photo_set["body_view"] or "", "")
+		self.assertEqual(frappe.db.get_value("Derma Photo Set", photo_set["name"], "body_view") or "", "")
 
 
 class TestUpdatePhotoStage(DermaPhotoHelpers, IntegrationTestCase):

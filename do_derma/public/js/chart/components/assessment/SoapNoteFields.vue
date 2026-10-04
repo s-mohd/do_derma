@@ -1,5 +1,5 @@
 <template>
-  <div class="soap-fields" data-test="soap-note-fields">
+  <div class="soap-fields" :class="{ 'is-reading': !editMode }" data-test="soap-note-fields">
     <p v-if="!layout.length" class="fields-empty">
       {{ __("SOAP Note fields are not installed on this site. Run bench migrate.") }}
     </p>
@@ -10,7 +10,7 @@
 
     <template v-else>
       <label v-for="row in editMode ? layout : documentedRows" :key="row.fieldname" class="soap-field">
-        <span class="soap-label">{{ row.label }}</span>
+        <span class="soap-label chart-label">{{ row.label }}</span>
         <textarea
           v-if="editMode"
           v-model="draft[row.fieldname]"
@@ -106,13 +106,13 @@ function markSaved() {
 }
 
 .fields-empty {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 14px;
   margin: 0;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
 }
 
 .soap-field {
@@ -120,26 +120,17 @@ function markSaved() {
   gap: 6px;
 }
 
-.soap-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
 .soap-input {
   width: 100%;
   resize: vertical;
   padding: 8px 10px;
   font: inherit;
-  color: #0f172a;
-  background: var(--control-bg, #edeef0);
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-}
-
-.soap-input:focus {
-  outline: none;
-  border-color: #087b75;
+  color: var(--chart-text);
+  background: var(--chart-surface);
+  border: 1px solid var(--chart-border-strong);
+  border-radius: 8px;
+  min-height: 72px;
+  field-sizing: content;
 }
 
 .soap-input[readonly] {
@@ -148,13 +139,26 @@ function markSaved() {
 
 .soap-readonly {
   margin: 0;
-  padding: 8px 10px;
   font-size: 13px;
   line-height: 1.5;
-  color: #0f172a;
+  color: var(--chart-text);
   white-space: pre-wrap;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+}
+
+.soap-fields.is-reading {
+  gap: 10px;
+}
+
+.soap-fields.is-reading .soap-field {
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+@media (max-width: 1100px) {
+  .soap-fields.is-reading .soap-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 </style>

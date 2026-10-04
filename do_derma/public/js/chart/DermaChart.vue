@@ -31,12 +31,11 @@
         <button type="button" class="ghost small" @click="refresh">{{ __("Retry") }}</button>
       </div>
 
-      <DermaEncounterHeader
+      <ChartHero
         :patient="patient"
         :appointment="appointment"
         :encounter="encounter"
         :practitioner-name="currentPractitionerName"
-        :allergy-text="patientAllergyText"
         :insurance-label="insuranceStatusLabel"
         :has-session-context="hasSessionContext"
         :completing="completingSession"
@@ -47,75 +46,50 @@
         :latest-encounter="data.latest_encounter || ''"
         :visit-date="data.visit_date || ''"
         :visit-time="data.visit_time || ''"
+        :readiness="readiness"
         @complete="completeSession"
         @reopen="reopenSession"
         @open-latest="openLatestVisit"
         @alert-action="handleEncounterAlert"
+        @open-readiness="openReadiness"
       />
 
-      <section class="derma-section-bar" data-test="derma-section-bar">
-        <nav class="derma-section-tabs" :aria-label="__('Derma encounter sections')">
-          <button
-            v-for="section in SECTION_TABS"
-            :key="section.key"
-            type="button"
-            :data-test="`section-tab-${section.key}`"
-            :data-active="activeSection === section.key ? 'true' : 'false'"
-            :class="{ active: activeSection === section.key }"
-            @click="setActiveSection(section.key)"
-          >
-            <span>{{ section.label }}</span>
-            <i
-              v-if="section.key === 'assessment' && assessmentPanel.isFilled"
-              class="tab-tick"
-              data-test="assessment-tick"
-              :title="__('Assessment documented')"
-            >✓</i>
-            <i
-              v-if="section.key === 'procedures' && procedureCount"
-              class="tab-count"
-              data-test="procedures-tab-count"
-              :title="__('{0} procedure(s) this visit').replace('{0}', procedureCount)"
-            >{{ procedureCount }}</i>
-            <i
-              v-if="section.key === 'photos' && photoCount"
-              class="tab-count"
-              data-test="photos-tab-count"
-              :title="__('{0} photo(s) this visit').replace('{0}', photoCount)"
-            >{{ photoCount }}</i>
-            <i
-              v-if="section.key === 'prescriptions' && prescriptionCount"
-              class="tab-count"
-              data-test="prescriptions-tab-count"
-              :title="__('{0} prescription(s) this visit').replace('{0}', prescriptionCount)"
-            >{{ prescriptionCount }}</i>
-            <small v-if="section.key !== 'assessment' || !assessmentModeToggleVisible">{{ section.hint }}</small>
-            <small
-              v-else
-              class="tab-mode-toggle"
-              data-test="assessment-mode-toggle"
-              role="group"
-              :aria-label="__('Assessment format')"
-              :data-locked="assessmentModeLocked ? 'true' : 'false'"
-              :title="assessmentModeLocked ? __('The format is locked after submission.') : ''"
-            >
-              <span
-                v-for="toggleMode in assessmentPanel.availableModes"
-                :key="toggleMode"
-                role="button"
-                :tabindex="assessmentModeLocked ? -1 : 0"
-                :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
-                :data-active="assessmentPanel.mode === toggleMode ? 'true' : 'false'"
-                @click.stop="requestAssessmentModeChange(toggleMode)"
-                @keydown.enter.stop.prevent="requestAssessmentModeChange(toggleMode)"
-              >{{ assessmentModeShortLabel(toggleMode) }}</span>
-            </small>
-          </button>
-        </nav>
-      </section>
+      <ClinicalStrip
+        :profile="clinicalProfile"
+        :is-degraded="isClinicalProfileDegraded"
+        :patient="patient.name || ''"
+        @retry="refresh"
+      />
+
+      <SectionTabs
+        :tabs="SECTION_TABS"
+        :active="activeSection"
+        :counts="sectionTabCounts"
+        :filled="filledSections"
+        :blocked="blockedSections"
+        @select="setActiveSection"
+      />
 
       <section class="derma-console-grid no-side">
         <main class="derma-console-main">
+          <SectionCard :label="activeSectionLabel">
+            <template v-if="assessmentModeToggleVisible" #actions>
+              <div
+                class="tab-mode-toggle"
+                data-test="assessment-mode-toggle"
+                role="group"
+                :aria-label="__('Assessment format')"
+              >
+                <button
+                  v-for="toggleMode in assessmentPanel.availableModes"
+                  :key="toggleMode"
+                  type="button"
+                  :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
+                  :data-active="shownAssessmentMode === toggleMode ? 'true' : 'false'"
+                  @click="requestAssessmentModeChange(toggleMode)"
+                >{{ assessmentModeShortLabel(toggleMode) }}</button>
+              </div>
+            </template>
           <template v-if="activeSection === 'assessment'">
             <div class="clinical-notes-grid" data-test="assessment-section">
               <section class="clinical-soap-stack">
@@ -129,7 +103,8 @@
                   @refined="applyRefinedNote"
                 />
                 <AssessmentPanel
-                  :mode="assessmentPanel.mode"
+                  :mode="shownAssessmentMode"
+                  :documented-mode="assessmentPanel.mode"
                   :available-modes="assessmentPanel.availableModes"
                   :layout="assessmentPanel.layout"
                   :values="assessmentPanel.values"
@@ -154,24 +129,29 @@
                   @advice-toggled="(value) => (assessmentPanel.printPatientAdvice = value)"
                   @advice-language="(value) => (assessmentPanel.patientAdviceLanguage = value)"
                   @request-edit="assessmentPanel.editing = true"
+                  :mode-locked="assessmentModeLocked"
                   @save="saveAssessment"
+                  @switch-mode="requestAssessmentModeChange"
                 />
-                <section class="chart-annotation-history encounter-annotation-history">
+                <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
                   <header>
                     <div>
-                      <strong>{{ __("Drawings") }}</strong>
+                      <h3 class="assessment-block-title" data-tone="neutral">
+                        <span class="block-icon" aria-hidden="true"><i class="fa-solid fa-pen-nib"></i></span>
+                        {{ __("Drawings") }}
+                      </h3>
                       <small>{{ annotations.length ? __("{0} saved drawing(s)").replace("{0}", annotations.length) : __("No saved drawings yet") }}</small>
                     </div>
                     <button
                       type="button"
-                      class="primary small"
+                      class="ghost small"
                       data-test="annotate-consultation"
                       :disabled="annotationStudioBusy || isEncounterLocked"
                       :title="isEncounterLocked ? __('Reopen the encounter to draw.') : ''"
                       @click="openAnnotationStudio({ annotation: null })"
                     >
                       <span v-if="annotationStudioBusy" class="chart-spinner" aria-hidden="true"></span>
-                      <span v-else aria-hidden="true">✎</span>
+                      <i v-else class="fa-regular fa-pen-to-square" aria-hidden="true"></i>
                       {{ annotationStudioBusy ? __("Opening...") : __("Annotate Consultation") }}
                     </button>
                   </header>
@@ -281,7 +261,7 @@
                     @create="createConsentFromPanel"
                     @send-whatsapp="sendConsentViaWhatsApp"
                     @cancel="consentPanel.open = false"
-                    @print-blank="(html) => printConsent(__('Consent Form'), html)"
+                    @print-blank="(html) => printDermaPage('blank_consent', encounter.name, html)"
                   />
                 </div>
               </div>
@@ -329,15 +309,12 @@
         <div class="workspace-tabview">
           <div class="workspace-content review-section-stack">
             <AiDocumentsCard v-if="data.voice_scribe_enabled && encounter.name" :encounter="encounter.name" />
-            <section class="derma-timeline-workspace">
+            <section class="derma-timeline-workspace chart-inner-card">
               <header>
                 <div>
-                  <strong>{{ __("Treatment Timeline") }}</strong>
+                  <strong class="chart-label">{{ __("Treatment Timeline") }}</strong>
                   <small>{{ visitTimeline.length ? __("{0} previous visit(s)").replace("{0}", visitTimeline.length) : __("No previous derma activity yet") }}</small>
                 </div>
-                <button type="button" class="ghost small" :disabled="chartOverlayMode === 'today'" @click="clearTimelineOverlay">
-                  {{ __("Clear Overlay") }}
-                </button>
               </header>
 
               <div v-if="visitTimeline.length" class="timeline-review-layout">
@@ -372,11 +349,6 @@
                     <div>
                       <strong>{{ formatDate(selectedTimelineVisit.date || selectedTimelineVisit.modified) || __("Selected visit") }}</strong>
                       <small>{{ selectedTimelineVisit.summary }}</small>
-                    </div>
-                    <div class="timeline-detail-actions">
-                      <button type="button" class="primary small" @click="overlayTimelineVisit(selectedTimelineVisit)">
-                        {{ __("Overlay Marks") }}
-                      </button>
                     </div>
                   </header>
 
@@ -437,10 +409,10 @@
               </div>
             </section>
 
-            <section class="derma-readiness-summary" data-test="review-readiness">
+            <section class="derma-readiness-summary chart-inner-card" data-test="review-readiness">
               <header>
                 <div>
-                  <strong>{{ __("Session Readiness") }}</strong>
+                  <strong class="chart-label">{{ __("Session Readiness") }}</strong>
                   <small>{{ readinessSummaryText }}</small>
                 </div>
                 <span class="readiness-mode" :data-mode="readinessEnforcement" data-test="review-readiness-mode">
@@ -519,10 +491,10 @@
               </div>
             </section>
 
-            <section class="derma-followup-workspace">
+            <section class="derma-followup-workspace chart-inner-card">
               <header>
                 <div>
-                  <strong>{{ __("Follow-Up Intelligence") }}</strong>
+                  <strong class="chart-label">{{ __("Follow-Up Intelligence") }}</strong>
                   <small>{{ followupItems.length ? __("{0} item(s)").replace("{0}", followupItems.length) : __("No follow-up risks detected") }}</small>
                 </div>
                 <div class="followup-stats">
@@ -593,6 +565,7 @@
           </div>
         </div>
       </section>
+          </SectionCard>
         </main>
       </section>
     </template>
@@ -606,18 +579,20 @@ import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import VoiceScribe from "./components/assessment/VoiceScribe.vue"
 import PreviousVisitsPanel from "./components/assessment/PreviousVisitsPanel.vue"
 import AiDocumentsCard from "./components/review/AiDocumentsCard.vue"
-import PrescriptionPanel from "./components/PrescriptionPanel.vue"
+import PrescriptionPanel from "./components/prescription/PrescriptionPanel.vue"
 import ConsentPanel from "./components/ConsentPanel.vue"
-import DermaEncounterHeader from "./components/DermaEncounterHeader.vue"
+import ChartHero from "./components/shell/ChartHero.vue"
+import ClinicalStrip from "./components/shell/ClinicalStrip.vue"
+import SectionTabs from "./components/shell/SectionTabs.vue"
+import SectionCard from "./components/shell/SectionCard.vue"
 import PhotosPanel from "./components/photos/PhotosPanel.vue"
 import DegradedSectionNotice from "./components/DegradedSectionNotice.vue"
 import MarkResponseChips from "./components/MarkResponseChips.vue"
-import { allowedBodyTemplates } from "../shared/allowed_body_templates.js"
 import { procedureDisplayName } from "../shared/procedure_label.js"
 import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
-import { printHtml } from "../shared/print_window.js"
+import { printPage } from "../shared/print_window.js"
 import { runDialogAction } from "../shared/dialog_progress.js"
 import { serverErrorText } from "../shared/error_text.js"
 
@@ -657,11 +632,11 @@ const ENFORCEMENT_BLOCK = "Block"
 const EMPTY_READINESS = { items: [], blockers: [], enforcement: ENFORCEMENT_WARN }
 
 const SECTION_TABS = [
-  { key: "assessment", label: __("Assessment"), hint: __("Notes") },
-  { key: "procedures", label: __("Procedures"), hint: __("Treatment") },
-  { key: "photos", label: __("Photos"), hint: __("Compare") },
-  { key: "prescriptions", label: __("Prescription"), hint: __("Rx") },
-  { key: "review", label: __("Review"), hint: __("Sign-off") },
+  { key: "assessment", label: __("Assessment") },
+  { key: "procedures", label: __("Procedures") },
+  { key: "photos", label: __("Photos") },
+  { key: "prescriptions", label: __("Prescription") },
+  { key: "review", label: __("Review") },
 ]
 
 const SECTION_KEYS = SECTION_TABS.map((section) => section.key)
@@ -706,14 +681,12 @@ const reopenPending = ref(false)
 const reopeningSession = ref(false)
 const selectedTemplate = ref(null)
 const activeProcedureName = ref("")
-const selectedBodyTemplate = ref(null)
 const activeWorkspaceTab = ref("procedure_history")
 // A newly opened visit starts where the visit starts; a tab picked on this visit is
 // restored by hydrateDermaSectionPreference once the encounter is known.
 const activeSection = ref(DEFAULT_SECTION)
 const selectedMarkName = ref("")
 const selectedTimelineVisitKey = ref("")
-const chartOverlayMode = ref("today")
 const selectedPriceList = ref("")
 const defaultPriceList = ref("")
 const sessionProvider = ref("")
@@ -803,6 +776,21 @@ const readiness = computed(() => data.value.readiness || EMPTY_READINESS)
 const readinessItems = computed(() => readiness.value.items || [])
 const readinessBlockers = computed(() => readiness.value.blockers || [])
 const readinessEnforcement = computed(() => readiness.value.enforcement || ENFORCEMENT_WARN)
+const clinicalProfile = computed(() => data.value.clinical_profile || null)
+const isClinicalProfileDegraded = computed(() => (data.value.context_errors || []).includes("clinical profile"))
+// Both readiness engines read procedure marks, so a blocker is cleared on Procedures.
+const blockedSections = computed(() => (readinessBlockers.value.length ? ["procedures", "review"] : []))
+const sectionTabCounts = computed(() => ({
+  procedures: procedureCount.value,
+  photos: photoCount.value,
+  prescriptions: prescriptionCount.value,
+}))
+const filledSections = computed(() => (assessmentPanel.isFilled ? ["assessment"] : []))
+const activeSectionLabel = computed(() => SECTION_TABS.find((tab) => tab.key === activeSection.value)?.label || "")
+
+function openReadiness() {
+  setActiveSection(readinessBlockers.value.length ? "procedures" : "review")
+}
 const followupItems = computed(() => readinessItems.value.filter((item) => item.source === READINESS_FOLLOWUP))
 const inventoryReadiness = computed(() => readinessItems.value.filter((item) => item.source === READINESS_INVENTORY))
 const activeProcedure = computed(() => {
@@ -889,7 +877,9 @@ function inventoryMetrics(item) {
   return metrics
 }
 const selectedTemplateLabel = computed(() => selectedTemplate.value?.template || selectedTemplate.value?.name || __("No procedure selected"))
+// The clinical strip's profile owns allergies; the raw fields only stand in when it failed to load.
 const patientAllergyText = computed(() => {
+  if (clinicalProfile.value) return (clinicalProfile.value.allergies || []).map((row) => row.allergen).join(", ")
   return patient.value.custom_allergies || patient.value.allergies || patient.value.allergy || ""
 })
 const insuranceStatusLabel = computed(() => {
@@ -987,14 +977,6 @@ const assessmentEditableOnSubmitFields = computed(() => {
   return (layout || []).filter((row) => row.allow_on_submit).map((row) => row.fieldname).filter(Boolean)
 })
 
-const visibleMarks = computed(() => {
-  const templateName = selectedTemplate.value?.name
-  const bodyTemplate = selectedBodyTemplate.value?.name
-  return marks.value
-    .filter((mark) => (!templateName || mark.procedure_template === templateName) && (!bodyTemplate || mark.body_template === bodyTemplate))
-    .sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))
-})
-
 const selectedMark = computed(() => marks.value.find((mark) => mark.name === selectedMarkName.value) || null)
 
 const selectedTimelineVisit = computed(() => visitTimeline.value.find((visit) => visit.key === selectedTimelineVisitKey.value) || visitTimeline.value[0] || null)
@@ -1030,15 +1012,6 @@ watch(
 watch(
   () => activeWorkspaceTab.value,
   (tab) => ensureWorkspaceTab(tab)
-)
-
-watch(
-  () => visibleMarks.value.map((mark) => mark.name).join(","),
-  () => {
-    if (selectedMarkName.value && !visibleMarks.value.some((mark) => mark.name === selectedMarkName.value)) {
-      selectedMarkName.value = ""
-    }
-  }
 )
 
 /** The single owner of the "which tab" invariant: anything unrecognised lands on Assessment. */
@@ -1160,7 +1133,6 @@ async function load(context = props.context) {
 	    if (activeProcedureName.value && !procedures.value.some((row) => row.name === activeProcedureName.value || row.clinical_procedure === activeProcedureName.value)) {
 	      activeProcedureName.value = ""
 	    }
-	    ensureSelectedBodyTemplate()
     if (selectedMarkName.value && !marks.value.some((mark) => mark.name === selectedMarkName.value)) selectedMarkName.value = ""
     Object.keys(loadedTabs).forEach((key) => (loadedTabs[key] = false))
     await hydrateDermaSectionPreference()
@@ -1227,14 +1199,14 @@ async function createPhotoSetFromImages(images) {
           encounter: encounter.value.name,
           clinical_procedure: activeProcedure.value?.name || "",
           chart_mark: selectedMark.value?.name,
-          body_view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-          body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+          body_view: selectedMark.value?.body_view || "",
+          body_region: selectedMark.value?.body_region || "",
           treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
           notes: activeProcedure.value?.name ? `Linked to Clinical Procedure ${activeProcedure.value.name}` : selectedMark.value ? `Linked to chart mark ${selectedMark.value.name}` : "",
           photos: images.map((image) => ({
             image,
-            view: selectedMark.value?.body_view || selectedBodyTemplate.value?.title || "",
-            body_region: selectedMark.value?.body_region || selectedBodyTemplate.value?.template_type || "",
+            view: selectedMark.value?.body_view || "",
+            body_region: selectedMark.value?.body_region || "",
             treatment_entry: activeProcedureTreatmentName.value || selectedMark.value?.treatment_entry || "",
           })),
         },
@@ -1300,26 +1272,6 @@ async function deletePhoto({ photo }) {
 function selectTimelineVisit(visit) {
   if (!visit?.key) return
   selectedTimelineVisitKey.value = visit.key
-}
-
-function overlayTimelineVisit(visit = selectedTimelineVisit.value) {
-  if (!visit?.key) return
-  selectedTimelineVisitKey.value = visit.key
-  chartOverlayMode.value = "history"
-  const firstTemplate = (visit.marks || []).find((mark) => mark.body_template)?.body_template
-  if (firstTemplate) {
-    const template = bodyTemplates.value.find((row) => row.name === firstTemplate)
-    if (template) loadBodyTemplate(template)
-  }
-  frappe.show_alert({
-    message: __("Previous visit marks are now drawn on the body map above. Use Clear Overlay to remove them."),
-    indicator: "blue",
-  })
-}
-
-function clearTimelineOverlay() {
-  selectedTimelineVisitKey.value = ""
-  chartOverlayMode.value = "today"
 }
 
 function openClinicalProcedure(procedure) {
@@ -1421,7 +1373,7 @@ function markLabel(mark) {
 
 function markDetail(mark) {
   const bits = [
-    mark.body_view || selectedBodyTemplate.value?.title,
+    mark.body_view,
     mark.dose ? `${formatNumber(mark.dose)} ${mark.dose_unit || ""}`.trim() : "",
     mark.product_name,
     mark.status,
@@ -1651,20 +1603,19 @@ function openAnnotationReviewDialog(annotation) {
 }
 
 function printAnnotationReview(annotation) {
-  const preview = annotationPreview(annotation)
-  const legend = annotation.annotation_data || ""
-  const label = annotationTemplateLabel(annotation)
-  const patientName = patient.value.patient_name || patient.value.name || ""
-  // This document is hand-written HTML in a window with no autoescaping, so every
-  // interpolated value is escaped here. `legend` is server-generated, escaped at generation.
-  printHtml(
-    [patientName, label].filter(Boolean).join(" - "),
-    `<h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
-      <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
-      ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:60vh;" alt="">` : ""}
-      <div style="margin-top:16px;">${legend}</div>`,
-    { logoUrl: data.value.letterhead_logo }
-  )
+  printDermaPage("annotation", annotation.name)
+}
+
+/** One printable built by the server on the visit practitioner's Letter Head. */
+async function printDermaPage(kind, name, body = undefined) {
+  try {
+    await printPage(async () => {
+      const response = await frappe.call({ method: "do_derma.api.get_derma_print_html", args: { kind, name, body } })
+      return response.message
+    })
+  } catch (error) {
+    frappe.show_alert({ message: serverErrorText(error, __("Unable to print.")), indicator: "red" })
+  }
 }
 
 function annotationPreview(annotation) {
@@ -1679,24 +1630,6 @@ function annotationTemplateLabel(annotation) {
     annotation?.title ||
     __("Drawing")
   )
-}
-
-/** Who and when, for a sheet that ends up in a paper file. Escaped by the caller. */
-function annotationIdentityLine(annotation) {
-  return [
-    patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "",
-    annotationTemplateLabel(annotation),
-    formatDate(annotation?.creation || annotation?.modified),
-    currentPractitionerName.value,
-    encounter.value.name,
-  ]
-    .filter(Boolean)
-    .join(" · ")
-}
-
-function loadBodyTemplate(template = selectedBodyTemplate.value) {
-  if (!template) return
-  selectedBodyTemplate.value = template
 }
 
 /** Excalidraw and React ship as their own bundle so they stay out of the chart's first load. */
@@ -2017,6 +1950,7 @@ function applyAssessmentResponse(message) {
   assessmentPanel.encounter = message.encounter || ""
   assessmentPanel.docstatus = message.docstatus
   assessmentPanel.mode = message.mode || "Structured"
+  assessmentViewMode.value = ""
   assessmentPanel.isFilled = Boolean(message.is_filled)
   assessmentPanel.availableModes = message.available_modes || ["Structured"]
   assessmentPanel.layout = message.layout || []
@@ -2099,8 +2033,7 @@ const savedVoiceSummary = computed(() => ({
   followup_ar: assessmentPanel.patientAdviceAr,
 }))
 
-// Only the active tab offers the switch: an inactive Assessment tab keeps its
-// plain hint, so a navigation click can never land on a format segment.
+// The format switch sits in the Assessment card header, so it shows only on that section.
 const assessmentModeToggleVisible = computed(
   () =>
     activeSection.value === "assessment" &&
@@ -2109,6 +2042,9 @@ const assessmentModeToggleVisible = computed(
 )
 
 const assessmentModeLocked = computed(() => Number(assessmentPanel.docstatus ?? 0) !== 0)
+// A submitted visit keeps its documented format; switching there only changes what is shown.
+const assessmentViewMode = ref("")
+const shownAssessmentMode = computed(() => assessmentViewMode.value || assessmentPanel.mode)
 
 const ASSESSMENT_MODE_SHORT_LABELS = { SOAP: "SOAP", HP: "H&P", Structured: "Structured" }
 const ASSESSMENT_MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
@@ -2132,8 +2068,15 @@ function assessmentModeHasContent(mode) {
   return Object.values(assessmentModeValues(mode) || {}).some(assessmentValueHasContent)
 }
 
+function viewAssessmentMode(target) {
+  if (!(assessmentPanel.availableModes || []).includes(target)) return
+  assessmentPanel.editing = false
+  assessmentViewMode.value = target === assessmentPanel.mode ? "" : target
+}
+
 function requestAssessmentModeChange(target) {
-  if (assessmentModeLocked.value || assessmentPanel.saving || assessmentPanel.loading) return
+  if (assessmentPanel.saving || assessmentPanel.loading) return
+  if (assessmentModeLocked.value) return viewAssessmentMode(target)
   if (!target || target === assessmentPanel.mode) return
   // Leaving an empty format is consequence-free; leaving a written one gets
   // one deliberate confirmation. Nothing is deleted either way (stamp_mode).
@@ -2328,7 +2271,7 @@ async function openSignedConsent(row) {
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
     primary_action_label: __("Print"),
     primary_action() {
-      if (printable) printConsent(title, printable)
+      if (printable) printDermaPage("consent", name)
     },
   })
   dialog.show()
@@ -2350,18 +2293,6 @@ async function openSignedConsent(row) {
       `<p class="text-danger">${escapeHtml(serverErrorText(err, __("Unable to load this consent.")))}</p>`
     )
   }
-}
-
-/** Stored or previewed consent HTML, headed with who it is for so a paper copy can be filed. */
-function printConsent(title, html) {
-  const identity = [patient.value.patient_name, patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "", encounter.value.name]
-    .filter(Boolean)
-    .join(" · ")
-  printHtml(
-    [patient.value.patient_name, title].filter(Boolean).join(" - "),
-    `<p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(identity)}</p>${html}`,
-    { logoUrl: data.value.letterhead_logo }
-  )
 }
 
 function consentMetaText(row = {}) {
@@ -2584,51 +2515,6 @@ function contextArgs() {
     appointment: appointment.value.name || props.context?.appointment,
     patient: patient.value.name || props.context?.patient,
   }
-}
-
-function ensureSelectedBodyTemplate(force = false) {
-  if (!bodyTemplates.value.length) {
-    selectedBodyTemplate.value = null
-    return
-  }
-  const stillAvailable = selectedBodyTemplate.value?.name && bodyTemplates.value.some((row) => row.name === selectedBodyTemplate.value.name)
-  if (!force && stillAvailable) return
-
-  const allowed = allowedBodyTemplates(selectedTemplate.value)
-  const isAllowed = (row) => allowed.includes(String(row.name).toLowerCase())
-  const gender = preferredTemplateGender()
-  const genderMatch = (row) => row.gender === gender
-  const categoryDefault = selectedTemplate.value?.derma_category_defaults?.default_body_template || categorySettings(selectedTemplate.value?.custom_derma_category)?.default_body_template
-  selectedBodyTemplate.value =
-    bodyTemplates.value.find((row) => row.name === categoryDefault && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => row.name === categoryDefault) ||
-    bodyTemplates.value.find((row) => isAllowed(row) && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => isAllowed(row)) ||
-    preferredBodyTemplate("Body") ||
-    preferredBodyTemplate("Face") ||
-    bodyTemplates.value.find((row) => row.image && genderMatch(row)) ||
-    bodyTemplates.value.find((row) => row.image) ||
-    bodyTemplates.value[0] ||
-    null
-}
-
-function preferredBodyTemplate(templateType = "Body") {
-  const gender = preferredTemplateGender()
-  const type = String(templateType || "").toLowerCase()
-  const rows = bodyTemplates.value.filter((row) => row.image && String(row.template_type || "").toLowerCase() === type)
-  if (!rows.length) return null
-  const frontMatch = (row) => /front/i.test([row.name, row.title, row.view_key].filter(Boolean).join(" "))
-  return (
-    rows.find((row) => row.gender === gender && frontMatch(row)) ||
-    rows.find((row) => row.gender === gender) ||
-    rows.find(frontMatch) ||
-    rows[0]
-  )
-}
-
-function categorySettings(category) {
-  if (!category) return null
-  return categories.value.find((row) => row.name === category || row.title === category) || null
 }
 
 function normalizeBodyTemplate(template) {

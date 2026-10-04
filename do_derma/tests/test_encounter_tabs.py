@@ -81,6 +81,19 @@ class TestDermaPrescriptions(PrescriptionHelpers, IntegrationTestCase):
 		)
 		self.assertEqual([row["drug_name"] for row in saved["drug_prescription"]], ["Only"])
 
+	def test_a_resent_row_keeps_fields_the_tab_does_not_show(self):
+		"""The tab resends each loaded row whole, so hidden fields survive a comment edit."""
+		encounter = self._make_encounter(self._make_patient())
+		saved = api.set_derma_prescriptions(
+			payload=json.dumps([self._row(interval=2, interval_uom="Day")]), encounter=encounter.name
+		)
+		resent = {**saved["drug_prescription"][0], "comment": "After meals"}
+		saved = api.set_derma_prescriptions(
+			payload=json.dumps([resent], default=str), encounter=encounter.name
+		)
+		row = saved["drug_prescription"][0]
+		self.assertEqual((row["interval"], row["interval_uom"], row["comment"]), (2, "Day", "After meals"))
+
 	def test_an_absurd_repeat_count_is_refused(self):
 		encounter = self._make_encounter(self._make_patient())
 		with self.assertRaises(frappe.ValidationError):

@@ -1,8 +1,8 @@
 <template>
-  <section class="ai-documents" data-test="ai-documents">
+  <section class="ai-documents chart-inner-card" data-test="ai-documents">
     <header>
       <div>
-        <strong>{{ __("AI Documents") }}</strong>
+        <strong class="chart-label">{{ __("AI Documents") }}</strong>
         <small>{{ __("Drafted from this visit's note and transcript. PDF prints it on the clinic letterhead.") }}</small>
       </div>
       <div class="ai-documents-actions">
@@ -28,7 +28,7 @@
       <li v-for="doc in documents" :key="doc.name" :data-status="doc.status">
         <div class="ai-doc-head">
           <b>{{ doc.title }}</b>
-          <span class="ai-doc-status">{{ doc.status }}</span>
+          <span class="chart-pill" :data-tone="doc.status === 'Issued' ? 'ok' : 'neutral'">{{ doc.status }}</span>
           <small>{{ formatDate(doc.creation) }}</small>
           <span class="ai-doc-buttons">
             <button type="button" class="ghost small" @click="open(doc)">{{ __("Open") }}</button>

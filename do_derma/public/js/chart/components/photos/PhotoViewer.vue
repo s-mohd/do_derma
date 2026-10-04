@@ -54,7 +54,7 @@
           <button
             v-if="canEdit"
             type="button"
-            class="danger small"
+            class="ghost small danger"
             data-test="photo-delete"
             :disabled="Boolean(busy)"
             @click="$emit('delete')"

@@ -4,13 +4,15 @@ import json
 from unittest.mock import MagicMock, patch
 
 import frappe
+from do_health.services.patient_print import render as render_service
 from frappe.tests import IntegrationTestCase
 
 from do_derma import documents, voice
 from do_derma.assessment import SOAP_FIELDS
-from do_derma.printing import letterhead
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
+from do_derma.tests.test_letterhead import SIGNATURE_SRC, STAMP_SRC, LetterHeadHelpers
+
 
 def blank_pdf() -> bytes:
 	from io import BytesIO
@@ -27,7 +29,7 @@ def blank_pdf() -> bytes:
 REPORT = "## Patient Demographic Data\nName: Test\n## Medications\n- None documented\nDr. Abdulla Sadeq\nConsultant"
 
 
-class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
+class TestAiDocuments(LetterHeadHelpers, DermaTestHelpers, IntegrationTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
@@ -37,6 +39,7 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 	def setUp(self):
 		self.addCleanup(frappe.set_user, "Administrator")
 		frappe.set_user("Administrator")
+		self.letter_head = self._make_letter_head(is_default=1)
 		self.encounter = self._make_encounter(self._make_patient())
 		frappe.db.set_value("Patient Encounter", self.encounter.name, SOAP_FIELDS[2], "Irritant contact dermatitis")
 		self.encounter.reload()
@@ -139,14 +142,34 @@ class TestAiDocuments(DermaTestHelpers, IntegrationTestCase):
 			out = documents.generate_document("education", self.encounter.name)
 		with patch("do_health.do_health.doctype.patient_official_document.patient_official_document.get_pdf", return_value=blank_pdf()) as get_pdf:
 			issued = documents.issue_document(out["name"])
-		self.assertIn(letterhead.LOGO_SRC, get_pdf.call_args.args[0])  # embedded, so the PDF never fetches it
+		self.assertIn(self.letter_head.content, get_pdf.call_args.args[0])
 		self.assertEqual(issued["status"], "Issued")
 		self.assertTrue(issued["pdf_url"])
 		html = frappe.db.get_value("Patient Official Document", out["name"], "rendered_html_snapshot")
 		self.assertIn("<h2", html)
 		self.assertIn("Patient Demographic Data", html)
 		self.assertIn("&bull; None documented", html)
-		self.assertIn("CR No. 100506-1", html)
+		self.assertIn(self.letter_head.footer, html)
+
+	def _render_letter(self, practitioner, language="English"):
+		return render_service.render_string(
+			template_html=documents.LETTER_TEMPLATE,
+			practitioner=practitioner,
+			values={"title": "Medical Report", "body": "## Findings\nClear skin", "body_ar": "جلد سليم", "language": language},
+		)
+
+	def test_a_letter_prints_on_the_doctors_letter_head_with_their_mark(self):
+		own = self._make_letter_head()
+		html = self._render_letter(self._make_marked_practitioner(mark="Both", letter_head=own.name))
+		self.assertLess(html.index(own.content), html.index("Clear skin"))
+		self.assertIn(own.footer, html)
+		self.assertNotIn(self.letter_head.content, html)
+		self.assertIn(SIGNATURE_SRC, html)
+		self.assertIn(STAMP_SRC, html)
+
+	def test_a_letter_in_both_languages_is_marked_twice(self):
+		html = self._render_letter(self._make_marked_practitioner(), language="Both")
+		self.assertEqual(html.count('class="derma-signature"'), 2)
 
 	def test_unknown_kind_and_disabled_are_refused(self):
 		with self._enabled():

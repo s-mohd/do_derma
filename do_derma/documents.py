@@ -18,7 +18,6 @@ from frappe.utils import cstr, getdate
 
 from do_derma import assessment, voice
 from do_derma.assessment import HP, SOAP
-from do_derma.printing import letterhead
 from do_derma.schema import DERMA_MODULE, VOICE_TRANSCRIPT_FIELD
 
 TEMPLATE_PREFIX = "Derma AI "
@@ -97,10 +96,10 @@ Thank you for trusting me with your care. If you have any questions or concerns 
 
 # Jinja source of the seeded print templates. `values.body` is the AI text; "## " lines
 # become headings and "- " lines become bullets, everything else a paragraph.
-TEMPLATE_VERSION = 21
+TEMPLATE_VERSION = 22
 TEMPLATE_MARKER = "<!-- derma-ai-letter v"
 LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
-""" + letterhead.OPEN + """<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.4;padding:0 24px;">
+""" + """{{ derma_letterhead_open(practitioner) }}<div style="font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.4;padding:0 24px;">
   <div style="text-align:right;font-size:12px;color:#666;margin-bottom:10px;">{{ today }}</div>
   {% set language = values.language or 'English' %}
   {% set show_en = language != 'Arabic' or not values.body_ar %}
@@ -120,7 +119,7 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
     {% else %}<p style="margin:4px 0;">{{ line }}</p>{% endif %}
   {% endfor %}
   </div>
-""" + letterhead.SIGNATURE + """
+{{ derma_practitioner_mark(practitioner) }}
   {% endif %}
   {% if show_ar %}
   <div dir="rtl" style="{{ 'page-break-before:always;' if show_en else '' }}font-size:12px;padding-top:12px;">
@@ -130,10 +129,10 @@ LETTER_TEMPLATE = f"""{TEMPLATE_MARKER}{TEMPLATE_VERSION} -->
       {% elif line.startswith('- ') %}<div style="padding-right:16px;margin:2px 0;">&bull; {{ line[2:] }}</div>
       {% else %}<p style="margin:4px 0;">{{ line }}</p>{% endif %}
     {% endfor %}
-""" + letterhead.SIGNATURE + """
+{{ derma_practitioner_mark(practitioner) }}
   </div>
   {% endif %}
-</div>""" + letterhead.CLOSE
+</div>{{ derma_letterhead_close(practitioner) }}"""
 
 
 def derma_letter_lines(body: str | None, clinician: str | None, english_body: str | None = None) -> list[str]:

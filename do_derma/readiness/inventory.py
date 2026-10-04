@@ -1,4 +1,4 @@
-"""Product, lot, expiry and stock readiness for the marks in one session."""
+"""Product, lot, expiry and stock readiness for the marks and procedures in one session."""
 
 from __future__ import annotations
 
@@ -6,9 +6,11 @@ from typing import Any
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, nowdate
+from frappe.utils import cint, flt, getdate, nowdate
 
 from do_derma import api
+from do_derma.consumables import batches
+from do_derma.consumables.items import get_warehouse
 from do_derma.readiness.templates import templates_for_marks
 
 SOURCE = "inventory"
@@ -28,14 +30,29 @@ TEMPLATE_FIELDS = [
 ]
 
 
+def select_open_work(
+	marks: list[dict[str, Any]], procedure_rows: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+	"""The marks and procedures readiness still judges: a submitted procedure has posted its
+	stock, so neither it nor the marks it carries are checked again."""
+	submitted = {row.get("name") for row in procedure_rows if cint(row.get("docstatus")) != 0}
+	open_marks = [mark for mark in marks if mark.get("clinical_procedure") not in submitted]
+	open_rows = [row for row in procedure_rows if row.get("name") not in submitted]
+	return open_marks, open_rows
+
+
 def build(
-	marks: list[dict[str, Any]], procedures: list[dict[str, Any]] | None = None
+	marks: list[dict[str, Any]],
+	procedures: list[dict[str, Any]] | None = None,
+	expiring_soon_days: int = 30,
 ) -> list[dict[str, Any]]:
 	"""One row per product/lot/expiry/unit group, each saying whether it blocks."""
 	if not marks and not procedures:
 		return []
 
-	rows = [_resolve_row_status(row) for row in _group_consumption(marks, procedures or [])]
+	rows = [
+		_resolve_row_status(row, expiring_soon_days) for row in _group_consumption(marks, procedures or [])
+	]
 	return sorted(rows, key=lambda row: (row["blocking"] is False, row.get("product_name") or ""))
 
 
@@ -108,6 +125,10 @@ def _record_contribution(
 	name = carrier.get("name")
 	if name and name not in row[carrier_field]:
 		row[carrier_field].append(name)
+	# A group spanning procedures in different warehouses checks stock in the first one's.
+	if row["warehouse"] is None and name:
+		doctype = "Clinical Procedure" if carrier_field == PROCEDURE_CARRIERS else "Derma Chart Mark"
+		row["warehouse"] = get_warehouse(doctype, name) or ""
 
 
 def _new_dose_group(
@@ -141,7 +162,7 @@ def _new_consumable_group(consumable: dict[str, Any]) -> tuple[str, dict[str, An
 		product_item=item_code,
 		product_name=consumable.get("item_name") or _item_display_name(item_code) or item_code,
 		lot_no=batch_no,
-		expiry_date=_batch_expiry(batch_no) or "",
+		expiry_date=batches.get_batch_expiry(batch_no) or "",
 		dose_unit=consumable.get("uom") or "",
 		is_lot_required=_is_batch_tracked(item_code),
 	)
@@ -167,6 +188,7 @@ def _new_group(
 		"stock_qty": 0,
 		"dose_unit": dose_unit,
 		"available_qty": None,
+		"warehouse": None,
 		"status": "ready",
 		"severity": "low",
 		"blocking": False,
@@ -179,14 +201,25 @@ def _new_group(
 	}
 
 
-def _resolve_row_status(row: dict[str, Any]) -> dict[str, Any]:
+def _resolve_row_status(row: dict[str, Any], expiring_soon_days: int = 30) -> dict[str, Any]:
 	"""The same row, saying what is missing and whether that blocks."""
-	available_qty = _stock_available_qty(row.get("product_item"))
-	blockers = _blocking_messages(row, available_qty)
-	messages = blockers + _balance_notices(row, available_qty)
+	line_qty = flt(row.get("stock_qty")) if row.get("is_stock_qty_known") and row.get("stock_qty") else None
+	facts = batches.get_batch_facts(
+		row.get("product_item"),
+		row.get("lot_no") if CONSUMABLE_CONTRIBUTOR in row["contributors"] else None,
+		row.get("warehouse") or None,
+		line_qty,
+		expiring_soon_days,
+		expiry_date=row.get("expiry_date") or None,
+	)
+	blockers = _blocking_messages(row)
+	warnings = [
+		notice["message"] for notice in batches.get_line_notices(facts) if notice["tone"] == "caution"
+	]
+	messages = blockers + warnings + _balance_notices(row, facts["available_qty"])
 	return {
 		**row,
-		"available_qty": available_qty,
+		"available_qty": facts["available_qty"],
 		"blocking": bool(blockers),
 		"is_hard_blocking": _is_batch_missing(row),
 		"status": "blocked" if blockers else ("warning" if messages else "ready"),
@@ -206,15 +239,13 @@ def _is_batch_missing(row: dict[str, Any]) -> bool:
 	return bool(row.get("is_lot_required")) and not row.get("lot_no")
 
 
-def _blocking_messages(row: dict[str, Any], available_qty: float | None) -> list[str]:
+def _blocking_messages(row: dict[str, Any]) -> list[str]:
 	messages = []
 	if not row.get("product_item") and not row.get("product_name"):
 		messages.append(_("Product is missing."))
 	if not row.get("dose"):
 		messages.append(_("Dose/quantity is missing."))
 	messages.extend(_identity_messages(row))
-	if _is_balance_comparable(row, available_qty) and available_qty < flt(row.get("stock_qty")):
-		messages.append(_("Insufficient available stock."))
 	return messages
 
 
@@ -241,16 +272,6 @@ def _balance_notices(row: dict[str, Any], available_qty: float | None) -> list[s
 	return []
 
 
-def _is_balance_comparable(row: dict[str, Any], available_qty: float | None) -> bool:
-	return bool(row.get("is_stock_qty_known")) and available_qty is not None and bool(row.get("stock_qty"))
-
-
-def _batch_expiry(batch_no: str) -> Any:
-	if not batch_no or not api._has_doctype("Batch"):
-		return None
-	return frappe.db.get_value("Batch", batch_no, "expiry_date")
-
-
 def _is_batch_tracked(item_code: str | None) -> bool:
 	if not item_code or not api._has_doctype("Item"):
 		return False
@@ -271,16 +292,6 @@ def _item_display_name(item_code: str | None) -> str | None:
 	if not item_code or not api._has_doctype("Item"):
 		return None
 	return frappe.db.get_value("Item", item_code, "item_name") or item_code
-
-
-def _stock_available_qty(item_code: str | None) -> float | None:
-	if not item_code or not api._has_doctype("Bin"):
-		return None
-	result = frappe.db.sql("select sum(actual_qty) from `tabBin` where item_code=%s", (item_code,))
-	if not result:
-		return None
-	value = result[0][0]
-	return flt(value) if value is not None else None
 
 
 def _is_expired(expiry_date: str | None) -> bool:

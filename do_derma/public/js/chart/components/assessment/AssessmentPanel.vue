@@ -1,7 +1,49 @@
 <template>
   <section class="assessment-panel" data-test="assessment-panel">
+    <Teleport defer to="#chart-section-actions">
+      <template v-if="hasEncounter && !loading">
+        <span
+          v-if="headerStatus"
+          class="chart-pill"
+          :data-tone="saving ? null : 'caution'"
+          data-test="assessment-status"
+        >{{ headerStatus }}</span>
+        <button
+          v-if="canPrint"
+          type="button"
+          class="ghost small"
+          data-test="assessment-print"
+          :title="__('Print this note on the clinic letterhead')"
+          @click="printNote"
+        >
+          {{ __("Print") }}
+        </button>
+        <button
+          v-if="!editMode && canEdit"
+          type="button"
+          class="primary small"
+          data-test="assessment-edit"
+          @click="$emit('request-edit')"
+        >
+          {{ __("Edit") }}
+        </button>
+        <button
+          v-else-if="editMode"
+          type="button"
+          class="primary small"
+          data-test="assessment-save"
+          :disabled="saving || !isDirty"
+          @click="submitDraft"
+        >
+          {{ saving ? __("Saving...") : __("Save") }}
+        </button>
+      </template>
+    </Teleport>
     <p v-if="error" class="error-text" data-test="assessment-error">{{ error }}</p>
-    <p v-if="submittedNote" class="status-note">{{ submittedNote }}</p>
+    <p v-if="submittedNote" class="chart-pill status-note">{{ submittedNote }}</p>
+    <p v-if="isViewingOtherFormat" class="chart-pill status-note" data-tone="info" data-test="assessment-viewing">
+      {{ viewingNote }}
+    </p>
 
     <div v-if="loading" class="empty-state">{{ __("Loading assessment...") }}</div>
 
@@ -19,6 +61,10 @@
     </div>
 
     <template v-else>
+      <h3 class="assessment-block-title" data-tone="accent">
+        <span class="block-icon" aria-hidden="true"><i class="fa-regular fa-file-lines"></i></span>
+        {{ __("Clinical note") }}
+      </h3>
       <SoapNoteFields
         v-if="mode === SOAP || mode === HP"
         ref="fieldsRef"
@@ -41,67 +87,57 @@
         @dirty="(value) => (isDirty = value)"
       />
 
-      <p v-if="!editMode && inactiveModeHasContent" class="status-note" data-test="assessment-other-format">
-        {{ otherFormatNote }}
-      </p>
+      <div v-if="!editMode && otherModesWithContent.length" class="other-formats" data-test="assessment-other-format">
+        <template v-for="otherMode in otherModesWithContent" :key="otherMode">
+          <span v-if="isModeInert(otherMode)" class="chart-pill" data-tone="caution" :data-test="`assessment-other-format-${otherMode.toLowerCase()}`">
+            {{ otherFormatLabel(otherMode) }}
+          </span>
+          <button
+            v-else
+            type="button"
+            class="chart-pill"
+            data-tone="caution"
+            :data-test="`assessment-other-format-${otherMode.toLowerCase()}`"
+            :title="(modeLocked ? __('View {0}') : __('Switch this visit to {0}')).replace('{0}', __(MODE_LABELS[otherMode]))"
+            @click="emit('switch-mode', otherMode)"
+          >
+            {{ otherFormatLabel(otherMode) }}
+          </button>
+        </template>
+      </div>
 
-      <details v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
-        <summary>{{ __("Patient advice") }}</summary>
-        <pre v-if="patientAdvice">{{ patientAdvice }}</pre>
-        <pre v-if="patientAdviceAr" dir="rtl">{{ patientAdviceAr }}</pre>
-        <small>{{ __("Edit the text on the Patient Encounter form. Tick the box below to print it under the note.") }}</small>
-      </details>
-
-      <footer class="assessment-footer">
-        <span class="footer-status">{{ footerStatus }}</span>
-        <label v-if="canPrint && hasAdvice" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
-          <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
-          {{ __("Include patient advice") }}
-        </label>
-        <select
-          v-if="canPrint && hasAdvice && includeAdvice"
-          class="advice-language"
-          data-test="assessment-advice-language"
-          :value="adviceLanguage"
-          :disabled="togglingAdvice"
-          :title="__('Which advice prints: Auto follows the language the report is written in')"
-          @change="setAdviceLanguage($event.target.value)"
-        >
-          <option value="Auto">{{ __("Auto (report language)") }}</option>
-          <option value="English">{{ __("English") }}</option>
-          <option value="Arabic">{{ __("Arabic") }}</option>
-          <option value="Both">{{ __("Both") }}</option>
-        </select>
-        <button
-          v-if="canPrint"
-          type="button"
-          class="ghost"
-          data-test="assessment-print"
-          :title="__('Print this note on the clinic letterhead')"
-          @click="printNote"
-        >
-          {{ __("Print") }}
-        </button>
-        <button
-          v-if="!editMode && canEdit"
-          type="button"
-          class="primary"
-          data-test="assessment-edit"
-          @click="$emit('request-edit')"
-        >
-          {{ __("Edit") }}
-        </button>
-        <button
-          v-else-if="editMode"
-          type="button"
-          class="primary"
-          data-test="assessment-save"
-          :disabled="saving || !isDirty"
-          @click="submitDraft"
-        >
-          {{ saving ? __("Saving...") : __("Save") }}
-        </button>
-      </footer>
+      <section v-if="hasAdvice" class="advice-block" data-test="assessment-advice">
+        <header class="advice-head">
+          <h3 class="assessment-block-title" data-tone="ok">
+            <span class="block-icon" aria-hidden="true"><i class="fa-regular fa-comment-dots"></i></span>
+            {{ __("Patient advice") }}
+          </h3>
+          <label v-if="canPrint" class="advice-toggle" data-test="assessment-advice-toggle" :title="__('Optional: add the patient advice block to the printed note')">
+            <input type="checkbox" :checked="includeAdvice" :disabled="togglingAdvice" @change="toggleAdvice($event.target.checked)" />
+            {{ __("Include in print") }}
+          </label>
+          <select
+            v-if="canPrint && includeAdvice"
+            class="advice-language"
+            data-test="assessment-advice-language"
+            :value="adviceLanguage"
+            :disabled="togglingAdvice"
+            :title="__('Which advice prints: Auto follows the language the report is written in')"
+            @change="setAdviceLanguage($event.target.value)"
+          >
+            <option value="Auto">{{ __("Auto (report language)") }}</option>
+            <option value="English">{{ __("English") }}</option>
+            <option value="Arabic">{{ __("Arabic") }}</option>
+            <option value="Both">{{ __("Both") }}</option>
+          </select>
+        </header>
+        <details>
+          <summary>{{ __("Show advice") }}</summary>
+          <pre v-if="patientAdvice">{{ patientAdvice }}</pre>
+          <pre v-if="patientAdviceAr" dir="rtl">{{ patientAdviceAr }}</pre>
+          <small>{{ __("Edit the text on the Patient Encounter form.") }}</small>
+        </details>
+      </section>
     </template>
   </section>
 </template>
@@ -118,11 +154,13 @@ const SOAP = "SOAP"
 const HP = "HP"
 const STRUCTURED = "Structured"
 const MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
+const SHORT_LABELS = { SOAP: "SOAP", HP: "H&P", Structured: "Structured" }
 // One print format per report type, seeded by do_derma.printing.note - never mixed.
 const PRINT_FORMATS = { SOAP: "Derma Assessment Note (SOAP)", HP: "Derma Assessment Note (H&P)", Structured: "Derma Assessment Note (Structured)" }
 
 const props = defineProps({
   mode: { type: String, default: STRUCTURED },
+  documentedMode: { type: String, default: "" },
   availableModes: { type: Array, default: () => [STRUCTURED] },
   layout: { type: Array, default: () => [] },
   values: { type: Object, default: () => ({}) },
@@ -144,9 +182,10 @@ const props = defineProps({
   patientAdviceAr: { type: String, default: "" },
   printPatientAdvice: { type: Boolean, default: false },
   patientAdviceLanguage: { type: String, default: "Auto" },
+  modeLocked: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language"])
+const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language", "switch-mode"])
 
 // Patient advice prints only when the doctor opts in - the box is a field on the
 // encounter (Allow on Submit), so the choice survives and shows on the form too.
@@ -217,22 +256,29 @@ const otherModesWithContent = computed(() =>
 )
 const isSubmitted = computed(() => Number(props.docstatus ?? 0) === 1)
 
+const isViewingOtherFormat = computed(() => Boolean(props.documentedMode && props.mode !== props.documentedMode))
+const viewingNote = computed(() =>
+  __("Viewing {0} · documented as {1}")
+    .replace("{0}", __(SHORT_LABELS[props.mode] || props.mode))
+    .replace("{1}", __(SHORT_LABELS[props.documentedMode] || props.documentedMode))
+)
+
 const canEdit = computed(() => {
   if (!props.hasEncounter) return false
+  if (isViewingOtherFormat.value) return false
   const status = Number(props.docstatus ?? 0)
   if (status === 0) return true
   if (status === 1) return (props.allowOnSubmitFields || []).length > 0
   return false
 })
 
-const inactiveModeHasContent = computed(() => otherModesWithContent.value.length > 0)
+function isModeInert(mode) {
+  return !props.availableModes.includes(mode)
+}
 
-const otherFormatNote = computed(() =>
-  __("This visit also has content saved as {0}.").replace(
-    "{0}",
-    otherModesWithContent.value.map((mode) => __(MODE_LABELS[mode])).join(", ")
-  )
-)
+function otherFormatLabel(mode) {
+  return __("{0} has content").replace("{0}", __(SHORT_LABELS[mode] || mode))
+}
 
 const submittedNote = computed(() => {
   if (!props.hasEncounter) return ""
@@ -244,11 +290,9 @@ const submittedNote = computed(() => {
     : __("Encounter is submitted. No assessment fields are marked Allow on Submit.")
 })
 
-const footerStatus = computed(() => {
+const headerStatus = computed(() => {
   if (props.saving) return __("Saving...")
-  if (props.editMode && isDirty.value) return __("Unsaved changes")
-  if (props.editMode) return __("No changes")
-  return isSubmitted.value ? "" : __("Read-only. Choose Edit to continue documenting.")
+  return props.editMode && isDirty.value ? __("Unsaved changes") : ""
 })
 
 watch(
@@ -275,52 +319,33 @@ function submitDraft() {
 
 <style scoped>
 .assessment-panel {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #ffffff;
-  padding: 12px;
-  margin-bottom: 12px;
+  display: grid;
+  gap: 14px;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid #d1d5db;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.primary {
-  border-color: #087b75;
-  background: #087b75;
-  color: #ffffff;
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+.assessment-panel > .assessment-block-title {
+  margin-bottom: -4px;
 }
 
 .error-text {
-  color: #b91c1c;
+  color: var(--chart-danger-text);
   font-size: 12px;
   margin: 0 0 8px;
 }
 
 .status-note {
-  color: #92400e;
-  font-size: 12px;
-  margin: 8px 0 0;
+  justify-self: start;
+  white-space: normal;
+  margin: 0;
 }
 
 .empty-state {
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--chart-border-strong);
   border-radius: 10px;
   padding: 14px;
-  color: #475569;
+  color: var(--chart-text-soft);
   font-size: 13px;
-  background: #f8fafc;
+  background: var(--chart-surface-muted);
   display: grid;
   gap: 10px;
   justify-items: start;
@@ -330,63 +355,65 @@ button:disabled {
   margin: 0;
 }
 
-.assessment-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
-}
-
-.footer-status {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: #64748b;
-}
-
 .advice-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #334155;
+  color: var(--chart-text-soft);
   cursor: pointer;
 }
 
 .advice-language {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--chart-border-strong);
   border-radius: 8px;
   padding: 5px 8px;
   font-size: 12px;
-  background: #ffffff;
+  background: var(--chart-surface);
+}
+
+.other-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .advice-block {
+  display: grid;
+  gap: 8px;
   margin-top: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: #f8fafc;
   font-size: 12px;
+}
+
+.advice-head .assessment-block-title {
+  margin: 0;
+}
+
+.advice-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
 }
 
 .advice-block summary {
   cursor: pointer;
-  font-weight: 600;
-  color: #334155;
+  color: var(--chart-text-soft);
 }
 
 .advice-block pre {
   white-space: pre-wrap;
   font: inherit;
   margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--chart-ok-soft);
+  color: var(--chart-text);
 }
 
 .advice-block small {
   display: block;
   margin-top: 6px;
-  color: #64748b;
+  color: var(--chart-muted);
 }
 </style>

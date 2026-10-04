@@ -242,3 +242,29 @@ class TestAssessmentAccessGate(AssessmentTestBase):
 		frappe.set_user(self._make_limited_user())
 		with self.assertRaises(frappe.PermissionError):
 			api.get_derma_assessment(encounter="does-not-matter")
+
+
+DIAGNOSIS_TABLE = {
+	"fieldtype": "Table",
+	"fieldname": "diagnosis",
+	"fields": [
+		{"fieldname": "code", "label": "Code", "fieldtype": "Data"},
+		{"fieldname": "description", "label": "Description", "fieldtype": "Data"},
+	],
+}
+
+
+class TestPreviewText(IntegrationTestCase):
+	def test_a_table_previews_its_rows_not_a_count(self):
+		rows = [{"code": "L29.8", "description": "Other pruritus"}, {"code": "L21.0", "description": ""}]
+		self.assertEqual(assessment.get_preview_text(DIAGNOSIS_TABLE, rows), "L29.8 Other pruritus; L21.0")
+
+	def test_a_table_of_empty_rows_previews_nothing(self):
+		self.assertEqual(assessment.get_preview_text(DIAGNOSIS_TABLE, [{"code": "", "description": " "}]), "")
+		self.assertEqual(assessment.get_preview_text(DIAGNOSIS_TABLE, []), "")
+
+	def test_a_text_field_previews_plain_text(self):
+		self.assertEqual(
+			assessment.get_preview_text({"fieldtype": "Text Editor"}, "<p>Dry &amp; flaky.</p>"),
+			"Dry & flaky.",
+		)

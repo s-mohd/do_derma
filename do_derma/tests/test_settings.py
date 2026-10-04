@@ -138,6 +138,25 @@ class TestReadinessSettings(SettingsTestBase):
 		with patch.object(settings, "get_settings_doc", return_value=doc):
 			self.assertFalse(settings.get_readiness_settings()["todo_downgrades_blockers"])
 
+	def test_the_window_defaults_to_thirty_without_its_field(self):
+		doc = FakeSettings({"blocker_enforcement": "Warn"})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			self.assertEqual(settings.get_readiness_settings()["expiring_soon_days"], 30)
+
+	def test_an_unwritten_window_reads_as_thirty(self):
+		doc = FakeSettings({"blocker_enforcement": "Warn", "expiring_soon_days": None})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			self.assertEqual(settings.get_readiness_settings()["expiring_soon_days"], 30)
+
+	def test_a_clinic_window_of_zero_turns_the_warning_off(self):
+		doc = FakeSettings({"blocker_enforcement": "Warn", "expiring_soon_days": 0})
+		with patch.object(settings, "get_settings_doc", return_value=doc):
+			self.assertEqual(settings.get_readiness_settings()["expiring_soon_days"], 0)
+
+	def test_a_site_without_the_settings_doc_still_has_a_window(self):
+		with patch.object(settings, "get_settings_doc", return_value=None):
+			self.assertEqual(settings.get_readiness_settings()["expiring_soon_days"], 30)
+
 
 class TestReadinessDefaultsSeeding(SettingsTestBase):
 	"""after_migrate writes the defaults a site upgrading into these fields has never
@@ -162,6 +181,25 @@ class TestReadinessDefaultsSeeding(SettingsTestBase):
 		readiness = settings.get_readiness_settings()
 		self.assertEqual(readiness["enforcement"], "Block")
 		self.assertFalse(readiness["todo_downgrades_blockers"])
+
+
+	def test_seeding_writes_the_window_a_site_never_stored(self):
+		frappe.db.delete("Singles", {"doctype": settings.SETTINGS_DOCTYPE, "field": settings.EXPIRING_SOON_FIELD})
+
+		settings.ensure_readiness_defaults()
+
+		stored = frappe.db.sql(
+			"select value from tabSingles where doctype=%s and field=%s",
+			(settings.SETTINGS_DOCTYPE, settings.EXPIRING_SOON_FIELD),
+		)
+		self.assertEqual(stored, (("30",),))
+
+	def test_seeding_keeps_a_clinic_window_of_zero(self):
+		self._set_toggle(settings.EXPIRING_SOON_FIELD, 0)
+
+		settings.ensure_readiness_defaults()
+
+		self.assertEqual(settings.get_readiness_settings()["expiring_soon_days"], 0)
 
 
 class TestChartPayloadCarriesToggles(SettingsTestBase):

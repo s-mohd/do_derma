@@ -8,8 +8,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
-from do_derma.consumables import snapshot
+from do_derma.consumables import batches, snapshot
 from do_derma.consumables.defaults import CONSUMABLE_FIELDS, get_template_consumables, select_fields
+from do_derma.settings import get_readiness_settings
 
 
 def hydrate(procedure_rows: list[dict[str, Any]]) -> None:
@@ -25,6 +26,7 @@ def hydrate(procedure_rows: list[dict[str, Any]]) -> None:
 		return
 
 	live = _live_rows([row["name"] for row in rows])
+	window = get_readiness_settings()["expiring_soon_days"]
 	defaults_by_template: dict[str, list[dict[str, Any]]] = {}
 	for row in rows:
 		template = row.get("procedure_template") or ""
@@ -33,6 +35,9 @@ def hydrate(procedure_rows: list[dict[str, Any]]) -> None:
 		defaults = defaults_by_template[template]
 		compared = snapshot.compare(live.get(row["name"], []), defaults)
 		row["consumables"] = compared["consumables"]
+		batches.annotate_rows(
+			row["consumables"], "Clinical Procedure", row["name"], window, cint(row.get("docstatus")) == 0
+		)
 		row["removed_consumables"] = compared["removed"]
 		row["default_consumables"] = defaults
 
@@ -41,6 +46,12 @@ def get_payload(procedure_doc) -> dict[str, Any]:
 	"""The shape the chart reads and a save answers with, so the panel can swap state."""
 	defaults = get_template_consumables(procedure_doc.procedure_template)
 	compared = snapshot.compare(select_fields(procedure_doc.get("items")), defaults)
+	batches.annotate_rows(
+		compared["consumables"],
+		"Clinical Procedure",
+		procedure_doc.name,
+		get_readiness_settings()["expiring_soon_days"],
+	)
 	return {
 		"owner_doctype": "Clinical Procedure",
 		"owner_name": procedure_doc.name,
