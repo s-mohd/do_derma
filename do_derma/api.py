@@ -24,7 +24,7 @@ from do_derma.config.marker_size import (
 )
 from do_derma.consumables import marks as consumable_marks
 from do_derma.consumables import procedures as consumable_procedures
-from do_derma.printing import letterhead
+from do_derma.printing import letterhead, pages
 from do_derma.schema import COMPLETION_OVERRIDE_FIELD
 from do_derma.settings import (
 	ENFORCEMENT_WARN,
@@ -3493,11 +3493,8 @@ def render_derma_consent_preview(payload=None):
 	return {"rendered_html": doc.get("rendered_html") or ""}
 
 
-@frappe.whitelist()
-def get_derma_consent_html(name: str):
-	_ensure_clinical_access()
-	if not name:
-		frappe.throw(_("Consent is required."), frappe.ValidationError)
+def get_consent_doc(name: str):
+	"""The consent under either consent doctype, rendered from its template if it never was."""
 	doctype = consent.ConsentDoctype().name
 	if not frappe.db.exists(doctype, name):
 		doctype = consent.CONSENT_FORM
@@ -3505,15 +3502,39 @@ def get_derma_consent_html(name: str):
 	if not doc.get("rendered_html") and doc.get("consent_form_template") and hasattr(doc, "render_template"):
 		doc.render_template()
 		doc.save(ignore_permissions=True)
+	return doc
+
+
+@frappe.whitelist()
+def get_derma_consent_html(name: str):
+	_ensure_clinical_access()
+	if not name:
+		frappe.throw(_("Consent is required."), frappe.ValidationError)
+	doc = get_consent_doc(name)
 	return {
 		"name": doc.name,
-		"doctype": doctype,
+		"doctype": doc.doctype,
 		"consent_form_template": doc.get("consent_form_template"),
 		"rendered_html": doc.get("rendered_html"),
 		"status": doc.get("status"),
 		"signed_by": doc.get("signed_by"),
 		"signed_on": doc.get("signed_on"),
 	}
+
+
+@frappe.whitelist()
+def get_derma_print_html(kind: str, name: str, body: str | None = None) -> dict[str, str]:
+	"""A whole printable page on the practitioner's Letter Head: {"title", "html"}."""
+	_ensure_clinical_access()
+	if not name:
+		frappe.throw(_("Choose what to print."), frappe.ValidationError)
+	if kind == "consent":
+		return pages.get_consent_page(get_consent_doc(name))
+	if kind == "blank_consent":
+		return pages.get_blank_consent_page(name, body)
+	if kind == "annotation":
+		return pages.get_annotation_page(name)
+	frappe.throw(_("Unknown printable: {0}").format(kind), frappe.ValidationError)
 
 
 @frappe.whitelist()
