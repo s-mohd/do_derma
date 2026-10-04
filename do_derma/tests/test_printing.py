@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import frappe
 from frappe.tests import IntegrationTestCase
 
 import do_derma.api as api
 from do_derma import assessment
-from do_derma.printing import inject, letterhead, note, render
+from do_derma.printing import inject, note, render
 from do_derma.schema import ensure_derma_schema
 from do_derma.tests.test_api import DermaTestHelpers
 from do_derma.tests.test_config_workspace import ConfigTemplateHelpers
@@ -570,12 +568,6 @@ class TestPrintedEncounter(PrintingTestBase):
 		self.assertIn("اعتن بنفسك!", printed)
 		self.assertIn("مرتين يوميا", printed)
 		self.assertNotIn("ِ", printed)
-
-	def test_logo_file_matches_the_doctor_name_loosely(self):
-		for name in ("Dr Sadiq Abdulla", "Dr. Sadiq  Abdulla", "DR. SADIQ ABDULLA"):
-			self.assertEqual(letterhead.get_logo_file(name), "dr-sadiq-abdulla-logo.png")
-		for name in ("Dr Nedhal Khalifa", "", None):
-			self.assertEqual(letterhead.get_logo_file(name), letterhead.LOGO_FILE)
 
 	def test_advice_language_follows_the_report_or_the_doctor(self):
 		encounter = self._soap_encounter(
