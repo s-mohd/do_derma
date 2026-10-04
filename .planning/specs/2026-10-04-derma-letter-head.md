@@ -53,7 +53,9 @@ Practitioner per printable:
 | Printable | Practitioner |
 |---|---|
 | Assessment note, AI letters | the encounter's practitioner (unchanged) |
-| Consent, annotation review | the encounter's practitioner, else the appointment's |
+| Consent | the consent's encounter's practitioner, else its linked Clinical Procedure's (legacy Consent Form) |
+| Blank consent | the chart encounter's practitioner |
+| Annotation review | the practitioner of the record the drawing hangs off (Patient Encounter or Clinical Procedure) |
 | none found | default Letter Head, no mark |
 
 Deleted: `PRACTITIONER_LOGO_FILES`, `LOGO_SRC`, `PRACTITIONER_LOGO_SRCS`, `get_logo_file`,
@@ -98,9 +100,10 @@ The rule mirrors do_health's `_practitioner_context` (private, so not imported);
 
 ### Images in PDFs
 
-Private Letter Head and stamp images (`/private/files/...`) are inlined with Frappe's
-`frappe.utils.pdf.inline_private_images` on the PDF path. The browser print window fetches them
-with the logged-in session. Public `/files/...` images load normally.
+Frappe's `get_pdf` already inlines private images (`prepare_options` calls
+`inline_private_images` before it lifts `#footer-html`), so private Letter Head and stamp images
+need no do_derma code on the PDF path. The browser print window fetches them with the logged-in
+session. Public `/files/...` images load normally.
 
 ## 3. Per printable
 
@@ -117,20 +120,26 @@ with the logged-in session. Public `/files/...` images load normally.
   `custom_official_document_mark`; no do_health change.
 - `TEMPLATE_VERSION` 21 → 22. Already-issued PDFs are not re-rendered.
 
-### Consent and annotation review (moved server-side)
+### Consent, blank consent and annotation review (pages built server-side)
 
-New whitelisted endpoint in `api.py`:
+New whitelisted endpoint in `api.py`; page building lives in a new `printing/pages.py`:
 
 ```python
 @frappe.whitelist()
-def get_derma_print_html(kind: str, name: str) -> dict[str, str]:
+def get_derma_print_html(kind: str, name: str, body: str | None = None) -> dict[str, str]:
 	"""Returns {"title": ..., "html": ...}: a complete page on the practitioner's Letter Head."""
 ```
 
 - Gates with `_ensure_clinical_access()` first, then reuses the existing helpers.
-- `kind="consent"`: reuses `get_derma_consent_html`'s doctype lookup and render-if-missing, practitioner from `doc.get("encounter")`; page
+- `kind="consent"`, `name` = the consent: the doctype lookup and render-if-missing are extracted
+  from `get_derma_consent_html` into `get_consent_doc(name)`, which both endpoints use; page
   = identity line (patient · MRN · encounter) + `rendered_html` (waiver note included as today)
   + mark.
+- `kind="blank_consent"`, `name` = the encounter, `body` = the unsaved consent HTML the
+  Consent panel builds (filled fields, blank signature lines). It exists only in the browser, so
+  the client sends it; the server wraps it in the same page. `body` is not sanitised: it goes
+  straight back to the window of the user who sent it and is never stored. Empty `body` →
+  `ValidationError`.
 - `kind="annotation"`: reads the saved Health Annotation — preview image, server-generated
   `annotation_data` legend, template label; identity line = MRN · drawing label · date ·
   practitioner · encounter, the same fields the client uses today.
@@ -141,10 +150,12 @@ def get_derma_print_html(kind: str, name: str) -> dict[str, str]:
 
 ### Client
 
-- `public/js/shared/print_window.js` becomes `printHtml(title, html)`: open a window, write the
-  server's page, print. Its CSS, logo and footer are deleted.
-- `printConsent` and `printAnnotationReview` in `DermaChart.vue` call the endpoint, then
-  `printHtml`. Errors show through the existing `serverErrorText` alert.
+- `public/js/shared/print_window.js` exports `printPage(loadPage)` in place of `printHtml`: it
+  opens the window synchronously (inside the click, so pop-up blockers allow it), awaits
+  `loadPage()` for `{title, html}`, writes it and prints; on error it closes the window and
+  rethrows. Its CSS, logo and footer are deleted.
+- `printConsent`, the blank-consent print and `printAnnotationReview` in `DermaChart.vue` call
+  `printPage` with the endpoint. Errors show through the existing `serverErrorText` alert.
 - The consent preview dialog is unchanged.
 
 ## 4. Testing
@@ -159,7 +170,7 @@ Each test builds its own Letter Heads and practitioner; nothing relies on site d
 4. Assessment note through printview with an override practitioner shows their Letter Head and
    signature (requires `bench migrate` first).
 5. AI letter through do_health's renderer shows the override Letter Head and the mark.
-6. Endpoint: access gate; consent contains identity line, body and mark; annotation contains
+6. Endpoint: access gate; consent and blank consent contain identity line, body and mark; annotation contains
    image, escaped label and mark; unknown kind raises.
 7. Schema: `custom_derma_letter_head` exists after install, links Letter Head, sits after
    `custom_official_document_mark`.
