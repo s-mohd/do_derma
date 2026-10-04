@@ -79,16 +79,13 @@
                 data-test="assessment-mode-toggle"
                 role="group"
                 :aria-label="__('Assessment format')"
-                :data-locked="assessmentModeLocked ? 'true' : 'false'"
-                :title="assessmentModeLocked ? __('The format is locked after submission.') : ''"
               >
                 <button
                   v-for="toggleMode in assessmentPanel.availableModes"
                   :key="toggleMode"
                   type="button"
-                  :disabled="assessmentModeLocked"
                   :data-test="`assessment-mode-${toggleMode.toLowerCase()}`"
-                  :data-active="assessmentPanel.mode === toggleMode ? 'true' : 'false'"
+                  :data-active="shownAssessmentMode === toggleMode ? 'true' : 'false'"
                   @click="requestAssessmentModeChange(toggleMode)"
                 >{{ assessmentModeShortLabel(toggleMode) }}</button>
               </div>
@@ -106,7 +103,8 @@
                   @refined="applyRefinedNote"
                 />
                 <AssessmentPanel
-                  :mode="assessmentPanel.mode"
+                  :mode="shownAssessmentMode"
+                  :documented-mode="assessmentPanel.mode"
                   :available-modes="assessmentPanel.availableModes"
                   :layout="assessmentPanel.layout"
                   :values="assessmentPanel.values"
@@ -1966,6 +1964,7 @@ function applyAssessmentResponse(message) {
   assessmentPanel.encounter = message.encounter || ""
   assessmentPanel.docstatus = message.docstatus
   assessmentPanel.mode = message.mode || "Structured"
+  assessmentViewMode.value = ""
   assessmentPanel.isFilled = Boolean(message.is_filled)
   assessmentPanel.availableModes = message.available_modes || ["Structured"]
   assessmentPanel.layout = message.layout || []
@@ -2057,6 +2056,9 @@ const assessmentModeToggleVisible = computed(
 )
 
 const assessmentModeLocked = computed(() => Number(assessmentPanel.docstatus ?? 0) !== 0)
+// A submitted visit keeps its documented format; switching there only changes what is shown.
+const assessmentViewMode = ref("")
+const shownAssessmentMode = computed(() => assessmentViewMode.value || assessmentPanel.mode)
 
 const ASSESSMENT_MODE_SHORT_LABELS = { SOAP: "SOAP", HP: "H&P", Structured: "Structured" }
 const ASSESSMENT_MODE_LABELS = { SOAP: "SOAP Note", HP: "History & Physical", Structured: "Structured Assessment" }
@@ -2080,8 +2082,15 @@ function assessmentModeHasContent(mode) {
   return Object.values(assessmentModeValues(mode) || {}).some(assessmentValueHasContent)
 }
 
+function viewAssessmentMode(target) {
+  if (!(assessmentPanel.availableModes || []).includes(target)) return
+  assessmentPanel.editing = false
+  assessmentViewMode.value = target === assessmentPanel.mode ? "" : target
+}
+
 function requestAssessmentModeChange(target) {
-  if (assessmentModeLocked.value || assessmentPanel.saving || assessmentPanel.loading) return
+  if (assessmentPanel.saving || assessmentPanel.loading) return
+  if (assessmentModeLocked.value) return viewAssessmentMode(target)
   if (!target || target === assessmentPanel.mode) return
   // Leaving an empty format is consequence-free; leaving a written one gets
   // one deliberate confirmation. Nothing is deleted either way (stamp_mode).

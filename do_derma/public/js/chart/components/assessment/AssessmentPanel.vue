@@ -41,6 +41,9 @@
     </Teleport>
     <p v-if="error" class="error-text" data-test="assessment-error">{{ error }}</p>
     <p v-if="submittedNote" class="chart-pill status-note">{{ submittedNote }}</p>
+    <p v-if="isViewingOtherFormat" class="chart-pill status-note" data-tone="info" data-test="assessment-viewing">
+      {{ viewingNote }}
+    </p>
 
     <div v-if="loading" class="empty-state">{{ __("Loading assessment...") }}</div>
 
@@ -95,7 +98,7 @@
             class="chart-pill"
             data-tone="caution"
             :data-test="`assessment-other-format-${otherMode.toLowerCase()}`"
-            :title="__('Switch this visit to {0}').replace('{0}', __(MODE_LABELS[otherMode]))"
+            :title="(modeLocked ? __('View {0}') : __('Switch this visit to {0}')).replace('{0}', __(MODE_LABELS[otherMode]))"
             @click="emit('switch-mode', otherMode)"
           >
             {{ otherFormatLabel(otherMode) }}
@@ -157,6 +160,7 @@ const PRINT_FORMATS = { SOAP: "Derma Assessment Note (SOAP)", HP: "Derma Assessm
 
 const props = defineProps({
   mode: { type: String, default: STRUCTURED },
+  documentedMode: { type: String, default: "" },
   availableModes: { type: Array, default: () => [STRUCTURED] },
   layout: { type: Array, default: () => [] },
   values: { type: Object, default: () => ({}) },
@@ -252,8 +256,16 @@ const otherModesWithContent = computed(() =>
 )
 const isSubmitted = computed(() => Number(props.docstatus ?? 0) === 1)
 
+const isViewingOtherFormat = computed(() => Boolean(props.documentedMode && props.mode !== props.documentedMode))
+const viewingNote = computed(() =>
+  __("Viewing {0} · documented as {1}")
+    .replace("{0}", __(SHORT_LABELS[props.mode] || props.mode))
+    .replace("{1}", __(SHORT_LABELS[props.documentedMode] || props.documentedMode))
+)
+
 const canEdit = computed(() => {
   if (!props.hasEncounter) return false
+  if (isViewingOtherFormat.value) return false
   const status = Number(props.docstatus ?? 0)
   if (status === 0) return true
   if (status === 1) return (props.allowOnSubmitFields || []).length > 0
@@ -261,7 +273,7 @@ const canEdit = computed(() => {
 })
 
 function isModeInert(mode) {
-  return props.modeLocked || !props.availableModes.includes(mode)
+  return !props.availableModes.includes(mode)
 }
 
 function otherFormatLabel(mode) {

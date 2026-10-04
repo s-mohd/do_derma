@@ -713,7 +713,7 @@ class TestAssessmentRestyle(TestCase):
 		self.assertIn('data-test="assessment-other-format"', row)
 		self.assertIn('<span v-if="isModeInert(otherMode)" class="chart-pill" data-tone="caution"', row)
 		self.assertIn("@click=\"emit('switch-mode', otherMode)\"", row)
-		self.assertIn("props.modeLocked || !props.availableModes.includes(mode)", script)
+		self.assertIn("return !props.availableModes.includes(mode)", script)
 		self.assertIn('"switch-mode"', script)
 		self.assertNotIn("otherFormatNote", script)
 		block = get_assessment_block()
@@ -1188,3 +1188,37 @@ class TestConsumablesEditorRestyle(TestCase):
 		self.assertIn('data-test="consumable-batch"', cell)
 		self.assertRegex(style, r"\.batch-cell \{[^}]*display: flex;")
 		self.assertRegex(style, r"\.batch-cell \.consumable-select \{[^}]*order: -1;")
+
+
+class TestAssessmentViewFormat(TestCase):
+	"""A submitted visit's format switch changes only what is on screen (2026-10-04)."""
+
+	def test_the_toggle_stays_usable_after_submission(self):
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		toggle = get_element(chart, '<div\n                class="tab-mode-toggle"')
+		self.assertNotIn(":disabled=", toggle)
+		self.assertNotIn("locked after submission", chart)
+		self.assertIn(":data-active=\"shownAssessmentMode === toggleMode ? 'true' : 'false'\"", toggle)
+
+	def test_a_locked_switch_only_changes_the_view(self):
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		start = chart.index("function requestAssessmentModeChange(target) {")
+		body = chart[start : chart.index("\n}\n", start)]
+		self.assertIn("if (assessmentModeLocked.value) return viewAssessmentMode(target)", body)
+		start = chart.index("function viewAssessmentMode(target) {")
+		view = chart[start : chart.index("\n}\n", start)]
+		self.assertNotIn("frappe.call", view)
+		self.assertIn("assessmentPanel.editing = false", view)
+		self.assertIn(
+			'assessmentViewMode.value = ""',
+			chart.split("function applyAssessmentResponse(message) {", 1)[1].split("\n}\n", 1)[0],
+		)
+
+	def test_the_panel_shows_the_viewed_format_against_the_documented_one(self):
+		block = get_assessment_block()
+		self.assertIn(':mode="shownAssessmentMode"', block)
+		self.assertIn(':documented-mode="assessmentPanel.mode"', block)
+		template, script, _ = get_component_parts(ASSESSMENT_DIR / "AssessmentPanel.vue")
+		self.assertIn('data-test="assessment-viewing"', template)
+		self.assertIn("props.documentedMode && props.mode !== props.documentedMode", script)
+		self.assertIn("if (isViewingOtherFormat.value) return false", script)
