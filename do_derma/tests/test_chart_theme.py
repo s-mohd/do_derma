@@ -1103,3 +1103,88 @@ class TestAssessmentColour(TestCase):
 		)
 		self.assertIn("var(--chart-surface)", body)
 		self.assertIn("border: 1px solid var(--chart-border-strong)", body)
+
+
+CONSUMABLES_EDITOR = CHART_DIR / "components" / "consumables" / "ConsumablesEditor.vue"
+CONSUMABLE_HOOKS = (
+	"mark-consumables",
+	"consumables-error",
+	"consumable-line",
+	"consumable-qty",
+	"consumable-uom",
+	"consumable-batch-facts",
+	"consumable-batch-stock",
+	"consumable-batch-expiry",
+	"consumable-batch",
+	"consumable-remove",
+	"consumable-notice",
+	"consumables-removed",
+	"consumable-add",
+	"consumable-reset",
+	"consumable-add-row",
+	"consumable-new-uom",
+	"consumable-new-batch",
+)
+
+
+class TestConsumablesEditorRestyle(TestCase):
+	"""The Materials editor wears the chart vocabulary of the table around it (2026-10-04)."""
+
+	def test_head_and_columns_are_chart_labels(self):
+		template, _, _ = get_component_parts(CONSUMABLES_EDITOR)
+		head = get_element(template, '<div class="mark-consumables-head"')
+		self.assertIn('<span class="chart-label">{{ label }}</span>', head)
+		self.assertIn('data-test="consumables-count"', head)
+		self.assertNotIn("<strong>", head)
+		headers = re.findall(r"<th\b[^>]*>", template)
+		self.assertTrue(headers)
+		for header in headers:
+			self.assertIn('class="chart-label"', header)
+
+	def test_flags_are_chart_pills(self):
+		template, _, style = get_component_parts(CONSUMABLES_EDITOR)
+		self.assertNotIn("consumable-flag", template + style)
+		self.assertRegex(template, r'class="chart-pill"[^>]*>\s*\{\{ __\("Changed"\) \}\}')
+		self.assertRegex(
+			template, r'class="chart-pill" data-tone="danger"[^>]*>\s*\{\{ __\("No conversion"\) \}\}'
+		)
+		self.assertNotRegex(style, r"tr\.overridden \{[^}]*background")
+
+	def test_remove_is_an_icon_that_reddens_on_hover(self):
+		template, _, style = get_component_parts(CONSUMABLES_EDITOR)
+		start = template.index('data-test="consumable-remove"')
+		button = template[template.rindex("<button", 0, start) : template.index("</button>", start)]
+		self.assertIn('class="icon-btn danger"', button)
+		self.assertIn("fa-trash-can", button)
+		self.assertNotRegex(style, r"\.icon-btn\.danger \{")
+		self.assertRegex(
+			style, r"\.icon-btn\.danger:hover:not\(:disabled\)[^{]*\{[^}]*var\(--chart-danger-text\)"
+		)
+
+	def test_the_lot_shows_once(self):
+		template, _, _ = get_component_parts(CONSUMABLES_EDITOR)
+		self.assertIn('<b v-if="readOnly && row.batch.name">', template)
+		self.assertNotIn('row.batch_no || "-"', template)
+
+	def test_the_item_picker_keeps_escape_from_desk(self):
+		template, _, _ = get_component_parts(CONSUMABLES_EDITOR)
+		host = re.search(r'<div[^>]*class="consumable-link-host"[^>]*>', template).group(0)
+		self.assertIn('@keydown.escape.stop="cancelItemPicker"', host)
+		self.assertIn('ref="itemButton"', template)
+		_, script, _ = get_component_parts(CONSUMABLES_EDITOR)
+		self.assertIn("nextTick(() => itemButton.value?.focus())", script)
+		self.assertNotIn('class="link-cell"', template)
+		self.assertIn('class="cell-input"', template)
+
+	def test_every_hook_survives(self):
+		markup = CONSUMABLES_EDITOR.read_text()
+		for hook in CONSUMABLE_HOOKS:
+			self.assertIn(f'data-test="{hook}"', markup)
+
+	def test_lot_pills_sit_beside_the_select(self):
+		template, _, style = get_component_parts(CONSUMABLES_EDITOR)
+		cell = get_element(template, '<div class="batch-cell"')
+		self.assertIn('data-test="consumable-batch-facts"', cell)
+		self.assertIn('data-test="consumable-batch"', cell)
+		self.assertRegex(style, r"\.batch-cell \{[^}]*display: flex;")
+		self.assertRegex(style, r"\.batch-cell \.consumable-select \{[^}]*order: -1;")

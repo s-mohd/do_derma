@@ -1,8 +1,9 @@
 <template>
   <div class="mark-consumables" data-test="mark-consumables">
     <div class="mark-consumables-head">
-      <strong>{{ label }}</strong>
-      <span v-if="saving" class="text-muted">{{ __("Saving...") }}</span>
+      <span class="chart-label">{{ label }}</span>
+      <span class="chart-pill" data-tone="neutral" data-test="consumables-count">{{ draftRows.length }}</span>
+      <span v-if="saving" class="chart-pill" data-tone="neutral">{{ __("Saving...") }}</span>
     </div>
 
     <p v-if="error && failedIndex === null" class="consumables-error" data-test="consumables-error">
@@ -12,11 +13,11 @@
     <table v-if="draftRows.length" class="consumables-table">
       <thead>
         <tr>
-          <th>{{ __("Material") }}</th>
-          <th>{{ __("Qty") }}</th>
-          <th>{{ __("Unit") }}</th>
-          <th>{{ __("Batch") }}</th>
-          <th v-if="!readOnly"></th>
+          <th class="chart-label">{{ __("Material") }}</th>
+          <th class="chart-label">{{ __("Qty") }}</th>
+          <th class="chart-label">{{ __("Unit") }}</th>
+          <th class="chart-label">{{ __("Batch") }}</th>
+          <th v-if="!readOnly" class="chart-label"><span class="sr-only">{{ __("Actions") }}</span></th>
         </tr>
       </thead>
       <tbody>
@@ -24,7 +25,7 @@
         <tr :class="{ overridden: row.is_overridden }" data-test="consumable-line">
           <td>
             <span>{{ row.item_name || row.item_code }}</span>
-            <span v-if="row.is_overridden" class="consumable-flag" :title="__('Differs from the template')">
+            <span v-if="row.is_overridden" class="chart-pill" data-tone="neutral" :title="__('Differs from the template')">
               {{ __("Changed") }}
             </span>
           </td>
@@ -59,55 +60,58 @@
               <span v-if="isOptionsLoading(row)" class="text-muted consumable-hint">
                 {{ __("Loading units...") }}
               </span>
-              <span v-else-if="isUnitUnknown(row)" class="consumable-flag broken" :title="unitTitle(row)">
+              <span v-else-if="isUnitUnknown(row)" class="chart-pill" data-tone="danger" :title="unitTitle(row)">
                 {{ __("No conversion") }}
               </span>
             </template>
             <span v-else>{{ row.uom || "-" }}</span>
           </td>
           <td>
-            <div v-if="hasBatchFacts(row)" class="consumable-batch" data-test="consumable-batch-facts">
-              <b v-if="row.batch.name">{{ row.batch.name }}</b>
-              <span
-                v-if="row.batch.available_qty !== null"
-                class="chart-pill"
-                :data-tone="row.batch.is_short ? 'caution' : 'neutral'"
-                data-test="consumable-batch-stock"
-              >{{ __("{0} left", [row.batch.available_qty]) }}</span>
-              <span
-                v-if="row.batch.expiry_date"
-                class="chart-pill"
-                :data-tone="expiryTone(row.batch)"
-                data-test="consumable-batch-expiry"
-              >{{ expiryLabel(row.batch) }}</span>
+            <div class="batch-cell">
+              <div v-if="hasBatchFacts(row)" class="consumable-batch" data-test="consumable-batch-facts">
+                <b v-if="readOnly && row.batch.name">{{ row.batch.name }}</b>
+                <span
+                  v-if="row.batch.available_qty !== null"
+                  class="chart-pill"
+                  :data-tone="row.batch.is_short ? 'caution' : 'neutral'"
+                  data-test="consumable-batch-stock"
+                >{{ __("{0} left", [row.batch.available_qty]) }}</span>
+                <span
+                  v-if="row.batch.expiry_date"
+                  class="chart-pill"
+                  :data-tone="expiryTone(row.batch)"
+                  data-test="consumable-batch-expiry"
+                >{{ expiryLabel(row.batch) }}</span>
+              </div>
+              <select
+                v-if="!readOnly && isBatchTracked(row.item_code)"
+                class="inline-input consumable-select consumable-change"
+                data-test="consumable-batch"
+                :class="{ 'consumable-missing': !row.batch_no }"
+                :value="row.batch_no || ''"
+                @change="commitField(index, 'batch_no', $event.target.value)"
+              >
+                <option value="">{{ row.batch_no ? __("Change lot") : __("Pick a batch") }}</option>
+                <option v-for="batch in batchOptions(row)" :key="batch.name" :value="batch.name">
+                  {{ batchLabel(batch) }}
+                </option>
+              </select>
+              <span v-else-if="isOptionsLoading(row)" class="text-muted consumable-hint">
+                {{ __("Loading batches...") }}
+              </span>
+              <span v-else-if="readOnly && row.batch_no && !row.batch?.name">{{ row.batch_no }}</span>
             </div>
-            <select
-              v-if="!readOnly && isBatchTracked(row.item_code)"
-              class="inline-input consumable-select consumable-change"
-              data-test="consumable-batch"
-              :class="{ 'consumable-missing': !row.batch_no }"
-              :value="row.batch_no || ''"
-              @change="commitField(index, 'batch_no', $event.target.value)"
-            >
-              <option value="">{{ row.batch_no ? __("Change lot") : __("Pick a batch") }}</option>
-              <option v-for="batch in batchOptions(row)" :key="batch.name" :value="batch.name">
-                {{ batchLabel(batch) }}
-              </option>
-            </select>
-            <span v-else-if="isOptionsLoading(row)" class="text-muted consumable-hint">
-              {{ __("Loading batches...") }}
-            </span>
-            <span v-else-if="!row.batch?.name">{{ row.batch_no || "-" }}</span>
           </td>
-          <td v-if="!readOnly">
+          <td v-if="!readOnly" class="row-actions">
             <button
               type="button"
-              class="ghost small"
+              class="icon-btn danger"
               data-test="consumable-remove"
               :title="__('Remove material')"
+              :aria-label="__('Remove material')"
               @click="removeRow(index)"
             >
-              {{ __("Remove") }}
+              <i class="fa-regular fa-trash-can"></i>
             </button>
           </td>
         </tr>
@@ -125,13 +129,13 @@
       </tbody>
     </table>
 
-    <p v-else class="text-muted consumables-empty">{{ __("No materials recorded.") }}</p>
+    <p v-else class="consumables-empty">{{ __("No materials recorded.") }}</p>
 
     <div v-if="removed.length" class="consumables-removed" data-test="consumables-removed">
-      <span class="text-muted">{{ __("Removed from the template") }}</span>
+      <span class="consumables-muted">{{ __("Removed from the template") }}</span>
       <span v-for="(row, index) in removed" :key="`removed-${index}`" class="removed-chip chart-pill" data-tone="neutral">
         {{ row.item_name || row.item_code }}
-        <button v-if="!readOnly" type="button" class="ghost small" @click="restore(row)">
+        <button v-if="!readOnly" type="button" class="restore-btn" @click="restore(row)">
           {{ __("Restore") }}
         </button>
       </span>
@@ -154,8 +158,8 @@
     </div>
 
     <div v-if="adding && !readOnly" class="consumables-add" data-test="consumable-add-row">
-      <div v-if="pickingItem" ref="itemHost" class="consumable-link-host"></div>
-      <button v-else type="button" class="link-cell" @click="pickItem">
+      <div v-if="pickingItem" ref="itemHost" class="consumable-link-host" @keydown.escape.stop="cancelItemPicker"></div>
+      <button v-else ref="itemButton" type="button" class="cell-input" :class="{ 'is-empty': !draftNew.item_code }" @click="pickItem">
         {{ draftNew.item_code || __("Pick an item") }}
       </button>
       <input v-model="draftNew.qty" type="number" min="0" step="any" class="inline-input consumable-qty" />
@@ -220,6 +224,7 @@ const draftNew = ref(emptyDraft())
 const adding = ref(false)
 const pickingItem = ref(false)
 const itemHost = ref(null)
+const itemButton = ref(null)
 // Units and batches per item, fetched once the panel is open and reused by every row.
 const itemOptions = ref({})
 // The items whose options are still in flight, so a row says so instead of looking single-unit.
@@ -441,6 +446,11 @@ function closeItemPicker() {
   itemControl = null
 }
 
+function cancelItemPicker() {
+  closeItemPicker()
+  nextTick(() => itemButton.value?.focus())
+}
+
 function mountItemControl() {
   const host = Array.isArray(itemHost.value) ? itemHost.value[0] : itemHost.value
   if (!host || !window.frappe?.ui?.form?.make_control) return
@@ -473,55 +483,92 @@ async function applyItem(itemCode) {
 
 <style scoped>
 .mark-consumables {
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-top: 1px solid var(--chart-border);
 }
 
 .mark-consumables-head {
   display: flex;
   gap: 8px;
-  align-items: baseline;
-  margin-bottom: 6px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 .consumables-table {
   width: 100%;
-  font-size: 12px;
+  border-collapse: collapse;
+  font-size: 13px;
 }
 
-.consumables-table td,
 .consumables-table th {
-  padding: 4px 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--chart-border);
   text-align: left;
 }
 
-.consumables-table tr.overridden {
-  background: var(--chart-surface-muted);
+.consumables-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--chart-surface-muted);
+  color: var(--chart-text);
+  text-align: left;
+  vertical-align: middle;
 }
 
-.consumable-flag {
+.consumables-table td .chart-pill {
   margin-left: 6px;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 10px;
-  text-transform: uppercase;
-  background: var(--chart-caution-soft);
-  color: var(--chart-caution-text);
 }
 
-.consumable-flag.broken {
-  background: var(--chart-danger-soft);
-  color: var(--chart-danger-text);
+.inline-input,
+.cell-input {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--chart-border);
+  border-radius: 6px;
+  background: var(--chart-surface);
+  color: var(--chart-text);
+  font-size: 13px;
+}
+
+.inline-input:focus,
+.cell-input:focus-visible {
+  border-color: var(--chart-accent);
+  outline: none;
+}
+
+.inline-input:disabled {
+  background: var(--chart-surface-muted);
+  color: var(--chart-muted);
+}
+
+.cell-input {
+  min-width: 180px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cell-input.is-empty {
+  color: var(--chart-muted);
+}
+
+.consumable-hint,
+.consumables-muted,
+.consumables-empty {
+  color: var(--chart-muted);
+  font-size: 12px;
 }
 
 .consumable-hint {
   margin-left: 6px;
-  font-size: 10px;
+}
+
+.consumables-empty {
+  margin: 0;
 }
 
 .consumables-error {
-  color: var(--chart-danger-text);
   margin: 4px 0;
+  color: var(--chart-danger-text);
+  font-size: 12px;
 }
 
 .consumable-qty {
@@ -536,17 +583,16 @@ async function applyItem(itemCode) {
   border-color: var(--chart-danger);
 }
 
-.link-cell {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--chart-text);
-  text-decoration: underline dotted;
-  cursor: pointer;
+.consumable-link-host {
+  min-width: 180px;
 }
 
-.consumable-link-host {
-  min-width: 140px;
+.consumable-link-host :deep(.frappe-control) {
+  margin-bottom: 0;
+}
+
+.consumable-link-host :deep(.control-label) {
+  display: none;
 }
 
 .consumables-removed,
@@ -556,11 +602,25 @@ async function applyItem(itemCode) {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .removed-chip {
   gap: 6px;
+}
+
+.restore-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chart-accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.restore-btn:hover {
+  text-decoration: underline;
 }
 
 .consumable-batch {
@@ -568,7 +628,44 @@ async function applyItem(itemCode) {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+}
+
+.consumable-batch .chart-pill {
+  margin-left: 0;
+}
+
+.batch-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The select reads first; the lot's stock and expiry pills follow it. */
+.batch-cell .consumable-select {
+  order: -1;
+}
+
+.row-actions {
+  width: 44px;
+  text-align: right;
+}
+
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--chart-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.icon-btn.danger:hover:not(:disabled),
+.icon-btn.danger:focus-visible {
+  background: var(--chart-danger-soft);
+  color: var(--chart-danger-text);
 }
 
 .consumable-notice-row td {
@@ -577,6 +674,15 @@ async function applyItem(itemCode) {
 }
 
 .consumable-notice-row .chart-pill {
+  margin-left: 0;
   white-space: normal;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 </style>
