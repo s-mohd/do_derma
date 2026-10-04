@@ -88,6 +88,10 @@ class TestLetterHead(LetterHeadHelpers, IntegrationTestCase):
 		self.assertIn('id="footer-html"', page)
 		self.assertIn(f"height:{letterhead.FOOTER_ROOM};", page)
 
+	def test_letter_head_tables_span_the_page_without_frappes_print_css(self):
+		page = str(letterhead.derma_letterhead_open(None))
+		self.assertIn(".derma-letterhead-head table, .derma-letterhead-foot table { width: 100%; }", page)
+
 	def test_the_mark_follows_the_official_document_mark(self):
 		cases = {
 			"Signature": [SIGNATURE_SRC],

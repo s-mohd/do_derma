@@ -261,7 +261,7 @@
                     @create="createConsentFromPanel"
                     @send-whatsapp="sendConsentViaWhatsApp"
                     @cancel="consentPanel.open = false"
-                    @print-blank="(html) => printConsent(__('Consent Form'), html)"
+                    @print-blank="(html) => printDermaPage('blank_consent', encounter.name, html)"
                   />
                 </div>
               </div>
@@ -592,7 +592,7 @@ import { procedureDisplayName } from "../shared/procedure_label.js"
 import { groupTemplatesByCategory } from "../shared/procedure_categories.js"
 import { useBrokenImages } from "../shared/broken_images.js"
 import { nameDialogControls } from "../shared/dialog_a11y.js"
-import { printHtml } from "../shared/print_window.js"
+import { printPage } from "../shared/print_window.js"
 import { runDialogAction } from "../shared/dialog_progress.js"
 import { serverErrorText } from "../shared/error_text.js"
 
@@ -1603,20 +1603,19 @@ function openAnnotationReviewDialog(annotation) {
 }
 
 function printAnnotationReview(annotation) {
-  const preview = annotationPreview(annotation)
-  const legend = annotation.annotation_data || ""
-  const label = annotationTemplateLabel(annotation)
-  const patientName = patient.value.patient_name || patient.value.name || ""
-  // This document is hand-written HTML in a window with no autoescaping, so every
-  // interpolated value is escaped here. `legend` is server-generated, escaped at generation.
-  printHtml(
-    [patientName, label].filter(Boolean).join(" - "),
-    `<h2 style="margin:0 0 4px;">${escapeHtml(patientName)}</h2>
-      <p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(annotationIdentityLine(annotation))}</p>
-      ${preview ? `<img src="${escapeHtml(preview)}" style="max-width:100%;max-height:60vh;" alt="">` : ""}
-      <div style="margin-top:16px;">${legend}</div>`,
-    { logoUrl: data.value.letterhead_logo }
-  )
+  printDermaPage("annotation", annotation.name)
+}
+
+/** One printable built by the server on the visit practitioner's Letter Head. */
+async function printDermaPage(kind, name, body = undefined) {
+  try {
+    await printPage(async () => {
+      const response = await frappe.call({ method: "do_derma.api.get_derma_print_html", args: { kind, name, body } })
+      return response.message
+    })
+  } catch (error) {
+    frappe.show_alert({ message: serverErrorText(error, __("Unable to print.")), indicator: "red" })
+  }
 }
 
 function annotationPreview(annotation) {
@@ -1631,19 +1630,6 @@ function annotationTemplateLabel(annotation) {
     annotation?.title ||
     __("Drawing")
   )
-}
-
-/** Who and when, for a sheet that ends up in a paper file. Escaped by the caller. */
-function annotationIdentityLine(annotation) {
-  return [
-    patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "",
-    annotationTemplateLabel(annotation),
-    formatDate(annotation?.creation || annotation?.modified),
-    currentPractitionerName.value,
-    encounter.value.name,
-  ]
-    .filter(Boolean)
-    .join(" · ")
 }
 
 /** Excalidraw and React ship as their own bundle so they stay out of the chart's first load. */
@@ -2285,7 +2271,7 @@ async function openSignedConsent(row) {
     fields: [{ fieldname: "body", fieldtype: "HTML" }],
     primary_action_label: __("Print"),
     primary_action() {
-      if (printable) printConsent(title, printable)
+      if (printable) printDermaPage("consent", name)
     },
   })
   dialog.show()
@@ -2307,18 +2293,6 @@ async function openSignedConsent(row) {
       `<p class="text-danger">${escapeHtml(serverErrorText(err, __("Unable to load this consent.")))}</p>`
     )
   }
-}
-
-/** Stored or previewed consent HTML, headed with who it is for so a paper copy can be filed. */
-function printConsent(title, html) {
-  const identity = [patient.value.patient_name, patient.value.name ? `${__("MRN")}: ${patient.value.name}` : "", encounter.value.name]
-    .filter(Boolean)
-    .join(" · ")
-  printHtml(
-    [patient.value.patient_name, title].filter(Boolean).join(" - "),
-    `<p style="margin:0 0 16px;color:#475569;font-size:13px;">${escapeHtml(identity)}</p>${html}`,
-    { logoUrl: data.value.letterhead_logo }
-  )
 }
 
 function consentMetaText(row = {}) {

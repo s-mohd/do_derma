@@ -69,6 +69,9 @@ STYLE = """<style>
 div.print-format { margin-bottom: 0; }
 table.derma-letterhead, .derma-letterhead > tbody, .derma-letterhead > tbody > tr, .derma-letterhead > tbody > tr > td { display: block; }
 .derma-letterhead > tfoot { display: none; }
+/* Letter Heads are written against Frappe's print CSS, which the chart's print window lacks. */
+.derma-letterhead-head table, .derma-letterhead-foot table { width: 100%; }
+.derma-letterhead-head img, .derma-letterhead-foot img { max-width: 100%; }
 @media screen { table.derma-letterhead { margin-bottom: 36px; } }
 /* Frappe keeps every div in a table cell on one page; the letter body must flow across pages. */
 .derma-letterhead td div { page-break-inside: auto !important; }
