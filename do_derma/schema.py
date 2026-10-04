@@ -55,6 +55,7 @@ MODE_FIELD = "custom_derma_assessment_mode"
 PRACTITIONER_DEFAULT_FIELD = "custom_derma_default_assessment_mode"
 SIGNATURE_WAIVED_FIELD = "custom_derma_signature_waived"
 WAIVER_REASON_FIELD = "custom_derma_waiver_reason"
+LETTER_HEAD_FIELD = "custom_derma_letter_head"
 
 # A consent saved without a digital signature (paper, verbal). The health apps refuse to submit an
 # unsigned consent, so a waived one stays a draft and these fields say why.
@@ -454,6 +455,14 @@ DERMA_CUSTOM_FIELDS: dict[str, list[dict[str, Any]]] = {
 			"options": ASSESSMENT_MODE_OPTIONS,
 			"insert_after": "practitioner_name",
 			"description": "Applies to new encounters only. It never overrides a mode already stamped on a visit.",
+		},
+		{
+			"fieldname": LETTER_HEAD_FIELD,
+			"fieldtype": "Link",
+			"label": "Letter Head",
+			"options": "Letter Head",
+			"insert_after": "custom_official_document_mark",
+			"description": "Derma chart prints use this instead of the site's default Letter Head.",
 		},
 	],
 }
