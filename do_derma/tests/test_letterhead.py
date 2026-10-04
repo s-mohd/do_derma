@@ -31,7 +31,8 @@ class LetterHeadHelpers:
 	def _make_marked_practitioner(self, mark="Signature", letter_head=None, signature=SIGNATURE_SRC, stamp=STAMP_SRC):
 		name = (
 			frappe.get_doc(
-				{"doctype": "Healthcare Practitioner", "first_name": f"Mark{frappe.generate_hash(length=8)}", "status": "Active"}
+				# Disabled, so DermaTestHelpers._get_or_create_practitioner never hands it to another test.
+				{"doctype": "Healthcare Practitioner", "first_name": f"Mark{frappe.generate_hash(length=8)}", "status": "Disabled"}
 			)
 			.insert(ignore_permissions=True)
 			.name
