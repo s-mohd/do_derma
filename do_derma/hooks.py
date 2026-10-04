@@ -52,6 +52,9 @@ jinja = {
 		"do_derma.printing.render.derma_consumables_html",
 		"do_derma.printing.render.derma_procedure_variables_html",
 		"do_derma.printing.letterhead.derma_letterhead_logo",
+		"do_derma.printing.letterhead.derma_letterhead_open",
+		"do_derma.printing.letterhead.derma_letterhead_close",
+		"do_derma.printing.letterhead.derma_practitioner_mark",
 	]
 }
 
