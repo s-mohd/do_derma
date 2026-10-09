@@ -65,12 +65,13 @@
           </td>
         </tr>
         <PrescriptionRow
-          v-for="draft in drafts"
+          v-for="(draft, index) in drafts"
           :key="draft.key"
           :ref="(component) => (rowComponents[draft.key] = component)"
           :row="draft"
           :read-only="!canEdit"
           :is-next="isTrailing(draft)"
+          :duplicate-of="duplicateOf[orderedRows.length + index]"
           :open-field="openPicker?.key === draft.key ? openPicker.field : ''"
           :comment-open="openComment === draft.key"
           :missing="showMissing ? getRequiredGaps(draft) : []"
@@ -144,6 +145,21 @@ const validationError = computed(() => {
   return __("Row {0}: {1} is required.")
     .replace("{0}", orderedRows.value.length + index + 1)
     .replace("{1}", REQUIRED_FIELDS[field])
+})
+
+// For each line, the row number of an earlier line with the same medication, or 0.
+const duplicateOf = computed(() => {
+  const firstRows = new Map()
+  const medications = [
+    ...orderedRows.value.map((row) => row.medication),
+    ...drafts.value.map((draft) => draft.values.medication),
+  ]
+  return medications.map((medication, index) => {
+    if (!medication) return 0
+    if (!firstRows.has(medication)) firstRows.set(medication, index + 1)
+    const firstRow = firstRows.get(medication)
+    return firstRow === index + 1 ? 0 : firstRow
+  })
 })
 
 // A server error describes the rows that were sent; it goes once they change.

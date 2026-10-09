@@ -36,6 +36,10 @@
         {{ row.values.drug_code || __("Choose item") }}
       </button>
       <small v-else-if="row.values.drug_code" class="drug-code">{{ row.values.drug_code }}</small>
+      <small v-if="duplicateOf" class="duplicate-note" data-test="prescription-duplicate">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        {{ __("Also prescribed in row {0}").replace("{0}", duplicateOf) }}
+      </small>
       <span v-if="row.filling" class="filling" data-test="prescription-filling">
         <span class="chart-spinner" aria-hidden="true"></span>
         {{ __("Filling in dosage and duration...") }}
@@ -147,6 +151,7 @@ const props = defineProps({
   row: { type: Object, required: true },
   readOnly: { type: Boolean, default: false },
   isNext: { type: Boolean, default: false },
+  duplicateOf: { type: Number, default: 0 },
   openField: { type: String, default: "" },
   commentOpen: { type: Boolean, default: false },
   missing: { type: Array, default: () => [] },
@@ -325,6 +330,15 @@ const previewStyle = computed(() => {
   color: var(--chart-accent-strong);
   text-decoration: underline dotted;
   cursor: pointer;
+}
+
+.duplicate-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: var(--chart-caution-text);
+  font-size: 12px;
 }
 
 .filling {

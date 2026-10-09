@@ -1036,6 +1036,23 @@ class TestPrescriptionPanelRestyle(TestCase):
 		panel, _, _ = get_component_parts(PRESCRIPTION_PANEL)
 		self.assertIn(':is-next="isTrailing(draft)"', panel)
 
+	def test_a_repeated_medication_names_its_first_row(self):
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn('v-for="(draft, index) in drafts"', template)
+		self.assertIn(':duplicate-of="duplicateOf[orderedRows.length + index]"', template)
+		self.assertIn("...orderedRows.value.map((row) => row.medication)", script)
+		row_template, row_script, row_style = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("duplicateOf: { type: Number, default: 0 }", row_script)
+		note = get_element(row_template, '<small v-if="duplicateOf"')
+		self.assertIn('data-test="prescription-duplicate"', note)
+		self.assertIn('__("Also prescribed in row {0}")', note)
+		self.assertIn("var(--chart-caution-text)", row_style)
+
+	def test_a_duplicate_never_blocks_save(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		validation = script.split("const validationError", 1)[1].split("})", 1)[0]
+		self.assertNotIn("duplicate", validation)
+
 
 ASSESSMENT_BLOCK_TONES = {
 	"Dictation": "info",
