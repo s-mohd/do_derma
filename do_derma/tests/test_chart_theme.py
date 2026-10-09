@@ -1278,3 +1278,37 @@ class TestAssessmentViewFormat(TestCase):
 		self.assertIn('data-test="assessment-viewing"', template)
 		self.assertIn("props.documentedMode && props.mode !== props.documentedMode", script)
 		self.assertIn("if (isViewingOtherFormat.value) return false", script)
+
+
+class TestUnsavedChangesGuard(TestCase):
+	"""Rx and Assessment drafts live in panels that unmount on tab switch, so leaving asks first."""
+
+	def setUp(self):
+		self.chart = (CHART_DIR / "DermaChart.vue").read_text()
+
+	def test_both_panels_report_unsaved_changes(self):
+		self.assertIn('@dirty="(value) => (unsavedSections.prescriptions = value)"', self.chart)
+		self.assertIn('@dirty="(value) => (unsavedSections.assessment = value)"', self.chart)
+		for path in (PRESCRIPTION_PANEL, ASSESSMENT_DIR / "AssessmentPanel.vue"):
+			_, script, _ = get_component_parts(path)
+			self.assertIn('watch(isDirty, (value) => emit("dirty", value)', script)
+			self.assertIn("defineExpose({ getSavePayload", script)
+
+	def test_switching_tabs_asks_before_dropping_changes(self):
+		switch = self.chart.split("async function setActiveSection", 1)[1].split("\n}", 1)[0]
+		self.assertIn("!(await canLeaveSection())", switch)
+		leave = self.chart.split("async function canLeaveSection", 1)[1].split("\n}", 1)[0]
+		self.assertIn("askToLeaveUnsaved(", leave)
+		self.assertIn('choice === "stay"', leave)
+		dialog = self.chart.split("function askToLeaveUnsaved", 1)[1].split("\n}", 1)[0]
+		for label in ("Save and leave", "Discard"):
+			self.assertIn(f'__("{label}")', dialog)
+
+	def test_save_and_leave_stays_when_the_save_fails(self):
+		save = self.chart.split("async function saveSectionBeforeLeaving", 1)[1].split("\n}", 1)[0]
+		self.assertIn("return !prescriptionPanel.error", save)
+		self.assertIn("return !assessmentPanel.error", save)
+
+	def test_reload_warns_while_anything_is_unsaved(self):
+		self.assertIn('window.addEventListener("beforeunload", warnBeforeUnload)', self.chart)
+		self.assertIn('window.removeEventListener("beforeunload", warnBeforeUnload)', self.chart)

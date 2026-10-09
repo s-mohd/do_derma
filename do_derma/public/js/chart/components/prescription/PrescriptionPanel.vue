@@ -141,7 +141,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["save"])
+const emit = defineEmits(["save", "dirty"])
 
 let nextKey = 0
 const rowComponents = {}
@@ -200,6 +200,7 @@ const serverError = computed(() =>
 const errorText = computed(() => validationError.value || serverError.value)
 
 watch([() => props.rows, canEdit], resetDrafts, { immediate: true })
+watch(isDirty, (value) => emit("dirty", value), { immediate: true })
 watch(() => props.error, () => (errorPayload.value = JSON.stringify(getPayload())), { immediate: true })
 
 function makeDraft(original = {}) {
@@ -307,13 +308,21 @@ async function applyMedication(draft, medication) {
   }
 }
 
-async function save() {
-  if (!canEdit.value || props.saving || props.loading) return
+/** The rows to save, or null when a required field is missing (the gap is shown). */
+async function getSavePayload() {
   await rowComponents[openPicker.value?.key]?.commitPicker()
   showMissing.value = true
-  if (validationError.value) return
+  if (validationError.value) return null
   showMissing.value = false
-  emit("save", getPayload())
+  return getPayload()
+}
+
+defineExpose({ getSavePayload })
+
+async function save() {
+  if (!canEdit.value || props.saving || props.loading) return
+  const rows = await getSavePayload()
+  if (rows) emit("save", rows)
 }
 </script>
 

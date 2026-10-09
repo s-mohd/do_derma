@@ -130,7 +130,9 @@
                   @advice-language="(value) => (assessmentPanel.patientAdviceLanguage = value)"
                   @request-edit="assessmentPanel.editing = true"
                   :mode-locked="assessmentModeLocked"
+                  ref="assessmentPanelRef"
                   @save="saveAssessment"
+                  @dirty="(value) => (unsavedSections.assessment = value)"
                   @switch-mode="requestAssessmentModeChange"
                 />
                 <section class="chart-annotation-history chart-inner-card encounter-annotation-history">
@@ -303,7 +305,9 @@
             :previous="prescriptionPanel.previous"
             :read-only="isEncounterLocked"
             @refresh="() => loadPrescriptionPanel(true)"
+            ref="prescriptionPanelRef"
             @save="savePrescriptionPanel"
+            @dirty="(value) => (unsavedSections.prescriptions = value)"
           />
 
           <section v-else-if="activeSection === 'review'" class="workspace-shell review-shell" data-test="review-section">
@@ -574,7 +578,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import ProcedurePanel from "./components/ProcedurePanel.vue"
 import AssessmentPanel from "./components/assessment/AssessmentPanel.vue"
 import VoiceScribe from "./components/assessment/VoiceScribe.vue"
@@ -730,6 +734,10 @@ const assessmentPanel = reactive({
   contextValues: {},
 })
 
+// Rx and Assessment drafts live in their panels, which unmount when the tab changes.
+const unsavedSections = reactive({ assessment: false, prescriptions: false })
+const assessmentPanelRef = ref(null)
+const prescriptionPanelRef = ref(null)
 const prescriptionPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [], previous: null })
 const anesthesiaPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [] })
 const consentPanel = reactive({
@@ -1077,14 +1085,72 @@ async function hydrateDermaSectionPreference() {
 }
 
 async function setActiveSection(section, tab = "") {
-  sectionChosenByUser.value = true
   const next = normalizeDermaSection(section)
+  if (next !== activeSection.value && !(await canLeaveSection())) return
+  sectionChosenByUser.value = true
   if (next !== activeSection.value) closeConsentPanel()
   activeSection.value = next
   if (tab) activeWorkspaceTab.value = tab
   persistDermaSection(activeSection.value)
   await ensureSectionData(activeSection.value, tab)
 }
+
+async function canLeaveSection() {
+  const section = activeSection.value
+  if (!unsavedSections[section]) return true
+  const choice = await askToLeaveUnsaved(activeSectionLabel.value)
+  if (choice === "stay") return false
+  if (choice === "save" && !(await saveSectionBeforeLeaving(section))) return false
+  unsavedSections[section] = false
+  return true
+}
+
+async function saveSectionBeforeLeaving(section) {
+  if (section === "prescriptions") {
+    const rows = await prescriptionPanelRef.value.getSavePayload()
+    if (!rows) return false
+    await savePrescriptionPanel(rows)
+    return !prescriptionPanel.error
+  }
+  await saveAssessment(assessmentPanelRef.value.getSavePayload())
+  return !assessmentPanel.error
+}
+
+/** Resolves "save", "discard" or "stay"; closing the dialog stays. */
+function askToLeaveUnsaved(sectionLabel) {
+  return new Promise((resolve) => {
+    const dialog = new frappe.ui.Dialog({
+      title: __("Unsaved changes"),
+      fields: [
+        {
+          fieldtype: "HTML",
+          options: `<p>${frappe.utils.escape_html(__("{0} has changes that are not saved yet.").replace("{0}", sectionLabel))}</p>`,
+        },
+      ],
+      primary_action_label: __("Save and leave"),
+      primary_action() {
+        resolve("save")
+        dialog.hide()
+      },
+      secondary_action_label: __("Discard"),
+      secondary_action() {
+        resolve("discard")
+        dialog.hide()
+      },
+    })
+    dialog.onhide = () => resolve("stay")
+    dialog.show()
+  })
+}
+
+function warnBeforeUnload(event) {
+  if (!Object.values(unsavedSections).some(Boolean)) return
+  event.preventDefault()
+  event.returnValue = ""
+}
+
+onMounted(() => window.addEventListener("beforeunload", warnBeforeUnload))
+onBeforeUnmount(() => window.removeEventListener("beforeunload", warnBeforeUnload))
 
 async function ensureSectionData(section = activeSection.value, tab = activeWorkspaceTab.value) {
   const normalized = normalizeDermaSection(section)
