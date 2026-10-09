@@ -308,6 +308,7 @@
             ref="prescriptionPanelRef"
             @save="savePrescriptionPanel"
             @dirty="(value) => (unsavedSections.prescriptions = value)"
+            @print="printDermaPage('prescription', prescriptionPanel.encounter)"
           />
 
           <section v-else-if="activeSection === 'review'" class="workspace-shell review-shell" data-test="review-section">

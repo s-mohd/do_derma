@@ -3559,6 +3559,8 @@ def get_derma_print_html(kind: str, name: str, body: str | None = None) -> dict[
 		return pages.get_blank_consent_page(name, body)
 	if kind == "annotation":
 		return pages.get_annotation_page(name)
+	if kind == "prescription":
+		return pages.get_prescription_page(name)
 	frappe.throw(_("Unknown printable: {0}").format(kind), frappe.ValidationError)
 
 

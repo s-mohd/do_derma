@@ -95,6 +95,31 @@ class TestDermaPrescriptions(PrescriptionHelpers, IntegrationTestCase):
 		current = self._make_encounter(self._make_patient())
 		self.assertIsNone(api.get_derma_prescriptions(encounter=current.name)["previous"])
 
+	def test_the_printout_lists_each_saved_medication(self):
+		patient = self._make_patient()
+		frappe.db.set_value("Patient", patient, "allergies", "Penicillin")
+		encounter = self._make_encounter(patient)
+		api.set_derma_prescriptions(
+			payload=json.dumps([self._row(dosage="", comment="Thin layer <b>at night</b>")]),
+			encounter=encounter.name,
+		)
+		page = api.get_derma_print_html("prescription", encounter.name)
+		medication = self._get_or_create_medication()
+		self.assertIn("Prescription", page["title"])
+		self.assertEqual(page["html"].count(f">{medication}<"), 1)
+		self.assertIn("Thin layer &lt;b&gt;at night&lt;/b&gt;", page["html"])
+		self.assertIn("Penicillin", page["html"])
+		self.assertIn(patient, page["html"])
+
+	def test_a_visit_without_medications_has_nothing_to_print(self):
+		encounter = self._make_encounter(self._make_patient())
+		with self.assertRaisesRegex(frappe.ValidationError, "No medications to print"):
+			api.get_derma_print_html("prescription", encounter.name)
+
+	def test_an_unknown_printable_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			api.get_derma_print_html("receipt", "anything")
+
 	def test_rows_replace_the_previous_set(self):
 		encounter = self._make_encounter(self._make_patient())
 		api.set_derma_prescriptions(

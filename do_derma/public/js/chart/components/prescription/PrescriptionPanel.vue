@@ -7,6 +7,17 @@
       <span v-if="statusPill" class="chart-pill" :data-tone="statusPill.tone" data-test="prescription-status">
         {{ statusPill.label }}
       </span>
+      <button
+        v-if="hasSavedRows"
+        type="button"
+        class="ghost small"
+        data-test="prescription-print"
+        :disabled="loading || saving"
+        @click="printPrescription"
+      >
+        <i class="fa-solid fa-print" aria-hidden="true"></i>
+        {{ __("Print") }}
+      </button>
       <template v-if="canEdit">
         <button
           type="button"
@@ -141,7 +152,7 @@ const props = defineProps({
   readOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["save", "dirty"])
+const emit = defineEmits(["save", "dirty", "print"])
 
 let nextKey = 0
 const rowComponents = {}
@@ -154,6 +165,7 @@ const showMissing = ref(false)
 const canEdit = computed(() => props.hasSessionContext && props.hasEncounter && !props.readOnly)
 const orderedRows = computed(() => (props.rows || []).filter((row) => row.medication_request))
 const rowCount = computed(() => orderedRows.value.length + getPayload().length)
+const hasSavedRows = computed(() => (props.rows || []).some((row) => row.medication))
 const isDirty = computed(() => JSON.stringify(getPayload()) !== snapshot.value)
 
 const previousRows = computed(() => props.previous?.drug_prescription || [])
@@ -254,6 +266,14 @@ function repeatRow(row) {
   ensureTrailingDraft()
   drafts.value.at(-1).values = Object.fromEntries(VALUE_FIELDS.map((field) => [field, row[field] ?? ""]))
   ensureTrailingDraft()
+}
+
+function printPrescription() {
+  if (isDirty.value) {
+    frappe.show_alert({ message: __("Save first so the printout matches the screen."), indicator: "orange" })
+    return
+  }
+  emit("print")
 }
 
 function removeRow(draft) {

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import frappe
+from dateutil.relativedelta import relativedelta
+from do_health.api.clinical_profile import build_clinical_profile
 from frappe import _
-from frappe.utils import escape_html, formatdate
+from frappe.utils import escape_html, formatdate, getdate, today
 
 from do_derma.printing.letterhead import (
 	derma_letterhead_close,
@@ -12,6 +14,13 @@ from do_derma.printing.letterhead import (
 
 BODY_STYLE = "font-family:Arial,Helvetica,sans-serif;max-width:720px;margin:0 auto;color:#1a1a1a;line-height:1.4;padding:0 24px;"
 DRAWING_PARENTS = ("Patient Encounter", "Clinical Procedure")
+PRESCRIPTION_COLUMNS = (
+	("dosage", "Dosage"),
+	("period", "Duration"),
+	("dosage_form", "Form"),
+	("number_of_repeats_allowed", "Repeats"),
+)
+CELL_STYLE = "padding:6px 8px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;"
 
 
 def get_page(title: str, practitioner, body: str) -> dict[str, str]:
@@ -98,3 +107,60 @@ def get_annotation_page(name: str) -> dict[str, str]:
 		+ f'<div style="margin-top:16px;">{row.annotation_data or ""}</div>'
 	)
 	return get_page(" - ".join(filter(None, [patient_name, label])), practitioner, body)
+
+
+def get_prescription_page(encounter: str) -> dict[str, str]:
+	"""The visit's saved medications, standalone enough for an outside pharmacy."""
+	doc = frappe.get_doc("Patient Encounter", encounter)
+	rows = [row for row in doc.get("drug_prescription") or [] if row.medication]
+	if not rows:
+		frappe.throw(_("No medications to print: save the prescription first."), frappe.ValidationError)
+	patient = frappe.get_doc("Patient", doc.patient)
+	practitioner = get_practitioner(("Patient Encounter", doc.name))
+	identity = get_identity_line(
+		[
+			f"{_('MRN')}: {patient.name}",
+			patient.get("custom_cpr") and f"{_('CPR')}: {patient.custom_cpr}",
+			patient.dob and _("{0} y").format(relativedelta(getdate(today()), getdate(patient.dob)).years),
+			patient.sex,
+			formatdate(doc.encounter_date),
+			practitioner and practitioner.practitioner_name,
+		]
+	)
+	body = (
+		f'<h2 style="margin:0 0 4px;">&#8478; {escape_html(_("Prescription"))}</h2>'
+		f'<h3 style="margin:0 0 4px;">{escape_html(patient.patient_name)}</h3>'
+		+ identity
+		+ get_allergy_line(patient)
+		+ get_prescription_table(rows)
+	)
+	return get_page(" - ".join([patient.patient_name, _("Prescription")]), practitioner, body)
+
+
+def get_allergy_line(patient) -> str:
+	profile = build_clinical_profile(patient)
+	allergens = [row["allergen"] for row in profile["allergies"]]
+	if allergens:
+		text, colour = ", ".join(allergens), "#b91c1c"
+	else:
+		text = _("None known") if profile["allergy_status"] == "none_known" else _("Not recorded")
+		colour = "#475569"
+	label = escape_html(_("Allergies"))
+	return f'<p style="margin:0 0 16px;font-size:13px;color:{colour};"><strong>{label}:</strong> {escape_html(text)}</p>'
+
+
+def get_prescription_table(rows) -> str:
+	headings = ["#", _("Medication"), *(_(label) for _field, label in PRESCRIPTION_COLUMNS)]
+	head = "".join(f'<th style="{CELL_STYLE}">{escape_html(heading)}</th>' for heading in headings)
+	lines = []
+	for index, row in enumerate(rows, start=1):
+		medication = f"<strong>{escape_html(row.medication)}</strong>"
+		if row.comment:
+			medication += f'<div style="font-style:italic;color:#475569;">{escape_html(row.comment)}</div>'
+		cells = [str(index), medication]
+		cells += [escape_html(str(row.get(field) or "—")) for field, _label in PRESCRIPTION_COLUMNS]
+		lines.append("<tr>" + "".join(f'<td style="{CELL_STYLE}">{cell}</td>' for cell in cells) + "</tr>")
+	return (
+		'<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+		f"<thead><tr>{head}</tr></thead><tbody>{''.join(lines)}</tbody></table>"
+	)
