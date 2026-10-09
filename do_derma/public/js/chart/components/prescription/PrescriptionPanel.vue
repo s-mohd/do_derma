@@ -10,16 +10,6 @@
       <template v-if="canEdit">
         <button
           type="button"
-          class="ghost small"
-          data-test="prescription-add"
-          :disabled="loading || saving"
-          @click="addRow"
-        >
-          <i class="fa-solid fa-plus" aria-hidden="true"></i>
-          {{ __("Add medication") }}
-        </button>
-        <button
-          type="button"
           class="primary small"
           data-test="prescription-save"
           :disabled="loading || saving || (!isDirty && !openPicker)"
@@ -40,10 +30,6 @@
     <div v-else-if="!hasEncounter" class="empty-state">{{ __("No encounter found for this session.") }}</div>
     <p v-else-if="!orderedRows.length && !drafts.length" class="empty-line">
       {{ __("No medications prescribed for this visit.") }}
-      <button v-if="canEdit" type="button" class="ghost small" @click="addRow">
-        <i class="fa-solid fa-plus" aria-hidden="true"></i>
-        {{ __("Add medication") }}
-      </button>
     </p>
     <table v-else class="prescription-table">
       <colgroup>
@@ -84,6 +70,7 @@
           :ref="(component) => (rowComponents[draft.key] = component)"
           :row="draft"
           :read-only="!canEdit"
+          :is-next="isTrailing(draft)"
           :open-field="openPicker?.key === draft.key ? openPicker.field : ''"
           :comment-open="openComment === draft.key"
           :missing="showMissing ? getRequiredGaps(draft) : []"
@@ -166,7 +153,7 @@ const serverError = computed(() =>
 )
 const errorText = computed(() => validationError.value || serverError.value)
 
-watch(() => props.rows, resetDrafts, { immediate: true })
+watch([() => props.rows, canEdit], resetDrafts, { immediate: true })
 watch(() => props.error, () => (errorPayload.value = JSON.stringify(getPayload())), { immediate: true })
 
 function makeDraft(original = {}) {
@@ -177,6 +164,7 @@ function makeDraft(original = {}) {
 function resetDrafts() {
   drafts.value = (props.rows || []).filter((row) => !row.medication_request).map((row) => makeDraft(row))
   snapshot.value = JSON.stringify(getPayload())
+  ensureTrailingDraft()
   openPicker.value = null
   openComment.value = null
   showMissing.value = false
@@ -197,10 +185,14 @@ function getPayload() {
   return drafts.value.filter((draft) => !isBlank(draft)).map((draft) => ({ ...draft.original, ...draft.values }))
 }
 
-function addRow() {
-  const draft = makeDraft()
-  drafts.value.push(draft)
-  openPicker.value = { key: draft.key, field: "medication" }
+// An editable visit always ends with one blank line ready for the next medication.
+function ensureTrailingDraft() {
+  const last = drafts.value.at(-1)
+  if (canEdit.value && (!last || !isBlank(last))) drafts.value.push(makeDraft())
+}
+
+function isTrailing(draft) {
+  return canEdit.value && draft.key === drafts.value.at(-1)?.key && isBlank(draft)
 }
 
 function removeRow(draft) {
@@ -221,6 +213,7 @@ async function applyMedication(draft, medication) {
   draft.original = { ...draft.original, drug_name: "" }
   draft.linkedItems = []
   if (!medication) return
+  ensureTrailingDraft()
   draft.filling = true
   try {
     const [itemsResponse, defaultsResponse] = await Promise.all([

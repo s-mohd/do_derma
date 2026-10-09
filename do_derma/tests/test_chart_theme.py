@@ -920,7 +920,6 @@ class TestPrescriptionRow(TestCase):
 PRESCRIPTION_HOOKS = (
 	"prescription-panel",
 	"prescription-save",
-	"prescription-add",
 	"prescription-row",
 	"prescription-ordered-row",
 	"prescription-comment",
@@ -946,11 +945,12 @@ class TestPrescriptionPanelRestyle(TestCase):
 		self.assertRegex(template, r'<table[^>]* class="prescription-table"')
 		self.assertIn("<PrescriptionRow", template)
 
-	def test_add_and_save_sit_in_the_card_header(self):
+	def test_save_is_the_only_header_button(self):
 		template, _, _ = get_component_parts(PRESCRIPTION_PANEL)
 		header = get_element(template, '<Teleport defer to="#chart-section-actions">')
-		self.assertRegex(header, r'class="ghost small"\s+data-test="prescription-add"')
 		self.assertRegex(header, r'class="primary small"\s+data-test="prescription-save"')
+		self.assertEqual(header.count("<button"), 1)
+		self.assertNotIn("Add medication", template)
 		self.assertEqual(template.count("primary"), 1)
 
 	def test_status_is_a_header_pill(self):
@@ -1016,6 +1016,25 @@ class TestPrescriptionPanelRestyle(TestCase):
 		)
 		self.assertIn("JSON.stringify(getPayload()) === errorPayload.value", script)
 		self.assertNotIn("validationError.value || props.error", script)
+
+	def test_a_blank_row_always_waits_at_the_bottom(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn("watch([() => props.rows, canEdit], resetDrafts, { immediate: true })", script)
+		self.assertIn("function ensureTrailingDraft()", script)
+		self.assertRegex(script, r"function resetDrafts\(\) \{[^}]*ensureTrailingDraft\(\)")
+		self.assertNotIn("function addRow", script)
+		apply = script.split("async function applyMedication", 1)[1].split("draft.filling = true", 1)[0]
+		self.assertIn("ensureTrailingDraft()", apply)
+
+	def test_the_trailing_row_is_muted_without_actions(self):
+		template, script, style = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("isNext: { type: Boolean, default: false }", script)
+		self.assertIn(":class=\"{ 'is-next': isNext }\"", template)
+		self.assertIn('v-if="!isNext && (!readOnly || row.values.comment)"', template)
+		self.assertIn('v-if="!readOnly && !isNext"', template)
+		self.assertIn(".prescription-row.is-next", style)
+		panel, _, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn(':is-next="isTrailing(draft)"', panel)
 
 
 ASSESSMENT_BLOCK_TONES = {

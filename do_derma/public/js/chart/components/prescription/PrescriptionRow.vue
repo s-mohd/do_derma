@@ -1,5 +1,5 @@
 <template>
-  <tr ref="rowElement" class="prescription-row" data-test="prescription-row">
+  <tr ref="rowElement" class="prescription-row" :class="{ 'is-next': isNext }" data-test="prescription-row">
     <td class="medication-cell">
       <div
         v-if="openField === 'medication'"
@@ -76,7 +76,7 @@
     </td>
     <td class="row-actions">
       <button
-        v-if="!readOnly || row.values.comment"
+        v-if="!isNext && (!readOnly || row.values.comment)"
         type="button"
         class="icon-btn"
         data-test="prescription-comment"
@@ -92,7 +92,7 @@
         <span v-if="row.values.comment" class="note-dot"></span>
       </button>
       <button
-        v-if="!readOnly"
+        v-if="!readOnly && !isNext"
         type="button"
         class="icon-btn danger"
         data-test="prescription-delete"
@@ -146,6 +146,7 @@ const PREVIEW_GAP_PX = 8
 const props = defineProps({
   row: { type: Object, required: true },
   readOnly: { type: Boolean, default: false },
+  isNext: { type: Boolean, default: false },
   openField: { type: String, default: "" },
   commentOpen: { type: Boolean, default: false },
   missing: { type: Array, default: () => [] },
@@ -280,6 +281,11 @@ const previewStyle = computed(() => {
 
 .cell-input.is-empty {
   color: var(--chart-muted);
+}
+
+.prescription-row.is-next .cell-input {
+  border-style: dashed;
+  background: transparent;
 }
 
 .cell-input.is-missing {
