@@ -945,11 +945,11 @@ class TestPrescriptionPanelRestyle(TestCase):
 		self.assertRegex(template, r'<table[^>]* class="prescription-table"')
 		self.assertIn("<PrescriptionRow", template)
 
-	def test_save_is_the_only_header_button(self):
+	def test_the_header_has_no_add_button(self):
 		template, _, _ = get_component_parts(PRESCRIPTION_PANEL)
 		header = get_element(template, '<Teleport defer to="#chart-section-actions">')
 		self.assertRegex(header, r'class="primary small"\s+data-test="prescription-save"')
-		self.assertEqual(header.count("<button"), 1)
+		self.assertEqual(header.count("<button"), 2)
 		self.assertNotIn("Add medication", template)
 		self.assertEqual(template.count("primary"), 1)
 
@@ -1072,6 +1072,18 @@ class TestPrescriptionPanelRestyle(TestCase):
 		self.assertIn("prescriptionPanel.previous = response.message?.previous || null", chart)
 		save = chart.split("async function savePrescriptionPanel", 1)[1].split("\n}", 1)[0]
 		self.assertNotIn("previous", save)
+
+	def test_print_sits_before_save_and_needs_saved_rows(self):
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		header = get_element(template, '<Teleport defer to="#chart-section-actions">')
+		self.assertLess(header.index('data-test="prescription-print"'), header.index('data-test="prescription-save"'))
+		self.assertIn('v-if="hasSavedRows"', header)
+		self.assertIn('emit("print")', script)
+		printing = script.split("function printPrescription()", 1)[1].split("\n}", 1)[0]
+		self.assertIn("isDirty.value", printing)
+		self.assertIn('__("Save first so the printout matches the screen.")', printing)
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		self.assertIn('@print="printDermaPage(\'prescription\', prescriptionPanel.encounter)"', chart)
 
 
 ASSESSMENT_BLOCK_TONES = {
