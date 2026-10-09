@@ -83,6 +83,32 @@
         />
       </tbody>
     </table>
+
+    <div v-if="canEdit && !loading && previousRows.length" class="repeat-strip" data-test="prescription-repeat">
+      <span class="chart-label">{{ __("From {0} visit").replace("{0}", previousDate) }}</span>
+      <button
+        v-for="(row, index) in previousRows"
+        :key="index"
+        type="button"
+        class="chart-pill"
+        :data-tone="isPrescribed(row.medication) ? 'ok' : 'neutral'"
+        data-test="prescription-repeat-chip"
+        :disabled="isPrescribed(row.medication)"
+        @click="repeatRow(row)"
+      >
+        <i v-if="isPrescribed(row.medication)" class="fa-solid fa-check" aria-hidden="true"></i>
+        {{ row.medication }}
+      </button>
+      <button
+        type="button"
+        class="ghost small"
+        data-test="prescription-repeat-all"
+        :disabled="previousRows.every((row) => isPrescribed(row.medication))"
+        @click="previousRows.forEach(repeatRow)"
+      >
+        {{ __("Add all") }}
+      </button>
+    </div>
   </section>
 </template>
 
@@ -111,6 +137,7 @@ const props = defineProps({
   hasEncounter: { type: Boolean, default: false },
   encounterName: { type: String, default: "" },
   rows: { type: Array, default: () => [] },
+  previous: { type: Object, default: null },
   readOnly: { type: Boolean, default: false },
 })
 
@@ -128,6 +155,9 @@ const canEdit = computed(() => props.hasSessionContext && props.hasEncounter && 
 const orderedRows = computed(() => (props.rows || []).filter((row) => row.medication_request))
 const rowCount = computed(() => orderedRows.value.length + getPayload().length)
 const isDirty = computed(() => JSON.stringify(getPayload()) !== snapshot.value)
+
+const previousRows = computed(() => props.previous?.drug_prescription || [])
+const previousDate = computed(() => frappe.datetime.str_to_user(props.previous?.encounter_date))
 
 const statusPill = computed(() => {
   if (!props.hasEncounter) return null
@@ -209,6 +239,20 @@ function ensureTrailingDraft() {
 
 function isTrailing(draft) {
   return canEdit.value && draft.key === drafts.value.at(-1)?.key && isBlank(draft)
+}
+
+function isPrescribed(medication) {
+  return [...orderedRows.value, ...drafts.value.map((draft) => draft.values)].some(
+    (row) => row.medication === medication
+  )
+}
+
+// Fills the blank trailing row with a last-visit line, then adds the next blank row.
+function repeatRow(row) {
+  if (isPrescribed(row.medication)) return
+  ensureTrailingDraft()
+  drafts.value.at(-1).values = Object.fromEntries(VALUE_FIELDS.map((field) => [field, row[field] ?? ""]))
+  ensureTrailingDraft()
 }
 
 function removeRow(draft) {
@@ -352,6 +396,18 @@ async function save() {
   margin-top: 3px;
   color: var(--chart-muted);
   font-size: 12px;
+}
+
+.repeat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.repeat-strip .chart-pill:disabled {
+  cursor: default;
 }
 
 .ordered-cell {

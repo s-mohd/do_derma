@@ -300,6 +300,7 @@
             :has-encounter="Boolean(prescriptionPanel.encounter)"
             :encounter-name="prescriptionPanel.encounter"
             :rows="prescriptionPanel.rows"
+            :previous="prescriptionPanel.previous"
             :read-only="isEncounterLocked"
             @refresh="() => loadPrescriptionPanel(true)"
             @save="savePrescriptionPanel"
@@ -729,7 +730,7 @@ const assessmentPanel = reactive({
   contextValues: {},
 })
 
-const prescriptionPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [] })
+const prescriptionPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [], previous: null })
 const anesthesiaPanel = reactive({ loading: false, saving: false, error: "", encounter: "", rows: [] })
 const consentPanel = reactive({
   open: false,
@@ -2115,6 +2116,7 @@ async function loadPrescriptionPanel(force = false) {
     const response = await frappe.call({ method: "do_derma.api.get_derma_prescriptions", args: contextArgs() })
     prescriptionPanel.encounter = response.message?.encounter || encounter.value.name || ""
     prescriptionPanel.rows = response.message?.drug_prescription || []
+    prescriptionPanel.previous = response.message?.previous || null
     loadedTabs.prescriptions = true
   } catch (error) {
     prescriptionPanel.error = serverErrorText(error, __("Unable to load prescriptions."))

@@ -1053,6 +1053,26 @@ class TestPrescriptionPanelRestyle(TestCase):
 		validation = script.split("const validationError", 1)[1].split("})", 1)[0]
 		self.assertNotIn("duplicate", validation)
 
+	def test_last_visit_medications_repeat_into_the_blank_row(self):
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		strip = get_element(template, '<div v-if="canEdit && !loading && previousRows.length"')
+		self.assertIn('data-test="prescription-repeat"', strip)
+		self.assertIn('class="chart-pill"', strip)
+		self.assertIn(':disabled="isPrescribed(row.medication)"', strip)
+		self.assertIn('data-test="prescription-repeat-all"', strip)
+		self.assertIn('__("Add all")', strip)
+		self.assertIn("previous: { type: Object, default: null }", script)
+		repeat = script.split("function repeatRow(row)", 1)[1].split("\n}", 1)[0]
+		self.assertIn("ensureTrailingDraft()", repeat)
+		self.assertIn("VALUE_FIELDS.map", repeat)
+
+	def test_the_chart_keeps_the_previous_visit_across_saves(self):
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		self.assertIn(':previous="prescriptionPanel.previous"', chart)
+		self.assertIn("prescriptionPanel.previous = response.message?.previous || null", chart)
+		save = chart.split("async function savePrescriptionPanel", 1)[1].split("\n}", 1)[0]
+		self.assertNotIn("previous", save)
+
 
 ASSESSMENT_BLOCK_TONES = {
 	"Dictation": "info",
