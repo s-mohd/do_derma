@@ -2249,6 +2249,33 @@ def _drug_prescription_rows(encounter_doc) -> list[dict[str, Any]]:
 	return [_drug_prescription_row(row, allowed) for row in encounter_doc.get("drug_prescription") or []]
 
 
+def _get_previous_prescriptions(encounter_doc) -> dict[str, Any] | None:
+	"""The patient's most recent other visit that prescribed a medication, for "Repeat from last visit"."""
+	if not _has_field("Patient Encounter", "drug_prescription"):
+		return None
+	previous = frappe.get_all(
+		"Patient Encounter",
+		filters=[
+			["patient", "=", encounter_doc.patient],
+			["name", "!=", encounter_doc.name],
+			["docstatus", "<", 2],
+			["status", "!=", "Cancelled"],
+			["Drug Prescription", "medication", "is", "set"],
+		],
+		fields=["name", "encounter_date"],
+		order_by="encounter_date desc, creation desc",
+		limit=1,
+	)
+	if not previous:
+		return None
+	rows = _drug_prescription_rows(frappe.get_doc("Patient Encounter", previous[0].name))
+	return {
+		"encounter": previous[0].name,
+		"encounter_date": previous[0].encounter_date,
+		"drug_prescription": [row for row in rows if row.get("medication")],
+	}
+
+
 def _get_derma_prescription_count(encounter: str | None) -> int:
 	"""How many drugs this visit prescribed. The chart badges the Prescription tab with this;
 	the rows themselves stay behind `get_derma_prescriptions`, which the tab loads on demand."""
@@ -3356,6 +3383,7 @@ def get_derma_prescriptions(encounter=None, appointment=None, patient=None):
 	return {
 		"encounter": encounter_doc.name if encounter_doc else encounter or "",
 		"drug_prescription": _drug_prescription_rows(encounter_doc) if encounter_doc else [],
+		"previous": _get_previous_prescriptions(encounter_doc) if encounter_doc else None,
 	}
 
 

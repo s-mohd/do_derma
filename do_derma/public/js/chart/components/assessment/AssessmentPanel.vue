@@ -185,7 +185,7 @@ const props = defineProps({
   modeLocked: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language", "switch-mode"])
+const emit = defineEmits(["request-edit", "save", "advice-toggled", "advice-language", "switch-mode", "dirty"])
 
 // Patient advice prints only when the doctor opts in - the box is a field on the
 // encounter (Allow on Submit), so the choice survives and shows on the form too.
@@ -238,6 +238,7 @@ async function toggleAdvice(checked) {
 
 const fieldsRef = ref(null)
 const isDirty = ref(false)
+watch(isDirty, (value) => emit("dirty", value), { immediate: true })
 
 // Printing goes through the seeded "Derma Assessment Note" print format, which
 // renders whichever format the encounter is stamped with - what you see is what prints.
@@ -309,10 +310,15 @@ function hasContent(value) {
   return true
 }
 
+function getSavePayload() {
+  return { payload: fieldsRef.value?.collectPayload?.() || {}, mode: props.mode }
+}
+
+defineExpose({ getSavePayload })
+
 function submitDraft() {
   if (!props.editMode || props.saving) return
-  const payload = fieldsRef.value?.collectPayload?.() || {}
-  emit("save", { payload, mode: props.mode })
+  emit("save", getSavePayload())
   fieldsRef.value?.markSaved?.()
 }
 </script>

@@ -1,5 +1,5 @@
 <template>
-  <tr ref="rowElement" class="prescription-row" data-test="prescription-row">
+  <tr ref="rowElement" class="prescription-row" :class="{ 'is-next': isNext }" data-test="prescription-row">
     <td class="medication-cell">
       <div
         v-if="openField === 'medication'"
@@ -36,6 +36,10 @@
         {{ row.values.drug_code || __("Choose item") }}
       </button>
       <small v-else-if="row.values.drug_code" class="drug-code">{{ row.values.drug_code }}</small>
+      <small v-if="duplicateOf" class="duplicate-note" data-test="prescription-duplicate">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        {{ __("Also prescribed in row {0}").replace("{0}", duplicateOf) }}
+      </small>
       <span v-if="row.filling" class="filling" data-test="prescription-filling">
         <span class="chart-spinner" aria-hidden="true"></span>
         {{ __("Filling in dosage and duration...") }}
@@ -76,7 +80,7 @@
     </td>
     <td class="row-actions">
       <button
-        v-if="!readOnly || row.values.comment"
+        v-if="!isNext && (!readOnly || row.values.comment)"
         type="button"
         class="icon-btn"
         data-test="prescription-comment"
@@ -92,7 +96,7 @@
         <span v-if="row.values.comment" class="note-dot"></span>
       </button>
       <button
-        v-if="!readOnly"
+        v-if="!readOnly && !isNext"
         type="button"
         class="icon-btn danger"
         data-test="prescription-delete"
@@ -146,6 +150,8 @@ const PREVIEW_GAP_PX = 8
 const props = defineProps({
   row: { type: Object, required: true },
   readOnly: { type: Boolean, default: false },
+  isNext: { type: Boolean, default: false },
+  duplicateOf: { type: Number, default: 0 },
   openField: { type: String, default: "" },
   commentOpen: { type: Boolean, default: false },
   missing: { type: Array, default: () => [] },
@@ -282,6 +288,11 @@ const previewStyle = computed(() => {
   color: var(--chart-muted);
 }
 
+.prescription-row.is-next .cell-input {
+  border-style: dashed;
+  background: transparent;
+}
+
 .cell-input.is-missing {
   border-color: var(--chart-danger-text);
   background: var(--chart-danger-soft);
@@ -319,6 +330,15 @@ const previewStyle = computed(() => {
   color: var(--chart-accent-strong);
   text-decoration: underline dotted;
   cursor: pointer;
+}
+
+.duplicate-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: var(--chart-caution-text);
+  font-size: 12px;
 }
 
 .filling {

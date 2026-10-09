@@ -10,16 +10,6 @@
       <template v-if="canEdit">
         <button
           type="button"
-          class="ghost small"
-          data-test="prescription-add"
-          :disabled="loading || saving"
-          @click="addRow"
-        >
-          <i class="fa-solid fa-plus" aria-hidden="true"></i>
-          {{ __("Add medication") }}
-        </button>
-        <button
-          type="button"
           class="primary small"
           data-test="prescription-save"
           :disabled="loading || saving || (!isDirty && !openPicker)"
@@ -40,10 +30,6 @@
     <div v-else-if="!hasEncounter" class="empty-state">{{ __("No encounter found for this session.") }}</div>
     <p v-else-if="!orderedRows.length && !drafts.length" class="empty-line">
       {{ __("No medications prescribed for this visit.") }}
-      <button v-if="canEdit" type="button" class="ghost small" @click="addRow">
-        <i class="fa-solid fa-plus" aria-hidden="true"></i>
-        {{ __("Add medication") }}
-      </button>
     </p>
     <table v-else class="prescription-table">
       <colgroup>
@@ -79,11 +65,13 @@
           </td>
         </tr>
         <PrescriptionRow
-          v-for="draft in drafts"
+          v-for="(draft, index) in drafts"
           :key="draft.key"
           :ref="(component) => (rowComponents[draft.key] = component)"
           :row="draft"
           :read-only="!canEdit"
+          :is-next="isTrailing(draft)"
+          :duplicate-of="duplicateOf[orderedRows.length + index]"
           :open-field="openPicker?.key === draft.key ? openPicker.field : ''"
           :comment-open="openComment === draft.key"
           :missing="showMissing ? getRequiredGaps(draft) : []"
@@ -95,6 +83,32 @@
         />
       </tbody>
     </table>
+
+    <div v-if="canEdit && !loading && previousRows.length" class="repeat-strip" data-test="prescription-repeat">
+      <span class="chart-label">{{ __("From {0} visit").replace("{0}", previousDate) }}</span>
+      <button
+        v-for="(row, index) in previousRows"
+        :key="index"
+        type="button"
+        class="chart-pill"
+        :data-tone="isPrescribed(row.medication) ? 'ok' : 'neutral'"
+        data-test="prescription-repeat-chip"
+        :disabled="isPrescribed(row.medication)"
+        @click="repeatRow(row)"
+      >
+        <i v-if="isPrescribed(row.medication)" class="fa-solid fa-check" aria-hidden="true"></i>
+        {{ row.medication }}
+      </button>
+      <button
+        type="button"
+        class="ghost small"
+        data-test="prescription-repeat-all"
+        :disabled="previousRows.every((row) => isPrescribed(row.medication))"
+        @click="previousRows.forEach(repeatRow)"
+      >
+        {{ __("Add all") }}
+      </button>
+    </div>
   </section>
 </template>
 
@@ -123,10 +137,11 @@ const props = defineProps({
   hasEncounter: { type: Boolean, default: false },
   encounterName: { type: String, default: "" },
   rows: { type: Array, default: () => [] },
+  previous: { type: Object, default: null },
   readOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(["save"])
+const emit = defineEmits(["save", "dirty"])
 
 let nextKey = 0
 const rowComponents = {}
@@ -140,6 +155,9 @@ const canEdit = computed(() => props.hasSessionContext && props.hasEncounter && 
 const orderedRows = computed(() => (props.rows || []).filter((row) => row.medication_request))
 const rowCount = computed(() => orderedRows.value.length + getPayload().length)
 const isDirty = computed(() => JSON.stringify(getPayload()) !== snapshot.value)
+
+const previousRows = computed(() => props.previous?.drug_prescription || [])
+const previousDate = computed(() => frappe.datetime.str_to_user(props.previous?.encounter_date))
 
 const statusPill = computed(() => {
   if (!props.hasEncounter) return null
@@ -159,6 +177,21 @@ const validationError = computed(() => {
     .replace("{1}", REQUIRED_FIELDS[field])
 })
 
+// For each line, the row number of an earlier line with the same medication, or 0.
+const duplicateOf = computed(() => {
+  const firstRows = new Map()
+  const medications = [
+    ...orderedRows.value.map((row) => row.medication),
+    ...drafts.value.map((draft) => draft.values.medication),
+  ]
+  return medications.map((medication, index) => {
+    if (!medication) return 0
+    if (!firstRows.has(medication)) firstRows.set(medication, index + 1)
+    const firstRow = firstRows.get(medication)
+    return firstRow === index + 1 ? 0 : firstRow
+  })
+})
+
 // A server error describes the rows that were sent; it goes once they change.
 const errorPayload = ref("")
 const serverError = computed(() =>
@@ -166,7 +199,8 @@ const serverError = computed(() =>
 )
 const errorText = computed(() => validationError.value || serverError.value)
 
-watch(() => props.rows, resetDrafts, { immediate: true })
+watch([() => props.rows, canEdit], resetDrafts, { immediate: true })
+watch(isDirty, (value) => emit("dirty", value), { immediate: true })
 watch(() => props.error, () => (errorPayload.value = JSON.stringify(getPayload())), { immediate: true })
 
 function makeDraft(original = {}) {
@@ -177,6 +211,7 @@ function makeDraft(original = {}) {
 function resetDrafts() {
   drafts.value = (props.rows || []).filter((row) => !row.medication_request).map((row) => makeDraft(row))
   snapshot.value = JSON.stringify(getPayload())
+  ensureTrailingDraft()
   openPicker.value = null
   openComment.value = null
   showMissing.value = false
@@ -197,10 +232,28 @@ function getPayload() {
   return drafts.value.filter((draft) => !isBlank(draft)).map((draft) => ({ ...draft.original, ...draft.values }))
 }
 
-function addRow() {
-  const draft = makeDraft()
-  drafts.value.push(draft)
-  openPicker.value = { key: draft.key, field: "medication" }
+// An editable visit always ends with one blank line ready for the next medication.
+function ensureTrailingDraft() {
+  const last = drafts.value.at(-1)
+  if (canEdit.value && (!last || !isBlank(last))) drafts.value.push(makeDraft())
+}
+
+function isTrailing(draft) {
+  return canEdit.value && draft.key === drafts.value.at(-1)?.key && isBlank(draft)
+}
+
+function isPrescribed(medication) {
+  return [...orderedRows.value, ...drafts.value.map((draft) => draft.values)].some(
+    (row) => row.medication === medication
+  )
+}
+
+// Fills the blank trailing row with a last-visit line, then adds the next blank row.
+function repeatRow(row) {
+  if (isPrescribed(row.medication)) return
+  ensureTrailingDraft()
+  drafts.value.at(-1).values = Object.fromEntries(VALUE_FIELDS.map((field) => [field, row[field] ?? ""]))
+  ensureTrailingDraft()
 }
 
 function removeRow(draft) {
@@ -221,6 +274,7 @@ async function applyMedication(draft, medication) {
   draft.original = { ...draft.original, drug_name: "" }
   draft.linkedItems = []
   if (!medication) return
+  ensureTrailingDraft()
   draft.filling = true
   try {
     const [itemsResponse, defaultsResponse] = await Promise.all([
@@ -254,13 +308,21 @@ async function applyMedication(draft, medication) {
   }
 }
 
-async function save() {
-  if (!canEdit.value || props.saving || props.loading) return
+/** The rows to save, or null when a required field is missing (the gap is shown). */
+async function getSavePayload() {
   await rowComponents[openPicker.value?.key]?.commitPicker()
   showMissing.value = true
-  if (validationError.value) return
+  if (validationError.value) return null
   showMissing.value = false
-  emit("save", getPayload())
+  return getPayload()
+}
+
+defineExpose({ getSavePayload })
+
+async function save() {
+  if (!canEdit.value || props.saving || props.loading) return
+  const rows = await getSavePayload()
+  if (rows) emit("save", rows)
 }
 </script>
 
@@ -343,6 +405,18 @@ async function save() {
   margin-top: 3px;
   color: var(--chart-muted);
   font-size: 12px;
+}
+
+.repeat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.repeat-strip .chart-pill:disabled {
+  cursor: default;
 }
 
 .ordered-cell {

@@ -70,6 +70,31 @@ class TestDermaPrescriptions(PrescriptionHelpers, IntegrationTestCase):
 		self.assertEqual(len(reloaded["drug_prescription"]), 1)
 		self.assertEqual(reloaded["drug_prescription"][0]["comment"], "Thin layer at night")
 
+	def _prescribe(self, encounter, drug_name):
+		api.set_derma_prescriptions(payload=json.dumps([self._row(drug_name=drug_name)]), encounter=encounter.name)
+
+	def test_previous_comes_from_the_last_visit_with_medications(self):
+		patient = self._make_patient()
+		self._prescribe(self._make_encounter(patient), "Doxycycline")
+		self._make_encounter(patient)
+		current = self._make_encounter(patient)
+		previous = api.get_derma_prescriptions(encounter=current.name)["previous"]
+		self.assertEqual([row["drug_name"] for row in previous["drug_prescription"]], ["Doxycycline"])
+		self.assertTrue(previous["encounter_date"])
+
+	def test_previous_skips_the_current_and_cancelled_visits(self):
+		patient = self._make_patient()
+		cancelled = self._make_encounter(patient)
+		self._prescribe(cancelled, "Isotretinoin")
+		frappe.db.set_value("Patient Encounter", cancelled.name, "status", "Cancelled")
+		current = self._make_encounter(patient)
+		self._prescribe(current, "Hydrocortisone")
+		self.assertIsNone(api.get_derma_prescriptions(encounter=current.name)["previous"])
+
+	def test_a_first_visit_has_no_previous(self):
+		current = self._make_encounter(self._make_patient())
+		self.assertIsNone(api.get_derma_prescriptions(encounter=current.name)["previous"])
+
 	def test_rows_replace_the_previous_set(self):
 		encounter = self._make_encounter(self._make_patient())
 		api.set_derma_prescriptions(

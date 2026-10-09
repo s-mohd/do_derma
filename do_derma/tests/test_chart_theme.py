@@ -920,7 +920,6 @@ class TestPrescriptionRow(TestCase):
 PRESCRIPTION_HOOKS = (
 	"prescription-panel",
 	"prescription-save",
-	"prescription-add",
 	"prescription-row",
 	"prescription-ordered-row",
 	"prescription-comment",
@@ -946,11 +945,12 @@ class TestPrescriptionPanelRestyle(TestCase):
 		self.assertRegex(template, r'<table[^>]* class="prescription-table"')
 		self.assertIn("<PrescriptionRow", template)
 
-	def test_add_and_save_sit_in_the_card_header(self):
+	def test_save_is_the_only_header_button(self):
 		template, _, _ = get_component_parts(PRESCRIPTION_PANEL)
 		header = get_element(template, '<Teleport defer to="#chart-section-actions">')
-		self.assertRegex(header, r'class="ghost small"\s+data-test="prescription-add"')
 		self.assertRegex(header, r'class="primary small"\s+data-test="prescription-save"')
+		self.assertEqual(header.count("<button"), 1)
+		self.assertNotIn("Add medication", template)
 		self.assertEqual(template.count("primary"), 1)
 
 	def test_status_is_a_header_pill(self):
@@ -1016,6 +1016,62 @@ class TestPrescriptionPanelRestyle(TestCase):
 		)
 		self.assertIn("JSON.stringify(getPayload()) === errorPayload.value", script)
 		self.assertNotIn("validationError.value || props.error", script)
+
+	def test_a_blank_row_always_waits_at_the_bottom(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn("watch([() => props.rows, canEdit], resetDrafts, { immediate: true })", script)
+		self.assertIn("function ensureTrailingDraft()", script)
+		self.assertRegex(script, r"function resetDrafts\(\) \{[^}]*ensureTrailingDraft\(\)")
+		self.assertNotIn("function addRow", script)
+		apply = script.split("async function applyMedication", 1)[1].split("draft.filling = true", 1)[0]
+		self.assertIn("ensureTrailingDraft()", apply)
+
+	def test_the_trailing_row_is_muted_without_actions(self):
+		template, script, style = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("isNext: { type: Boolean, default: false }", script)
+		self.assertIn(":class=\"{ 'is-next': isNext }\"", template)
+		self.assertIn('v-if="!isNext && (!readOnly || row.values.comment)"', template)
+		self.assertIn('v-if="!readOnly && !isNext"', template)
+		self.assertIn(".prescription-row.is-next", style)
+		panel, _, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn(':is-next="isTrailing(draft)"', panel)
+
+	def test_a_repeated_medication_names_its_first_row(self):
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		self.assertIn('v-for="(draft, index) in drafts"', template)
+		self.assertIn(':duplicate-of="duplicateOf[orderedRows.length + index]"', template)
+		self.assertIn("...orderedRows.value.map((row) => row.medication)", script)
+		row_template, row_script, row_style = get_component_parts(PRESCRIPTION_ROW)
+		self.assertIn("duplicateOf: { type: Number, default: 0 }", row_script)
+		note = get_element(row_template, '<small v-if="duplicateOf"')
+		self.assertIn('data-test="prescription-duplicate"', note)
+		self.assertIn('__("Also prescribed in row {0}")', note)
+		self.assertIn("var(--chart-caution-text)", row_style)
+
+	def test_a_duplicate_never_blocks_save(self):
+		_, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		validation = script.split("const validationError", 1)[1].split("})", 1)[0]
+		self.assertNotIn("duplicate", validation)
+
+	def test_last_visit_medications_repeat_into_the_blank_row(self):
+		template, script, _ = get_component_parts(PRESCRIPTION_PANEL)
+		strip = get_element(template, '<div v-if="canEdit && !loading && previousRows.length"')
+		self.assertIn('data-test="prescription-repeat"', strip)
+		self.assertIn('class="chart-pill"', strip)
+		self.assertIn(':disabled="isPrescribed(row.medication)"', strip)
+		self.assertIn('data-test="prescription-repeat-all"', strip)
+		self.assertIn('__("Add all")', strip)
+		self.assertIn("previous: { type: Object, default: null }", script)
+		repeat = script.split("function repeatRow(row)", 1)[1].split("\n}", 1)[0]
+		self.assertIn("ensureTrailingDraft()", repeat)
+		self.assertIn("VALUE_FIELDS.map", repeat)
+
+	def test_the_chart_keeps_the_previous_visit_across_saves(self):
+		chart = (CHART_DIR / "DermaChart.vue").read_text()
+		self.assertIn(':previous="prescriptionPanel.previous"', chart)
+		self.assertIn("prescriptionPanel.previous = response.message?.previous || null", chart)
+		save = chart.split("async function savePrescriptionPanel", 1)[1].split("\n}", 1)[0]
+		self.assertNotIn("previous", save)
 
 
 ASSESSMENT_BLOCK_TONES = {
@@ -1222,3 +1278,37 @@ class TestAssessmentViewFormat(TestCase):
 		self.assertIn('data-test="assessment-viewing"', template)
 		self.assertIn("props.documentedMode && props.mode !== props.documentedMode", script)
 		self.assertIn("if (isViewingOtherFormat.value) return false", script)
+
+
+class TestUnsavedChangesGuard(TestCase):
+	"""Rx and Assessment drafts live in panels that unmount on tab switch, so leaving asks first."""
+
+	def setUp(self):
+		self.chart = (CHART_DIR / "DermaChart.vue").read_text()
+
+	def test_both_panels_report_unsaved_changes(self):
+		self.assertIn('@dirty="(value) => (unsavedSections.prescriptions = value)"', self.chart)
+		self.assertIn('@dirty="(value) => (unsavedSections.assessment = value)"', self.chart)
+		for path in (PRESCRIPTION_PANEL, ASSESSMENT_DIR / "AssessmentPanel.vue"):
+			_, script, _ = get_component_parts(path)
+			self.assertIn('watch(isDirty, (value) => emit("dirty", value)', script)
+			self.assertIn("defineExpose({ getSavePayload", script)
+
+	def test_switching_tabs_asks_before_dropping_changes(self):
+		switch = self.chart.split("async function setActiveSection", 1)[1].split("\n}", 1)[0]
+		self.assertIn("!(await canLeaveSection())", switch)
+		leave = self.chart.split("async function canLeaveSection", 1)[1].split("\n}", 1)[0]
+		self.assertIn("askToLeaveUnsaved(", leave)
+		self.assertIn('choice === "stay"', leave)
+		dialog = self.chart.split("function askToLeaveUnsaved", 1)[1].split("\n}", 1)[0]
+		for label in ("Save and leave", "Discard"):
+			self.assertIn(f'__("{label}")', dialog)
+
+	def test_save_and_leave_stays_when_the_save_fails(self):
+		save = self.chart.split("async function saveSectionBeforeLeaving", 1)[1].split("\n}", 1)[0]
+		self.assertIn("return !prescriptionPanel.error", save)
+		self.assertIn("return !assessmentPanel.error", save)
+
+	def test_reload_warns_while_anything_is_unsaved(self):
+		self.assertIn('window.addEventListener("beforeunload", warnBeforeUnload)', self.chart)
+		self.assertIn('window.removeEventListener("beforeunload", warnBeforeUnload)', self.chart)
